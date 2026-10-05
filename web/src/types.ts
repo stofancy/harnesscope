@@ -13,8 +13,27 @@ export type Metric =
     | "calls"
     | "cost_per_call"
     | "cost_per_million"
-    | "cache_rate";
-export type Bucket = "hour" | "day" | "week";
+    | "cache_rate"
+    | "input"
+    | "output"
+    | "cache_read"
+    | "cache_write"
+    | "tpm"
+    | "rpm"
+    | "throughput_tps"
+    | "rps"
+    | "timed_tps";
+export type Bucket =
+    | "auto"
+    | "second"
+    | "10second"
+    | "minute"
+    | "5minute"
+    | "15minute"
+    | "hour"
+    | "day"
+    | "week"
+    | "month";
 export type Timing = {
     harness: string;
     kind: string;
@@ -25,6 +44,13 @@ export type Timing = {
 };
 export type Delta = { absolute: number | null; relative: number | null };
 export type Values = {
+    tpm?: number | null;
+    rpm?: number | null;
+    throughput_tps?: number | null;
+    rps?: number | null;
+    cache_write?: number | null;
+    timed_tps?: number | null;
+    seconds?: number;
     cost_complete?: boolean;
     input_complete?: boolean;
     tps?: Timing[];
@@ -55,6 +81,18 @@ export type Member = {
 export type Point = {
     start: string;
     end: string;
+    window_start?: string;
+    window_end?: string;
+    seconds?: number;
+    timing?: {
+        key: string;
+        harness: string;
+        kind: string;
+        value: number | null;
+        output: number;
+        seconds: number;
+        samples: number;
+    }[];
     total: Values;
     members: Record<string, Values>;
     shares?: Record<string, number | null>;
@@ -89,6 +127,13 @@ export type Query = {
 };
 export type Analysis = {
     snapshot_id: string;
+    bucket_resolved?: Bucket;
+    timing_members?: {
+        key: string;
+        harness: string;
+        kind: string;
+        label: string;
+    }[];
     query: Query;
     summary: Values;
     previous_summary: Values;
@@ -119,4 +164,143 @@ export type SessionDetail = {
     }[];
     children: { harness: string; session_id: string; summary?: Values }[];
     snapshot_id?: string;
+};
+
+export type GlobalQuery = Pick<
+    Query,
+    "since" | "until" | "timezone" | "bucket" | "filters"
+>;
+export type ChartKind = "area" | "line" | "bar";
+export type PanelId = "consumption" | "rate" | "cache" | "speed";
+export type PanelConfig = {
+    dimension: Dimension;
+    metric: Metric;
+    chart: ChartKind;
+    share: boolean;
+    members: string[];
+};
+export type TurnRow = {
+    key: string;
+    harness: string;
+    session_id: string;
+    turn_id: string;
+    start: string;
+    end: string | null;
+    status: string;
+    duration_seconds: number | null;
+    full_window: boolean;
+    recorded_usage_available: boolean;
+    usage_scope: string;
+    boundary_quality: string;
+    tool_coverage: string;
+    window_metrics: Values;
+    full_metrics: Values | null;
+    tool_calls_known: number;
+    tool_calls: number | null;
+    project: string | null;
+    agent_type: string | null;
+};
+export type TurnTool = {
+    tool_name: string;
+    calls: number;
+    status_counts: Record<string, number>;
+    duration_p50: number | null;
+    duration_p95: number | null;
+    duration_samples: number;
+};
+export type TurnsAnalysis = {
+    snapshot_id: string;
+    query: GlobalQuery;
+    bucket_resolved: Bucket;
+    summary: {
+        turns: number;
+        status_counts: Record<string, number>;
+        metrics: Values;
+        tool_calls_known: number;
+        tool_calls: number | null;
+        tools_per_turn: number | null;
+        duration_p50: number | null;
+        duration_p95: number | null;
+        duration_samples: number;
+        full_turns: number;
+        duration_boundary_quality?: Record<string, number>;
+        per_turn: {
+            samples: number;
+            scope?: string;
+            boundary_quality?: Record<string, number>;
+            calls: number | null;
+            tokens: number | null;
+            cost_usd: number | null;
+        };
+    };
+    trend: {
+        start: string;
+        end: string;
+        seconds: number;
+        window_start: string;
+        window_end: string;
+        metrics: Values;
+        turns: number;
+        status_counts: Record<string, number>;
+        tool_calls_known: number;
+        tool_calls: number | null;
+        duration_p50: number | null;
+        duration_p95: number | null;
+    }[];
+    tools: {
+        coverage: string;
+        scope: string;
+        status_counts: Record<string, number>;
+        rows: TurnTool[];
+    };
+    rows: TurnRow[];
+    total: number;
+    offset: number;
+    limit: number;
+    coverage: {
+        boundary_quality: Record<string, number>;
+        tool_coverage: Record<string, number>;
+        truncated_turns: number;
+        unassigned_calls: number;
+        usage_scope: string;
+        usage_quality?: Record<string, number>;
+    };
+};
+export type TurnDetail = {
+    snapshot_id: string;
+    turn: TurnRow;
+    window_metrics: Values;
+    recorded_metrics: Values;
+    usage_scope: string;
+    calls: {
+        key: string;
+        timestamp_us: number;
+        model: string;
+        provider: string | null;
+        purpose: string | null;
+        service_tier: string | null;
+        input_net: number;
+        cache_read: number;
+        cache_write: number | null;
+        output: number;
+        cost_usd: number | null;
+        in_window: boolean;
+        quality: string;
+    }[];
+    tools: {
+        key: string;
+        tool_name: string;
+        status: string;
+        start_us: number;
+        end_us: number | null;
+        duration_seconds?: number | null;
+        in_window: boolean;
+    }[];
+    related_turns: {
+        harness: string;
+        session_id: string;
+        turn_id: string;
+        status?: string;
+        relationship?: string;
+    }[];
 };

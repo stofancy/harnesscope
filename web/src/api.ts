@@ -9,11 +9,26 @@ import type {
     Source,
     Timing,
     Values,
+    GlobalQuery,
+    PanelConfig,
+    PanelId,
+    TurnsAnalysis,
+    TurnRow,
+    TurnDetail,
 } from "./types";
 export const demo =
     import.meta.env?.DEV &&
     new URLSearchParams(location.search).get("demo") === "1";
 const metricNames: Record<Metric, string> = {
+    input: "input",
+    output: "output",
+    cache_read: "cache_read",
+    cache_write: "cache_write",
+    tpm: "tpm",
+    rpm: "rpm",
+    throughput_tps: "throughput_tps",
+    rps: "rps",
+    timed_tps: "output",
     cost: "cost_usd",
     tokens: "tokens",
     calls: "calls",
@@ -53,6 +68,12 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return response.json();
 }
 export type RawMetrics = {
+    tpm?: number | null;
+    rpm?: number | null;
+    throughput_tps?: number | null;
+    rps?: number | null;
+    seconds?: number;
+    cache_write?: number | null;
     cost_usd: number;
     cost_complete: boolean;
     cache_write_complete?: boolean;
@@ -107,12 +128,18 @@ export type Status = {
 };
 export type RawAnalysis = {
     snapshot: { id: string };
+    query?: { bucket_resolved?: Query["bucket"] };
     summary: RawMetrics;
     trend: {
+        timing_members?: Analysis["timing_members"];
         members: { key: string; label: string }[];
         buckets: {
             start: string;
             end: string;
+            window_start?: string;
+            window_end?: string;
+            seconds?: number;
+            timed_tps?: Analysis["trend"][number]["timing"];
             metrics: RawMetrics;
             value: number | null;
             series: {
@@ -139,6 +166,12 @@ export type RawAnalysis = {
 };
 export function normalizeMetrics(m: RawMetrics): Values {
     return {
+        tpm: m.tpm ?? null,
+        rpm: m.rpm ?? null,
+        throughput_tps: m.throughput_tps ?? null,
+        rps: m.rps ?? null,
+        seconds: m.seconds,
+        cache_write: m.cache_write ?? null,
         cost: m.calls > 0 && m.priced_calls === 0 ? null : m.cost_usd,
         tokens: m.tokens,
         calls: m.calls,
@@ -188,6 +221,8 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
     const previous = new Map(raw.comparison.members.map((m) => [m.key, m]));
     return {
         snapshot_id: String(raw.snapshot.id),
+        bucket_resolved: raw.query?.bucket_resolved ?? q.bucket,
+        timing_members: raw.trend.timing_members ?? [],
         query: q,
         summary: normalizeMetrics(raw.summary),
         previous_summary: normalizeMetrics(raw.comparison.summary),
@@ -219,6 +254,10 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
         trend: raw.trend.buckets.map((p) => ({
             start: p.start,
             end: p.end,
+            window_start: p.window_start,
+            window_end: p.window_end,
+            seconds: p.seconds,
+            timing: p.timed_tps ?? [],
             total: normalizeMetrics(p.metrics),
             shares: Object.fromEntries(p.series.map((s) => [s.key, s.share])),
             members: Object.fromEntries(
@@ -360,4 +399,207 @@ export async function sessionDetail(
             session_id: sid,
         })),
     };
+}
+function globalParams(q: GlobalQuery) {
+    const p = new URLSearchParams({
+        start: q.since,
+        end: q.until,
+        timezone: q.timezone,
+        bucket: q.bucket,
+    });
+    for (const [k, values] of Object.entries(q.filters))
+        for (const v of values ?? []) p.append(k, v);
+    return p;
+}
+type RawTurns = {
+    snapshot: { id: string };
+    query: { bucket_resolved: Query["bucket"] };
+    summary: Omit<TurnsAnalysis["summary"], "metrics"> & {
+        metrics: RawMetrics;
+    };
+    trend: {
+        buckets: (Omit<TurnsAnalysis["trend"][number], "metrics"> & {
+            metrics: RawMetrics;
+        })[];
+    };
+    tools: TurnsAnalysis["tools"];
+    rows: (Omit<TurnRow, "window_metrics" | "full_metrics"> & {
+        window_metrics: RawMetrics;
+        full_metrics: RawMetrics | null;
+    })[];
+    total: number;
+    offset: number;
+    limit: number;
+    coverage: TurnsAnalysis["coverage"];
+};
+function normalizeTurn(
+    row: Omit<TurnRow, "window_metrics" | "full_metrics"> & {
+        window_metrics: RawMetrics;
+        full_metrics: RawMetrics | null;
+    },
+): TurnRow {
+    return {
+        ...row,
+        window_metrics: normalizeMetrics(row.window_metrics),
+        full_metrics: row.full_metrics
+            ? normalizeMetrics(row.full_metrics)
+            : null,
+    };
+}
+export async function turns(
+    q: GlobalQuery,
+    offset: number,
+    signal: AbortSignal,
+): Promise<TurnsAnalysis> {
+    if (demo) {
+        const { fixture } = await import("./fixture");
+        const sample = fixture({
+            ...q,
+            dimension: "harness",
+            metric: "tokens",
+        });
+        const metrics: Values = {
+            cost: 0,
+            tokens: 0,
+            calls: 0,
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cache_rate: null,
+            cost_per_call: null,
+            cost_per_million: null,
+            sessions: 0,
+            unpriced: 0,
+        };
+        return {
+            snapshot_id: sample.snapshot_id,
+            query: q,
+            bucket_resolved: q.bucket,
+            summary: {
+                turns: 0,
+                status_counts: {},
+                metrics,
+                tool_calls_known: 0,
+                tool_calls: null,
+                tools_per_turn: null,
+                duration_p50: null,
+                duration_p95: null,
+                duration_samples: 0,
+                full_turns: 0,
+                per_turn: {
+                    samples: 0,
+                    calls: null,
+                    tokens: null,
+                    cost_usd: null,
+                },
+            },
+            trend: [],
+            tools: {
+                coverage: "unknown",
+                scope: "selected_turns",
+                status_counts: {},
+                rows: [],
+            },
+            rows: [],
+            total: 0,
+            offset: 0,
+            limit: 20,
+            coverage: {
+                boundary_quality: {},
+                tool_coverage: {},
+                truncated_turns: 0,
+                unassigned_calls: 0,
+                usage_scope: "all_recorded_calls",
+            },
+        };
+    }
+    const p = globalParams(q);
+    p.set("offset", String(offset));
+    p.set("limit", "20");
+    const raw = await request<RawTurns>(`/api/turns?${p}`, { signal });
+    return {
+        snapshot_id: String(raw.snapshot.id),
+        query: q,
+        bucket_resolved: raw.query.bucket_resolved,
+        summary: {
+            ...raw.summary,
+            metrics: normalizeMetrics(raw.summary.metrics),
+        },
+        trend: raw.trend.buckets.map((p) => ({
+            ...p,
+            metrics: normalizeMetrics(p.metrics),
+        })),
+        tools: raw.tools,
+        rows: raw.rows.map(normalizeTurn),
+        total: raw.total,
+        offset: raw.offset,
+        limit: raw.limit,
+        coverage: raw.coverage,
+    };
+}
+export async function turnDetail(
+    q: GlobalQuery,
+    identity: { harness: string; session_id: string; turn_id: string },
+    signal?: AbortSignal,
+): Promise<TurnDetail> {
+    const p = globalParams(q);
+    p.set("harness", identity.harness);
+    p.set("session_id", identity.session_id);
+    p.set("turn_id", identity.turn_id);
+    type Raw = Omit<
+        TurnDetail,
+        "snapshot_id" | "window_metrics" | "recorded_metrics"
+    > & {
+        snapshot: { id: string };
+        window_metrics: RawMetrics;
+        recorded_metrics: RawMetrics;
+    };
+    const raw = await request<Raw>(`/api/turns/detail?${p}`, { signal });
+    return {
+        ...raw,
+        snapshot_id: String(raw.snapshot.id),
+        window_metrics: normalizeMetrics(raw.window_metrics),
+        recorded_metrics: normalizeMetrics(raw.recorded_metrics),
+    };
+}
+export type Dashboard = {
+    global: GlobalQuery;
+    panels: Record<PanelId, Analysis>;
+    ledger: Analysis;
+    turns: TurnsAnalysis;
+    snapshot_id: string;
+};
+export async function dashboard(
+    global: GlobalQuery,
+    configs: Record<PanelId, PanelConfig>,
+    ledger: { dimension: Dimension; metric: Metric },
+    offset: number,
+    signal: AbortSignal,
+): Promise<Dashboard> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const ids = Object.keys(configs) as PanelId[];
+        const queries = ids.map((id) => ({ ...global, ...configs[id] }));
+        const [analyses, book, turnsResult] = await Promise.all([
+            Promise.all(queries.map((q) => analyze(q, signal))),
+            analyze({ ...global, ...ledger }, signal),
+            turns(global, offset, signal),
+        ]);
+        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        const snapshot = book.snapshot_id;
+        if (
+            [...analyses, turnsResult].every((r) => r.snapshot_id === snapshot)
+        ) {
+            return {
+                global,
+                panels: Object.fromEntries(
+                    ids.map((id, i) => [id, analyses[i]]),
+                ) as Record<PanelId, Analysis>,
+                ledger: book,
+                turns: turnsResult,
+                snapshot_id: snapshot,
+            };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("扫描仍在更新数据。请等待扫描完成后重试查询。");
 }

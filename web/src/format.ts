@@ -1,5 +1,14 @@
 import type { Metric } from "./types.ts";
 export const metricLabels: Record<Metric, string> = {
+    input: "输入 Tokens",
+    output: "输出 Tokens",
+    cache_read: "缓存读取 Tokens",
+    cache_write: "缓存写入 Tokens",
+    tpm: "每分钟 Tokens (TPM)",
+    rpm: "每分钟调用 (RPM)",
+    throughput_tps: "每秒平均 Tokens",
+    rps: "每秒调用 (RPS)",
+    timed_tps: "执行输出速度 (TPS)",
     cost: "估算费用",
     tokens: "Tokens",
     calls: "已记录调用",
@@ -20,8 +29,12 @@ export const formatMetric = (n: number | null | undefined, m: Metric) =>
         : m === "cache_rate"
           ? `${(n * 100).toFixed(1)}%`
           : m.includes("cost")
-            ? `$${n.toFixed(m === "cost_per_call" ? 4 : 2)}`
-            : formatNumber(n);
+            ? `$${n.toFixed(n > 0 && n < 0.01 ? 6 : n > 0 && n < 1 ? 4 : m === "cost_per_call" ? 4 : 2)}`
+            : ["rpm", "rps", "throughput_tps", "timed_tps"].includes(m)
+              ? new Intl.NumberFormat("en-US", {
+                    maximumFractionDigits: 2,
+                }).format(n)
+              : formatNumber(n);
 export function dateInput(iso: string, timezone: string) {
     const parts = new Intl.DateTimeFormat("en-CA", {
         timeZone: timezone,
@@ -73,3 +86,27 @@ export function deltaPercent(now: number | null, before: number | null) {
     const delta = ((now - before) / before) * 100;
     return `${delta > 0 ? "+" : ""}${delta.toFixed(1)}%`;
 }
+
+export const intervalLabel = (bucket: string) =>
+    ({
+        auto: "自动",
+        second: "每秒",
+        "10second": "每10秒",
+        minute: "每分钟",
+        "5minute": "每5分钟",
+        "15minute": "每15分钟",
+        hour: "每小时",
+        day: "每天",
+        week: "每周",
+        month: "每月",
+    })[bucket] ?? bucket;
+export const timingLabel = (kind: string) =>
+    ({ end_to_end: "轮次全程", model: "模型响应" })[kind] ?? "其他计时";
+export const harnessLabel = (harness: string) =>
+    ({ codex: "Codex", claude: "Claude Code", omp: "OMP", dsh: "DSH" })[
+        harness
+    ] ?? harness;
+export const boundaryLabel = (quality: string) =>
+    ({ exact: "明确边界", inferred: "推定边界", unknown: "边界未知" })[
+        quality
+    ] ?? "边界未知";
