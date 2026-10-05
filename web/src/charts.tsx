@@ -330,10 +330,7 @@ export function TimeChart({
         </div>
     );
 }
-const panelLabels: Record<
-    PanelId,
-    { title: string; metrics: Metric[]; number: string }
-> = {
+const panelLabels: Record<PanelId, { title: string; metrics: Metric[] }> = {
     consumption: {
         title: "消耗与构成",
         metrics: [
@@ -345,22 +342,18 @@ const panelLabels: Record<
             "cost_per_call",
             "cost_per_million",
         ],
-        number: "01",
     },
     rate: {
         title: "请求强度",
         metrics: ["tpm", "rpm", "throughput_tps", "rps"],
-        number: "02",
     },
     cache: {
         title: "缓存效率",
         metrics: ["cache_rate", "cache_read", "cache_write"],
-        number: "03",
     },
     speed: {
         title: "执行速度",
         metrics: ["timed_tps", "throughput_tps", "rps"],
-        number: "04",
     },
 };
 export function AnalyticPanel({
@@ -434,7 +427,6 @@ export function AnalyticPanel({
         <section className="analysis-panel panel" data-testid={`panel-${id}`}>
             <header className="analysis-heading">
                 <div>
-                    <span className="panel-index">{desc.number}</span>
                     <h2>{desc.title}</h2>
                 </div>
                 <strong className="panel-value" data-testid={`value-${id}`}>
@@ -443,154 +435,222 @@ export function AnalyticPanel({
                         : formatMetric(selectedValue, chartMetric)}
                 </strong>
             </header>
-            <div className="panel-controls">
-                <label>
-                    <span>指标</span>
-                    <select
-                        data-testid={`metric-${id}`}
-                        aria-label={`${desc.title}指标`}
-                        value={config.metric}
-                        onChange={(e) =>
-                            onConfig({
-                                ...config,
-                                metric: e.target.value as Metric,
-                                members: [],
-                                share: false,
-                            })
-                        }
-                    >
-                        {desc.metrics.map((m) => (
-                            <option value={m} key={m}>
-                                {metricLabels[m]}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <label>
-                    <span>分组</span>
-                    <select
-                        data-testid={`group-${id}`}
-                        aria-label={`${desc.title}分组`}
-                        disabled={config.metric === "timed_tps"}
-                        value={config.dimension}
-                        onChange={(e) =>
-                            onConfig({
-                                ...config,
-                                dimension: e.target
-                                    .value as PanelConfig["dimension"],
-                                members: [],
-                            })
-                        }
-                    >
-                        {Object.entries(dimensions)
-                            .filter(([d]) => d !== "session")
-                            .map(([d, l]) => (
-                                <option value={d} key={d}>
-                                    {l}
-                                </option>
-                            ))}
-                    </select>
-                </label>
-                <label>
-                    <span>图形</span>
-                    <select
-                        data-testid={`chart-type-${id}`}
-                        aria-label={`${desc.title}图形`}
-                        value={config.chart}
-                        onChange={(e) =>
-                            onConfig({
-                                ...config,
-                                chart: e.target.value as ChartKind,
-                            })
-                        }
-                    >
-                        <option value="area">区域</option>
-                        <option value="line">折线</option>
-                        <option value="bar">柱形</option>
-                    </select>
-                </label>
-                <div className="panel-actions">
-                    {!ratio(config.metric) && (
+            <div className="panel-toolbar">
+                <div className="quick-metrics">
+                    {(
+                        {
+                            consumption: ["cost", "tokens", "calls"],
+                            rate: ["tpm", "rpm"],
+                            cache: ["cache_rate", "cache_read"],
+                            speed: ["timed_tps", "throughput_tps"],
+                        }[id] as Metric[]
+                    ).map((m) => (
                         <button
-                            data-testid={`share-${id}`}
-                            className={config.share ? "selected" : ""}
+                            key={m}
+                            data-testid={`quick-${id}-${m}`}
+                            className={config.metric === m ? "selected" : ""}
                             onClick={() =>
-                                onConfig({ ...config, share: !config.share })
+                                onConfig({
+                                    ...config,
+                                    metric: m,
+                                    members: [],
+                                    share: false,
+                                })
                             }
                         >
-                            {config.share ? "改看用量" : "改看占比"}
+                            {
+                                (
+                                    {
+                                        cost: "费用",
+                                        tokens: "Tokens",
+                                        calls: "调用",
+                                        tpm: "TPM",
+                                        rpm: "RPM",
+                                        cache_rate: "命中率",
+                                        cache_read: "缓存读取",
+                                        timed_tps: "执行 TPS",
+                                        throughput_tps: "平均吞吐",
+                                    } as Partial<Record<Metric, string>>
+                                )[m]
+                            }
                         </button>
-                    )}
-                    {!timed && (
-                        <button
-                            data-testid={`members-${id}`}
-                            onClick={() => setMembersOpen(!membersOpen)}
-                        >
-                            选择对比对象
-                            {config.members.length
-                                ? ` · ${config.members.length}`
-                                : ""}
-                        </button>
-                    )}
+                    ))}
                 </div>
-            </div>
-            {membersOpen && !timed && (
-                <div className="panel-members">
-                    <input
-                        placeholder="搜索本面板成员…"
-                        value={memberSearch}
-                        onChange={(e) => setMemberSearch(e.target.value)}
-                    />
-                    <span className="muted tiny">
-                        仅改变本图曲线 · 最多 5 项
-                    </span>
-                    <div>
-                        {data.members
-                            .filter((m) =>
-                                m.label
-                                    .toLowerCase()
-                                    .includes(memberSearch.toLowerCase()),
-                            )
-                            .slice(0, 50)
-                            .map((m) => (
-                                <label key={m.key}>
-                                    <input
-                                        type="checkbox"
-                                        checked={config.members.includes(m.key)}
-                                        disabled={
-                                            !config.members.includes(m.key) &&
-                                            config.members.length >= 5
-                                        }
-                                        onChange={() =>
-                                            onConfig({
-                                                ...config,
-                                                members:
-                                                    config.members.includes(
-                                                        m.key,
-                                                    )
-                                                        ? config.members.filter(
-                                                              (k) =>
-                                                                  k !== m.key,
-                                                          )
-                                                        : [
-                                                              ...config.members,
-                                                              m.key,
-                                                          ],
-                                            })
-                                        }
-                                    />
-                                    <span title={m.label}>{m.label}</span>
-                                </label>
-                            ))}
-                    </div>
+                {!ratio(config.metric) && (
                     <button
-                        className="text-button"
-                        onClick={() => onConfig({ ...config, members: [] })}
+                        className={
+                            config.share
+                                ? "share-toggle selected"
+                                : "share-toggle"
+                        }
+                        data-testid={`share-${id}`}
+                        onClick={() =>
+                            onConfig({ ...config, share: !config.share })
+                        }
                     >
-                        恢复前 5 名＋其他
+                        {config.share ? "占比 ✓" : "占比"}
                     </button>
-                </div>
-            )}
+                )}
+                <details className="panel-menu" data-testid={`settings-${id}`}>
+                    <summary>设置 ⌄</summary>
+                    <div className="panel-menu-content">
+                        {" "}
+                        <div className="panel-controls">
+                            <label>
+                                <span>指标</span>
+                                <select
+                                    data-testid={`metric-${id}`}
+                                    aria-label={`${desc.title}指标`}
+                                    value={config.metric}
+                                    onChange={(e) =>
+                                        onConfig({
+                                            ...config,
+                                            metric: e.target.value as Metric,
+                                            members: [],
+                                            share: false,
+                                        })
+                                    }
+                                >
+                                    {desc.metrics.map((m) => (
+                                        <option value={m} key={m}>
+                                            {metricLabels[m]}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label>
+                                <span>分组</span>
+                                <select
+                                    data-testid={`group-${id}`}
+                                    aria-label={`${desc.title}分组`}
+                                    disabled={config.metric === "timed_tps"}
+                                    value={config.dimension}
+                                    onChange={(e) =>
+                                        onConfig({
+                                            ...config,
+                                            dimension: e.target
+                                                .value as PanelConfig["dimension"],
+                                            members: [],
+                                        })
+                                    }
+                                >
+                                    {Object.entries(dimensions)
+                                        .filter(([d]) => d !== "session")
+                                        .map(([d, l]) => (
+                                            <option value={d} key={d}>
+                                                {l}
+                                            </option>
+                                        ))}
+                                </select>
+                            </label>
+                            <label>
+                                <span>图形</span>
+                                <select
+                                    data-testid={`chart-type-${id}`}
+                                    aria-label={`${desc.title}图形`}
+                                    value={config.chart}
+                                    onChange={(e) =>
+                                        onConfig({
+                                            ...config,
+                                            chart: e.target.value as ChartKind,
+                                        })
+                                    }
+                                >
+                                    <option value="area">区域</option>
+                                    <option value="line">折线</option>
+                                    <option value="bar">柱形</option>
+                                </select>
+                            </label>
+                            <div className="panel-actions">
+                                {!timed && (
+                                    <button
+                                        data-testid={`members-${id}`}
+                                        onClick={() =>
+                                            setMembersOpen(!membersOpen)
+                                        }
+                                    >
+                                        选择对比对象
+                                        {config.members.length
+                                            ? ` · ${config.members.length}`
+                                            : ""}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        {membersOpen && !timed && (
+                            <div className="panel-members">
+                                <input
+                                    placeholder="搜索本面板成员…"
+                                    value={memberSearch}
+                                    onChange={(e) =>
+                                        setMemberSearch(e.target.value)
+                                    }
+                                />
+                                <span className="muted tiny">
+                                    仅改变本图曲线 · 最多 5 项
+                                </span>
+                                <div>
+                                    {data.members
+                                        .filter((m) =>
+                                            m.label
+                                                .toLowerCase()
+                                                .includes(
+                                                    memberSearch.toLowerCase(),
+                                                ),
+                                        )
+                                        .slice(0, 50)
+                                        .map((m) => (
+                                            <label key={m.key}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={config.members.includes(
+                                                        m.key,
+                                                    )}
+                                                    disabled={
+                                                        !config.members.includes(
+                                                            m.key,
+                                                        ) &&
+                                                        config.members.length >=
+                                                            5
+                                                    }
+                                                    onChange={() =>
+                                                        onConfig({
+                                                            ...config,
+                                                            members:
+                                                                config.members.includes(
+                                                                    m.key,
+                                                                )
+                                                                    ? config.members.filter(
+                                                                          (k) =>
+                                                                              k !==
+                                                                              m.key,
+                                                                      )
+                                                                    : [
+                                                                          ...config.members,
+                                                                          m.key,
+                                                                      ],
+                                                        })
+                                                    }
+                                                />
+                                                <span title={m.label}>
+                                                    {m.label}
+                                                </span>
+                                            </label>
+                                        ))}
+                                </div>
+                                <button
+                                    className="text-button"
+                                    onClick={() =>
+                                        onConfig({ ...config, members: [] })
+                                    }
+                                >
+                                    恢复前 5 名＋其他
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </details>
+            </div>
             <TimeChart
                 id={id}
                 {...plot}
@@ -616,10 +676,9 @@ export function AnalyticPanel({
                           : data.query.members?.length
                             ? "所选成员与其他"
                             : "前 5 名＋其他"}{" "}
-                    · {intervalLabel(data.bucket_resolved ?? global.bucket)}
-                    一个点
+                    · {timed ? "计时输出" : dimensions[data.query.dimension]} ·{" "}
+                    {intervalLabel(data.bucket_resolved ?? global.bucket)}
                 </span>
-
             </footer>
             {timed && data.summary.tps?.length ? (
                 <details className="timing-explanation">

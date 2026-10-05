@@ -307,11 +307,8 @@ export async function analyze(
     for (const [key, values] of Object.entries(q.filters))
         for (const v of values ?? []) p.append(key, v);
     for (const member of q.members ?? []) p.append("member", member);
-    const [raw, scan] = await Promise.all([
-        request<RawAnalysis>(`/api/analytics?${p}`, { signal }),
-        status(signal),
-    ]);
-    return normalize(raw, q, scan);
+    const raw = await request<RawAnalysis>(`/api/analytics?${p}`, { signal });
+    return normalize(raw, q);
 }
 export async function refresh() {
     if (demo) return { scanning: false };
@@ -321,17 +318,34 @@ export async function refresh() {
     });
     return { scanning: raw.refreshing };
 }
-export async function status(signal?: AbortSignal): Promise<Status> {
-    const raw = await request<RawStatus>("/api/status", { signal });
-    const latest = Math.max(0, ...raw.sources.map((s) => s.last_scan_us ?? 0));
-    return {
-        sources: raw.sources.map(source),
-        scanning: raw.refreshing,
-        error: raw.last_refresh_error,
-        progress: raw.progress,
-        updated_at: latest ? new Date(latest / 1000).toISOString() : null,
-        snapshot_id: String(raw.snapshot_id),
-    };
+let statusPending: Promise<Status> | null = null;
+export function status(signal?: AbortSignal): Promise<Status> {
+    if (!statusPending) {
+        statusPending = request<RawStatus>("/api/status")
+            .then((raw) => {
+                const latest = Math.max(
+                    0,
+                    ...raw.sources.map((s) => s.last_scan_us ?? 0),
+                );
+                return {
+                    sources: raw.sources.map(source),
+                    scanning: raw.refreshing,
+                    error: raw.last_refresh_error,
+                    progress: raw.progress,
+                    updated_at: latest
+                        ? new Date(latest / 1000).toISOString()
+                        : null,
+                    snapshot_id: String(raw.snapshot_id),
+                };
+            })
+            .finally(() => {
+                statusPending = null;
+            });
+    }
+    return statusPending.then((result) => {
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        return result;
+    });
 }
 export async function sessionDetail(
     harness: string,
@@ -450,6 +464,10 @@ export async function turns(
     q: GlobalQuery,
     offset: number,
     signal: AbortSignal,
+    sorting: { sort: string; order: "asc" | "desc" } = {
+        sort: "start",
+        order: "desc",
+    },
 ): Promise<TurnsAnalysis> {
     if (demo) {
         const { fixture } = await import("./fixture");
@@ -516,6 +534,8 @@ export async function turns(
     const p = globalParams(q);
     p.set("offset", String(offset));
     p.set("limit", "20");
+    p.set("sort", sorting.sort);
+    p.set("order", sorting.order);
     const raw = await request<RawTurns>(`/api/turns?${p}`, { signal });
     return {
         snapshot_id: String(raw.snapshot.id),
@@ -575,6 +595,10 @@ export async function dashboard(
     ledger: { dimension: Dimension; metric: Metric },
     offset: number,
     signal: AbortSignal,
+    sorting: { sort: string; order: "asc" | "desc" } = {
+        sort: "start",
+        order: "desc",
+    },
 ): Promise<Dashboard> {
     for (let attempt = 0; attempt < 4; attempt++) {
         const ids = Object.keys(configs) as PanelId[];
@@ -582,7 +606,7 @@ export async function dashboard(
         const [analyses, book, turnsResult] = await Promise.all([
             Promise.all(queries.map((q) => analyze(q, signal))),
             analyze({ ...global, ...ledger }, signal),
-            turns(global, offset, signal),
+            turns(global, offset, signal, sorting),
         ]);
         if (signal.aborted) throw new DOMException("Aborted", "AbortError");
         const snapshot = book.snapshot_id;

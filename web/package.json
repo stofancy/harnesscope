@@ -12,7 +12,9 @@
     "test:e2e:headed": "npm run test:e2e -- --headed"
   },
   "dependencies": {
+    "parse-duration": "^2.1.9",
     "react": "19.3.0",
+    "react-day-picker": "^10.0.2",
     "react-dom": "19.3.0",
     "recharts": "3.10.1"
   },

@@ -10,14 +10,7 @@ import type {
     Query,
     TurnRow,
 } from "./types";
-import {
-    dashboard,
-    demo,
-    refresh,
-    status,
-    type Dashboard,
-    type Status,
-} from "./api";
+import { demo, refresh, status, type Status } from "./api";
 import {
     Comparison,
     Detail,
@@ -25,12 +18,22 @@ import {
     Icon,
     Ledger,
     MetricStrip,
-    TimeRange,
     dimensions,
 } from "./components";
 import { AnalyticPanel } from "./charts";
-import { TurnDrawer, TurnWorkbench } from "./turns";
-import { formatNumber, metricLabels, timeLabel, intervalLabel } from "./format";
+import { TurnDrawer, TurnWorkbench, TurnTable } from "./turns";
+import {
+    formatNumber,
+    metricLabels,
+    timeLabel,
+    intervalLabel,
+    formatMetric,
+} from "./format";
+import { useDashboard } from "./useDashboard";
+import { readPreferences, savePreferences, type TurnView } from "./preferences";
+import { AbsoluteRanking } from "./ranking";
+import { TimeControl } from "./TimeControl";
+import { advanceTime, type TimeSpec } from "./time";
 const mainFilters: FilterKey[] = [
     "harness",
     "model",
@@ -51,58 +54,21 @@ const slices: { key: GlobalQuery["bucket"]; label: string }[] = [
     { key: "week", label: "1 周" },
     { key: "month", label: "1 月" },
 ];
-function initialGlobal(): GlobalQuery {
-    const end = new Date();
-    return {
-        since: new Date(end.getTime() - 7 * 86400000).toISOString(),
-        until: end.toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        bucket: "auto",
-        filters: {},
-    };
-}
-const initialPanels: Record<PanelId, PanelConfig> = {
-    consumption: {
-        dimension: "model",
-        metric: "cost",
-        chart: "area",
-        share: false,
-        members: [],
-    },
-    rate: {
-        dimension: "harness",
-        metric: "tpm",
-        chart: "line",
-        share: false,
-        members: [],
-    },
-    cache: {
-        dimension: "model",
-        metric: "cache_rate",
-        chart: "line",
-        share: false,
-        members: [],
-    },
-    speed: {
-        dimension: "harness",
-        metric: "timed_tps",
-        chart: "line",
-        share: false,
-        members: [],
-    },
-};
 export default function App() {
-    const [global, setGlobal] = useState<GlobalQuery>(initialGlobal),
-        [relativeDays, setRelativeDays] = useState<number | null>(7),
-        [configs, setConfigs] = useState(initialPanels),
+    const [saved] = useState(readPreferences);
+    const [global, setGlobalState] = useState<GlobalQuery>(saved.global),
+        [timeSpec, setTimeSpec] = useState<TimeSpec>(saved.timeSpec),
+        [autoSeconds, setAutoSeconds] = useState(saved.autoSeconds),
+        [timeEditing, setTimeEditing] = useState(false),
+        [configs, setConfigs] = useState(saved.panels),
+        [detailView, setDetailView] = useState(saved.detailView),
+        [turnView, setTurnView] = useState<TurnView>(saved.turnView),
         [ledgerConfig, setLedgerConfig] = useState<{
             dimension: Dimension;
             metric: Metric;
-        }>({ dimension: "harness", metric: "cost" }),
+        }>(saved.ledger),
         [turnOffset, setTurnOffset] = useState(0),
-        [data, setData] = useState<Dashboard | null>(null),
         [error, setError] = useState(""),
-        [loading, setLoading] = useState(true),
         [revision, setRevision] = useState(0),
         [scanStatus, setScanStatus] = useState<Status | null>(null),
         [refreshing, setRefreshing] = useState(false),
@@ -110,63 +76,67 @@ export default function App() {
         [sourcesOpen, setSourcesOpen] = useState(false),
         [helpOpen, setHelpOpen] = useState(false),
         [history, setHistory] = useState<
-            { since: string; until: string; relativeDays: number | null }[]
-        >([]),
+            { since: string; until: string; timeSpec: TimeSpec }[]
+        >(saved.history),
         [selectedMember, setSelectedMember] = useState<Member | null>(null),
         [selectedTurn, setSelectedTurn] = useState<TurnRow | null>(null),
         [navigationTarget, setNavigationTarget] = useState<string | null>(null);
-    const relativeDaysRef = useRef(relativeDays);
-    relativeDaysRef.current = relativeDays;
+    const globalRef = useRef(global);
+    globalRef.current = global;
+    function setGlobal(update: React.SetStateAction<GlobalQuery>) {
+        const next =
+            typeof update === "function" ? update(globalRef.current) : update;
+        if (JSON.stringify(next) !== JSON.stringify(globalRef.current))
+            setTurnOffset(0);
+        globalRef.current = next;
+        setGlobalState(next);
+    }
+    const timeSpecRef = useRef(timeSpec),
+        refreshRef = useRef(false),
+        editingRef = useRef(timeEditing);
+    timeSpecRef.current = timeSpec;
+    editingRef.current = timeEditing;
     function advanceRelativeWindow() {
-        const days = relativeDaysRef.current;
-        if (days == null) return;
-        const now = new Date();
-        setGlobal((q) => ({
-            ...q,
-            since: new Date(now.getTime() - days * 86400000).toISOString(),
-            until: now.toISOString(),
-        }));
+        setGlobal((q) => advanceTime(q, timeSpecRef.current));
     }
     const globalKey = JSON.stringify(global);
-    const localKey = JSON.stringify({
-        panels: Object.fromEntries(
-            Object.entries(configs).map(([k, c]) => [
-                k,
-                {
-                    dimension: c.dimension,
-                    metric: c.metric,
-                    members: c.members,
-                },
-            ]),
-        ),
+    const { data, pending, errors, globalUpdating, retry } = useDashboard(
+        global,
+        configs,
         ledgerConfig,
         turnOffset,
+        turnView,
+        revision,
+    );
+    const loading = pending.length > 0;
+    const current = data;
+    const persistedKey = JSON.stringify({
+        global,
+        timeSpec,
+        autoSeconds,
+        panels: configs,
+        ledger: ledgerConfig,
+        detailView,
+        turnView,
+        history,
     });
-    const current =
-        data && JSON.stringify(data.global) === globalKey ? data : null;
-    useEffect(() => {
-        const controller = new AbortController();
-        setLoading(true);
-        setError("");
-        dashboard(global, configs, ledgerConfig, turnOffset, controller.signal)
-            .then((result) => {
-                if (!controller.signal.aborted) {
-                    setData(result);
-                    setLoading(false);
-                }
-            })
-            .catch((e) => {
-                if (!controller.signal.aborted) {
-                    setError(e.message);
-                    setLoading(false);
-                }
-            });
-        return () => controller.abort();
-    }, [globalKey, localKey, revision]);
+    useEffect(
+        () =>
+            savePreferences({
+                global,
+                timeSpec,
+                autoSeconds,
+                panels: configs,
+                ledger: ledgerConfig,
+                detailView,
+                turnView,
+                history,
+            }),
+        [persistedKey],
+    );
     useEffect(() => {
         setSelectedMember(null);
         setSelectedTurn(null);
-        setTurnOffset(0);
     }, [globalKey]);
     useEffect(() => {
         if (demo) return;
@@ -194,7 +164,7 @@ export default function App() {
         return () => {
             active = false;
         };
-    }, [revision]);
+    }, []);
     useEffect(() => {
         if (navigationTarget && current && !loading) {
             document
@@ -224,10 +194,10 @@ export default function App() {
         if (start >= end || (start === global.since && end === global.until))
             return;
         setHistory([
-            ...history,
-            { since: global.since, until: global.until, relativeDays },
+            ...history.slice(-15),
+            { since: global.since, until: global.until, timeSpec },
         ]);
-        setRelativeDays(null);
+        setTimeSpec({ start, end });
         setGlobal({ ...global, since: start, until: end });
     }
     function back() {
@@ -238,7 +208,7 @@ export default function App() {
                 since: previous.since,
                 until: previous.until,
             });
-            setRelativeDays(previous.relativeDays);
+            setTimeSpec(previous.timeSpec);
             setHistory(history.slice(0, -1));
         }
     }
@@ -262,67 +232,97 @@ export default function App() {
                     },
                 });
         } else changeFilter(dimension, [member.key]);
-        if (sessionView)
+        if (sessionView) {
             setLedgerConfig({ ...ledgerConfig, dimension: "session" });
+            setDetailView("summary");
+            setNavigationTarget("details");
+        }
         setSelectedMember(null);
     }
     async function scan() {
+        if (refreshRef.current || scanStatus?.scanning) return;
+        refreshRef.current = true;
+        setError("");
         setRefreshing(true);
         try {
             let state = await refresh();
+            let polled = false;
             while (state.scanning) {
+                polled = true;
                 await new Promise((resolve) => setTimeout(resolve, 700));
                 const latest = await status();
                 setScanStatus(latest);
                 state = latest;
                 if (latest.error) throw new Error(latest.error);
             }
+            if (!polled) setScanStatus(await status());
             advanceRelativeWindow();
             setRevision((r) => r + 1);
         } catch (e) {
             setError(`扫描失败：${(e as Error).message}`);
         } finally {
+            refreshRef.current = false;
             setRefreshing(false);
         }
     }
-    const queryForTime: Query = {
-        ...global,
-        dimension: "harness",
-        metric: "tokens",
-    };
+    const scanRef = useRef(scan),
+        queryBusyRef = useRef(loading);
+    scanRef.current = scan;
+    queryBusyRef.current = loading;
+    useEffect(() => {
+        if (!autoSeconds) return;
+        const timer = setInterval(() => {
+            if (
+                !document.hidden &&
+                !editingRef.current &&
+                !refreshRef.current &&
+                !queryBusyRef.current
+            )
+                void scanRef.current();
+        }, autoSeconds * 1000);
+        return () => clearInterval(timer);
+    }, [autoSeconds]);
     const counts = current?.panels.consumption;
     return (
         <div className="app-shell dashboard-shell">
             {demo && (
                 <div className="demo-banner">开发示例数据 · 与本机日志无关</div>
             )}
-            <header className="topbar">
-                <a className="brand" href="/">
-                    <span className="brand-mark">
-                        <Icon name="layers" />
-                    </span>
-                    Usage
-                    <span className="brand-divider" />
-                    本地用量
-                </a>
-                <div className="local-indicator">
-                    <i />
-                    LOCAL · 单机只读
-                </div>
-            </header>
             <main>
-                <div className="page-heading">
-                    <div>
-                        <span className="eyebrow">PERSONAL ANALYTICS</span>
-                        <h1>用量工作台</h1>
-                    </div>
+                <header className="workbench-header">
+                    <h1>用量工作台</h1>
+                    <nav
+                        className="workbench-nav"
+                        data-testid="journey-nav"
+                        aria-label="工作台导航"
+                    >
+                        <a href="#overview">概览</a>
+                        <a href="#trends">趋势</a>
+                        <a
+                            href="#details"
+                            onClick={() => setDetailView("turns")}
+                        >
+                            轮次
+                        </a>
+                        <a
+                            href="#details"
+                            onClick={() => setDetailView("summary")}
+                        >
+                            汇总
+                        </a>
+                    </nav>
                     <div className="heading-actions">
                         <span className="updated">
                             {scanStatus?.updated_at
-                                ? `数据扫描于 ${timeLabel(scanStatus.updated_at, global.timezone)}`
-                                : "尚未取得扫描状态"}
+                                ? `更新于 ${timeLabel(scanStatus.updated_at, global.timezone)}`
+                                : ""}
                         </span>
-                        <button data-testid="open-metric-help" onClick={() => setHelpOpen(true)}>指标说明</button>
+                        <button
+                            data-testid="open-metric-help"
+                            onClick={() => setHelpOpen(true)}
+                        >
+                            指标说明
+                        </button>
                         <button onClick={() => setSourcesOpen(!sourcesOpen)}>
                             数据来源
                         </button>
@@ -332,75 +332,13 @@ export default function App() {
                             onClick={scan}
                             disabled={refreshing || scanStatus?.scanning}
                         >
-                            <span
-                                className={
-                                    refreshing || scanStatus?.scanning
-                                        ? "spin"
-                                        : ""
-                                }
-                            >
-                                <Icon name="refresh" />
-                            </span>
+                            <Icon name="refresh" />
                             {refreshing || scanStatus?.scanning
                                 ? `扫描 ${scanStatus?.progress.files_done ?? 0}/${scanStatus?.progress.files_total ?? "…"}`
                                 : "扫描数据"}
                         </button>
                     </div>
-                </div>
-                <nav
-                    className="journey-nav"
-                    data-testid="journey-nav"
-                    aria-label="用量分析路径"
-                >
-                    <a href="#overview">
-                        概览
-                    </a>
-                    <a href="#trends">
-                        趋势
-                    </a>
-                    <a href="#contributors">
-                        变化来源
-                    </a>
-                    <a href="#turns">
-                        轮次
-                    </a>
-                    <a href="#ledger">明细</a>
-                    {history.length > 0 && (
-                        <button
-                            data-testid="zoom-back"
-                            className="zoom-back"
-                            onClick={back}
-                        >
-                            ← 恢复放大前的时间范围
-                        </button>
-                    )}
-                    {(history.length > 0 ||
-                        Object.values(global.filters).some(
-                            (v) => v?.length,
-                        )) && (
-                        <div className="journey-context">
-                            当前查看 {timeLabel(global.since, global.timezone)}{" "}
-                            — {timeLabel(global.until, global.timezone)}
-                            {Object.entries(global.filters)
-                                .filter(([, v]) => v?.length)
-                                .map(([k, v]) => (
-                                    <span key={k}>
-                                        {dimensions[k as Dimension]}：
-                                        {v!
-                                            .map(
-                                                (value) =>
-                                                    counts?.facets[
-                                                        k as FilterKey
-                                                    ]?.find(
-                                                        (f) => f.key === value,
-                                                    )?.label ?? value,
-                                            )
-                                            .join("、")}
-                                    </span>
-                                ))}
-                        </div>
-                    )}
-                </nav>
+                </header>
                 <section
                     className="query-panel global-query"
                     data-testid="global-query"
@@ -411,29 +349,50 @@ export default function App() {
                             筛选
                         </span>
                         <span className="global-snapshot">
-                            {current
-                                ? relativeDays
-                                    ? "最近时段"
+                            {current && !globalUpdating
+                                ? timeSpec.end === "now"
+                                    ? "至今"
                                     : "固定时段"
                                 : "正在查询当前范围"}
                         </span>
                     </div>
                     <div className="global-time-line">
-                        <TimeRange
-                            query={queryForTime}
-                            relativeDays={relativeDays}
-                            onChange={(q, mode) => {
-                                if (mode !== undefined) setRelativeDays(mode);
-                                setGlobal({
-                                    since: q.since,
-                                    until: q.until,
-                                    timezone: q.timezone,
-                                    bucket: q.bucket,
-                                    filters: q.filters,
-                                });
+                        <TimeControl
+                            global={global}
+                            spec={timeSpec}
+                            onEditing={setTimeEditing}
+                            onChange={(spec, range) => {
+                                setTimeSpec(spec);
+                                setGlobal({ ...global, ...range });
                                 setHistory([]);
                             }}
                         />
+                        <select
+                            data-testid="timezone"
+                            title="全局时区"
+                            aria-label="全局时区"
+                            value={global.timezone}
+                            onChange={(e) =>
+                                setGlobal({
+                                    ...global,
+                                    timezone: e.target.value,
+                                })
+                            }
+                        >
+                            {[
+                                ...new Set([
+                                    global.timezone,
+                                    "Asia/Singapore",
+                                    "Asia/Shanghai",
+                                    "UTC",
+                                    "America/Los_Angeles",
+                                    "America/New_York",
+                                    "Europe/London",
+                                ]),
+                            ].map((z) => (
+                                <option key={z}>{z}</option>
+                            ))}
+                        </select>
                         <label className="slice-label">
                             <span>统计间隔</span>
                             <select
@@ -455,6 +414,32 @@ export default function App() {
                                 ))}
                             </select>
                         </label>
+                        <label className="auto-refresh-label">
+                            自动刷新
+                            <select
+                                data-testid="auto-refresh"
+                                aria-label="自动刷新频率"
+                                value={autoSeconds}
+                                onChange={(e) =>
+                                    setAutoSeconds(Number(e.target.value))
+                                }
+                            >
+                                <option value="0">关闭</option>
+                                <option value="15">15 秒</option>
+                                <option value="30">30 秒</option>
+                                <option value="60">1 分钟</option>
+                                <option value="300">5 分钟</option>
+                            </select>
+                        </label>
+                        {history.length > 0 && (
+                            <button
+                                data-testid="zoom-back"
+                                className="zoom-back"
+                                onClick={back}
+                            >
+                                ← 返回原时间范围
+                            </button>
+                        )}
                     </div>
                     <div className="filter-line">
                         <span className="filter-label">筛选数据</span>
@@ -603,15 +588,13 @@ export default function App() {
                         </div>
                     </div>
                 )}
-                {error && (
+                {(error || errors.global) && (
                     <div className="error-banner" data-testid="dashboard-error">
                         <span>
-                            {error}
+                            {error || errors.global}
                             {current ? " · 暂时显示上次查询结果" : ""}
                         </span>
-                        <button onClick={() => setRevision((r) => r + 1)}>
-                            重试查询
-                        </button>
+                        <button onClick={() => retry()}>重试查询</button>
                     </div>
                 )}
                 {!current && loading && (
@@ -622,168 +605,245 @@ export default function App() {
                     </div>
                 )}
                 {current && counts && (
-                    <>
+                    <div
+                        className={
+                            globalUpdating
+                                ? "data-region is-updating"
+                                : "data-region"
+                        }
+                        inert={globalUpdating}
+                        aria-busy={globalUpdating}
+                    >
                         <section id="overview" className="overview-section">
-                            <MetricStrip data={counts} />
+                            <MetricStrip
+                                data={counts}
+                                turnCount={current.turns.summary.turns}
+                            />
                         </section>
-                        <div id="trends" className="section-heading"><h2>用量趋势</h2></div>
-                        <div className="dashboard-grid">
-                            {(
-                                [
-                                    "consumption",
-                                    "rate",
-                                    "cache",
-                                    "speed",
-                                ] as PanelId[]
-                            ).map((id) => (
+                        <div id="trends" className="primary-analysis">
+                            <PartState
+                                pending={pending.includes("consumption")}
+                                error={errors.consumption}
+                                onRetry={() => retry("consumption")}
+                            >
                                 <AnalyticPanel
-                                    key={id}
-                                    id={id}
-                                    data={current.panels[id]}
-                                    config={configs[id]}
+                                    id="consumption"
+                                    data={current.panels.consumption}
+                                    config={configs.consumption}
                                     global={current.global}
                                     onConfig={(c) =>
-                                        setConfigs({ ...configs, [id]: c })
+                                        setConfigs({
+                                            ...configs,
+                                            consumption: c,
+                                        })
                                     }
                                     onZoom={zoom}
                                 />
-                            ))}
+                            </PartState>
+                            <PartState
+                                pending={pending.includes("consumption")}
+                                error={errors.consumption}
+                                onRetry={() => retry("consumption")}
+                            >
+                                <AbsoluteRanking
+                                    data={current.panels.consumption}
+                                    config={configs.consumption}
+                                    onConfig={(c) =>
+                                        setConfigs({
+                                            ...configs,
+                                            consumption: c,
+                                        })
+                                    }
+                                    onSelect={(m) => {
+                                        changeFilter(
+                                            current.panels.consumption.query
+                                                .dimension,
+                                            [m.key],
+                                        );
+                                        setDetailView("turns");
+                                        setNavigationTarget("details");
+                                    }}
+                                />
+                            </PartState>
                         </div>
-                        <section
-                            id="contributors"
-                            className="contributor-section"
-                        >
-                            <div className="section-heading">
-                                <div>
-                                    <h2>变化来源</h2>
-                                </div>
-                                <div className="angle-shortcuts">
-                                    {(
-                                        [
-                                            "model",
-                                            "harness",
-                                            "project",
-                                        ] as Dimension[]
-                                    ).map((d) => (
-                                        <button
-                                            key={d}
-                                            className={
-                                                configs.consumption
-                                                    .dimension === d
-                                                    ? "selected"
-                                                    : ""
-                                            }
-                                            onClick={() =>
-                                                setConfigs({
-                                                    ...configs,
-                                                    consumption: {
-                                                        ...configs.consumption,
-                                                        dimension: d,
-                                                        members: [],
-                                                    },
-                                                })
-                                            }
-                                        >
-                                            按{dimensions[d]}对比
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
+                        <details id="contributors" className="change-details">
+                            <summary>较上一等长时段的变化</summary>
                             <Comparison
                                 data={current.panels.consumption}
                                 metric={current.panels.consumption.query.metric}
                                 onDetail={(m) => {
-                                    setLedgerConfig({
-                                        dimension:
-                                            current.panels.consumption.query
-                                                .dimension,
-                                        metric: current.panels.consumption.query
-                                            .metric,
-                                    });
                                     changeFilter(
                                         current.panels.consumption.query
                                             .dimension,
                                         [m.key],
                                     );
-                                    setNavigationTarget("turns");
+                                    setDetailView("turns");
+                                    setNavigationTarget("details");
                                 }}
                             />
-                        </section>
-                        <TurnWorkbench
-                            data={current.turns}
-                            global={current.global}
-                            onZoom={zoom}
-                            onPage={setTurnOffset}
-                            onOpen={setSelectedTurn}
-                        />
-                        <div id="ledger" className="ledger-angle">
-                            <div>
-                                <span className="eyebrow">EVENT LEDGER</span>
-                                <h2>调用用量账本</h2>
-                            </div>
-                            <label>
-                                分组查看
-                                <select
-                                    data-testid="group-ledger"
-                                    aria-label="用量账本分组"
-                                    value={ledgerConfig.dimension}
-                                    onChange={(e) =>
-                                        setLedgerConfig({
-                                            ...ledgerConfig,
-                                            dimension: e.target
-                                                .value as Dimension,
-                                        })
-                                    }
-                                >
-                                    {Object.entries(dimensions).map(
-                                        ([k, l]) => (
-                                            <option value={k} key={k}>
-                                                {l}
-                                            </option>
-                                        ),
-                                    )}
-                                </select>
-                            </label>
-                            <label>
-                                主要指标
-                                <select
-                                    data-testid="metric-ledger"
-                                    aria-label="用量账本主要指标"
-                                    value={ledgerConfig.metric}
-                                    onChange={(e) =>
-                                        setLedgerConfig({
-                                            ...ledgerConfig,
-                                            metric: e.target.value as Metric,
-                                        })
-                                    }
-                                >
-                                    {(
-                                        [
-                                            "cost",
-                                            "tokens",
-                                            "calls",
-                                            "cache_rate",
-                                            "cost_per_call",
-                                            "cost_per_million",
-                                        ] as Metric[]
-                                    ).map((m) => (
-                                        <option key={m} value={m}>
-                                            {metricLabels[m]}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
+                        </details>
+                        <div className="supporting-analysis">
+                            {(["rate", "cache", "speed"] as PanelId[]).map(
+                                (id) => (
+                                    <PartState
+                                        key={id}
+                                        pending={pending.includes(id)}
+                                        error={errors[id]}
+                                        onRetry={() => retry(id)}
+                                    >
+                                        <AnalyticPanel
+                                            id={id}
+                                            data={current.panels[id]}
+                                            config={configs[id]}
+                                            global={current.global}
+                                            onConfig={(c) =>
+                                                setConfigs({
+                                                    ...configs,
+                                                    [id]: c,
+                                                })
+                                            }
+                                            onZoom={zoom}
+                                        />
+                                    </PartState>
+                                ),
+                            )}
                         </div>
-                        <Ledger
-                            data={current.ledger}
-                            q={current.ledger.query}
-                            onDetail={setSelectedMember}
-                            onFilter={(m) => filterMember(m)}
-                        />
+                        <PartState
+                            pending={pending.includes("turns")}
+                            error={errors.turns}
+                            onRetry={() => retry("turns")}
+                        >
+                            <TurnWorkbench
+                                data={current.turns}
+                                global={current.global}
+                                onZoom={zoom}
+                                view={turnView}
+                                onView={setTurnView}
+                            />
+                        </PartState>
+                        <section id="details" className="details-section">
+                            <div
+                                className="detail-tabs"
+                                role="tablist"
+                                aria-label="数据明细"
+                            >
+                                <button
+                                    role="tab"
+                                    aria-selected={detailView === "summary"}
+                                    data-testid="detail-tab-summary"
+                                    onClick={() => setDetailView("summary")}
+                                >
+                                    汇总明细
+                                </button>
+                                <button
+                                    role="tab"
+                                    aria-selected={detailView === "turns"}
+                                    data-testid="detail-tab-turns"
+                                    onClick={() => setDetailView("turns")}
+                                >
+                                    轮次明细
+                                </button>
+                            </div>
+                            {detailView === "turns" ? (
+                                <PartState
+                                    pending={pending.includes("turns")}
+                                    error={errors.turns}
+                                    onRetry={() => retry("turns")}
+                                >
+                                    <TurnTable
+                                        data={current.turns}
+                                        global={current.global}
+                                        view={turnView}
+                                        onPage={setTurnOffset}
+                                        onOpen={setSelectedTurn}
+                                        onSort={(sort, order) => {
+                                            setTurnView({
+                                                ...turnView,
+                                                sort,
+                                                order,
+                                            });
+                                            setTurnOffset(0);
+                                        }}
+                                    />
+                                </PartState>
+                            ) : (
+                                <PartState
+                                    pending={pending.includes("ledger")}
+                                    error={errors.ledger}
+                                    onRetry={() => retry("ledger")}
+                                >
+                                    <div id="ledger" className="ledger-angle">
+                                        <div>
+                                            <h2>汇总明细</h2>
+                                        </div>
+                                        <label>
+                                            分组查看
+                                            <select
+                                                data-testid="group-ledger"
+                                                aria-label="用量账本分组"
+                                                value={ledgerConfig.dimension}
+                                                onChange={(e) =>
+                                                    setLedgerConfig({
+                                                        ...ledgerConfig,
+                                                        dimension: e.target
+                                                            .value as Dimension,
+                                                    })
+                                                }
+                                            >
+                                                {Object.entries(dimensions).map(
+                                                    ([k, l]) => (
+                                                        <option
+                                                            value={k}
+                                                            key={k}
+                                                        >
+                                                            {l}
+                                                        </option>
+                                                    ),
+                                                )}
+                                            </select>
+                                        </label>
+                                        <label>
+                                            主要指标
+                                            <select
+                                                data-testid="metric-ledger"
+                                                aria-label="用量账本主要指标"
+                                                value={ledgerConfig.metric}
+                                                onChange={(e) =>
+                                                    setLedgerConfig({
+                                                        ...ledgerConfig,
+                                                        metric: e.target
+                                                            .value as Metric,
+                                                    })
+                                                }
+                                            >
+                                                {(
+                                                    [
+                                                        "cost",
+                                                        "tokens",
+                                                        "calls",
+                                                        "cache_rate",
+                                                        "cost_per_call",
+                                                        "cost_per_million",
+                                                    ] as Metric[]
+                                                ).map((m) => (
+                                                    <option key={m} value={m}>
+                                                        {metricLabels[m]}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <Ledger
+                                        data={current.ledger}
+                                        q={current.ledger.query}
+                                        onDetail={setSelectedMember}
+                                        onFilter={(m) => filterMember(m)}
+                                    />
+                                </PartState>
+                            )}
+                        </section>
                         <footer className="dashboard-footer">
-                            <span>
-                                USD
-                            </span>
+                            <span>USD</span>
                             <span>
                                 图表按
                                 {intervalLabel(
@@ -793,36 +853,80 @@ export default function App() {
                                 汇总 · {global.timezone}
                             </span>
                         </footer>
-                    </>
+                    </div>
                 )}
-                {loading && current && (
+                {globalUpdating && current && (
                     <div
                         className="query-loading"
                         data-testid="dashboard-updating"
                     >
-                        正在更新图表与明细…
+                        {errors.global
+                            ? "查询未完成，图表仍为上次范围"
+                            : "正在更新当前范围 · 图表暂为上次结果"}
                     </div>
                 )}
             </main>
             {helpOpen && (
-                <div className="modal-backdrop" onClick={() => setHelpOpen(false)}>
-                    <section className="time-dialog metric-help" role="dialog" aria-label="指标说明" data-testid="metric-help" onClick={(e) => e.stopPropagation()}>
+                <div
+                    className="modal-backdrop"
+                    onClick={() => setHelpOpen(false)}
+                >
+                    <section
+                        className="time-dialog metric-help"
+                        role="dialog"
+                        aria-label="指标说明"
+                        data-testid="metric-help"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <div className="panel-title">
                             <h2>指标说明</h2>
-                            <button className="icon-button" aria-label="关闭指标说明" onClick={() => setHelpOpen(false)}><Icon name="close" /></button>
+                            <button
+                                className="icon-button"
+                                aria-label="关闭指标说明"
+                                onClick={() => setHelpOpen(false)}
+                            >
+                                <Icon name="close" />
+                            </button>
                         </div>
                         <dl>
-                            <dt>费用</dt><dd>按公开或自定义价格估算，单位 USD。缺价调用不计入费用小计。</dd>
-                            <dt>Tokens 与调用</dt><dd>来自本地日志。字段缺失显示 —；来源读取情况见“数据来源”。</dd>
-                            <dt>TPM / RPM · 每秒吞吐 / RPS</dt><dd>用量或调用数除以所选时段实际长度，包含空闲时间。</dd>
-                            <dt>缓存命中率</dt><dd>缓存读取占全部输入 Tokens 的比例，缓存写入计入输入。</dd>
-                            <dt>执行输出速度</dt><dd>输出 Tokens 除以计时样本耗时。模型响应与包含工具等待的轮次全程分别统计。</dd>
-                            <dt>每轮均值</dt><dd>使用完全落在所选时段内的已结束轮次；推定边界和工具缺失在相关记录中标注。</dd>
+                            <dt>费用</dt>
+                            <dd>
+                                按公开或自定义价格估算，单位
+                                USD。缺价调用不计入费用小计。
+                            </dd>
+                            <dt>Tokens 与调用</dt>
+                            <dd>
+                                来自本地日志。字段缺失显示
+                                —；来源读取情况见“数据来源”。
+                            </dd>
+                            <dt>TPM / RPM · 每秒吞吐 / RPS</dt>
+                            <dd>
+                                用量或调用数除以所选时段实际长度，包含空闲时间。
+                            </dd>
+                            <dt>缓存命中率</dt>
+                            <dd>
+                                缓存读取占全部输入 Tokens
+                                的比例，缓存写入计入输入。
+                            </dd>
+                            <dt>执行输出速度</dt>
+                            <dd>
+                                输出 Tokens
+                                除以计时样本耗时。模型响应与包含工具等待的轮次全程分别统计。
+                            </dd>
+                            <dt>每轮已记录均值</dt>
+                            <dd>
+                                使用完全落在所选时段内、已结束且有记录的轮次，取已知小计均值；价格或输入组成覆盖不足会标“部分”。
+                            </dd>
+                            <dt>时间与自动刷新</dt>
+                            <dd>
+                                相对范围如 -18h、-2days
+                                以及固定起点至今，在刷新后更新至当下。固定历史范围保持不动。自动刷新增量扫描后读取看板，后台或编辑时间时暂停。
+                            </dd>
                         </dl>
                     </section>
                 </div>
             )}
-            {selectedMember && current && (
+            {selectedMember && current && !globalUpdating && (
                 <Detail
                     member={selectedMember}
                     q={current.ledger.query}
@@ -833,7 +937,7 @@ export default function App() {
                     onSessions={() => filterMember(selectedMember, true)}
                 />
             )}{" "}
-            {selectedTurn && current && (
+            {selectedTurn && current && !globalUpdating && (
                 <TurnDrawer
                     row={selectedTurn}
                     global={current.global}
@@ -841,6 +945,33 @@ export default function App() {
                     onClose={() => setSelectedTurn(null)}
                 />
             )}
+        </div>
+    );
+}
+
+function PartState({
+    pending,
+    error,
+    onRetry,
+    children,
+}: {
+    pending: boolean;
+    error?: string;
+    onRetry: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <div
+            className={`part-state ${pending || error ? "part-stale" : ""}`}
+            aria-busy={pending}
+        >
+            {(pending || error) && (
+                <div className="part-status">
+                    {pending ? "正在更新此面板…" : `未能更新 · ${error}`}
+                    {error && <button onClick={onRetry}>重试此面板</button>}
+                </div>
+            )}
+            <div inert={pending || !!error}>{children}</div>
         </div>
     );
 }

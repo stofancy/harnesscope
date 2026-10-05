@@ -16,6 +16,7 @@ import {
     harnessLabel,
 } from "./format";
 import { TimeChart, type PlotRow } from "./charts";
+import type { TurnView } from "./preferences";
 const statuses: Record<string, string> = {
     completed: "完成",
     success: "成功",
@@ -37,18 +38,17 @@ export function TurnWorkbench({
     data,
     global,
     onZoom,
-    onPage,
-    onOpen,
+    view,
+    onView,
 }: {
     data: TurnsAnalysis;
     global: GlobalQuery;
     onZoom: (start: string, end: string) => void;
-    onPage: (offset: number) => void;
-    onOpen: (r: TurnRow) => void;
+    view: TurnView;
+    onView: (view: TurnView) => void;
 }) {
-    const [chart, setChart] = useState<ChartKind>("bar"),
-        [metric, setMetric] = useState("tokens"),
-        [toolsExpanded, setToolsExpanded] = useState(false);
+    const { chart, metric } = view;
+    const [toolsExpanded, setToolsExpanded] = useState(false);
     const metricLabels: Record<string, string> = {
         turns: "轮次开始数",
         tokens: "窗内 Tokens",
@@ -92,54 +92,51 @@ export function TurnWorkbench({
         >
             <header className="analysis-heading">
                 <div>
-                    <span className="panel-index">05</span>
                     <h2>轮次开销与工具使用</h2>
                 </div>
             </header>
             <div className="turn-summary">
                 <article>
-                    <span>已选轮次</span>
-                    <b data-testid="turn-count">
-                        {formatNumber(data.summary.turns)}
-                    </b>
-                    <small>
-                        {Object.entries(data.summary.status_counts)
-                            .map(([s, n]) => `${stateLabel(s)} ${n}`)
-                            .join(" · ")}
-                    </small>
-                </article>
-                <article>
-                    <span>平均 Tokens / 轮</span>
-                    <b>
-                        {data.summary.per_turn?.tokens == null
+                    <span>已记录 Tokens / 轮</span>
+                    <b data-testid="tokens-per-turn">
+                        {data.summary.per_turn?.tokens_known_mean == null
                             ? "—"
-                            : formatNumber(data.summary.per_turn.tokens)}
+                            : formatNumber(
+                                  data.summary.per_turn.tokens_known_mean,
+                              )}
                     </b>
                     <small>
-                        {data.summary.per_turn?.samples ?? 0}{" "}
-                        轮样本
-                        {data.summary.per_turn?.boundary_quality?.inferred
-                            ? ` · ${data.summary.per_turn.boundary_quality.inferred} 个推定边界`
+                        {data.summary.per_turn.samples} 轮样本
+                        {data.summary.per_turn.tokens_complete_samples !==
+                        data.summary.per_turn.samples
+                            ? " · 输入部分记录"
                             : ""}
                     </small>
                 </article>
                 <article>
-                    <span>平均费用 / 轮</span>
-                    <b>
-                        {formatMetric(data.summary.per_turn?.cost_usd, "cost")}
-                    </b>
-
-                </article>
-                <article>
-                    <span>工具调用</span>
-                    <b data-testid="tool-call-total">
-                        {data.summary.tool_calls == null
-                            ? "—"
-                            : formatNumber(data.summary.tool_calls)}
+                    <span>已记录费用 / 轮</span>
+                    <b data-testid="cost-per-turn">
+                        {formatMetric(
+                            data.summary.per_turn?.cost_usd_known_mean,
+                            "cost",
+                        )}
                     </b>
                     <small>
-                        已记录小计 {data.summary.tool_calls_known} · 每轮{" "}
-                        {data.summary.tools_per_turn?.toFixed(1) ?? "—"}
+                        {data.summary.per_turn.cost_complete_samples !==
+                        data.summary.per_turn.samples
+                            ? `部分价格覆盖 · ${data.summary.per_turn.cost_priced_samples ?? 0}/${data.summary.per_turn.samples} 轮有价格`
+                            : `${data.summary.per_turn.samples} 轮样本`}
+                    </small>
+                </article>
+                <article>
+                    <span>已记录工具调用</span>
+                    <b data-testid="tool-call-total">
+                        {formatNumber(data.summary.tool_calls_known)}
+                    </b>
+                    <small>
+                        {data.summary.tool_calls == null
+                            ? "部分记录"
+                            : "记录完整"}
                     </small>
                 </article>
                 <article>
@@ -150,48 +147,85 @@ export function TurnWorkbench({
                     </b>
                     <small>
                         {data.summary.duration_samples} 个样本
-                        {data.summary.duration_boundary_quality
-                            ? ` · ${data.summary.duration_boundary_quality.inferred ?? 0} 个推定边界`
+                        {data.summary.duration_boundary_quality?.inferred
+                            ? ` · ${data.summary.duration_boundary_quality.inferred} 个推定边界`
                             : ""}
                     </small>
                 </article>
             </div>
             <div className="turn-plot-layout">
                 <div>
-                    <div className="panel-controls">
-                        <label>
-                            <span>指标</span>
-                            <select
-                                aria-label="轮次趋势指标"
-                                data-testid="metric-turns"
-                                value={metric}
-                                onChange={(e) => setMetric(e.target.value)}
-                            >
-                                {Object.entries(metricLabels).map(([k, l]) => (
-                                    <option value={k} key={k}>
-                                        {l}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <label>
-                            <span>图形</span>
-                            <select
-                                aria-label="轮次趋势图形"
-                                data-testid="chart-type-turns"
-                                value={chart}
-                                onChange={(e) =>
-                                    setChart(e.target.value as ChartKind)
-                                }
-                            >
-                                <option value="area">区域</option>
-                                <option value="line">折线</option>
-                                <option value="bar">柱形</option>
-                            </select>
-                        </label>
-                        <span className="scope-label">
-                            点击时段或拖动底部选区，查看局部
-                        </span>
+                    <div className="panel-toolbar">
+                        <div className="quick-metrics">
+                            {["tokens", "cost", "tool_calls_known"].map((m) => (
+                                <button
+                                    key={m}
+                                    data-testid={`quick-turns-${m}`}
+                                    className={metric === m ? "selected" : ""}
+                                    onClick={() =>
+                                        onView({ ...view, metric: m })
+                                    }
+                                >
+                                    {m === "tokens"
+                                        ? "Tokens"
+                                        : m === "cost"
+                                          ? "费用"
+                                          : "工具调用"}
+                                </button>
+                            ))}
+                        </div>
+                        <details
+                            className="panel-menu"
+                            data-testid="settings-turns"
+                        >
+                            <summary>设置 ⌄</summary>
+                            <div className="panel-menu-content">
+                                {" "}
+                                <div className="panel-controls">
+                                    <label>
+                                        <span>指标</span>
+                                        <select
+                                            aria-label="轮次趋势指标"
+                                            data-testid="metric-turns"
+                                            value={metric}
+                                            onChange={(e) =>
+                                                onView({
+                                                    ...view,
+                                                    metric: e.target.value,
+                                                })
+                                            }
+                                        >
+                                            {Object.entries(metricLabels).map(
+                                                ([k, l]) => (
+                                                    <option value={k} key={k}>
+                                                        {l}
+                                                    </option>
+                                                ),
+                                            )}
+                                        </select>
+                                    </label>
+                                    <label>
+                                        <span>图形</span>
+                                        <select
+                                            aria-label="轮次趋势图形"
+                                            data-testid="chart-type-turns"
+                                            value={chart}
+                                            onChange={(e) =>
+                                                onView({
+                                                    ...view,
+                                                    chart: e.target
+                                                        .value as ChartKind,
+                                                })
+                                            }
+                                        >
+                                            <option value="area">区域</option>
+                                            <option value="line">折线</option>
+                                            <option value="bar">柱形</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                     <TimeChart
                         rows={rows}
@@ -214,7 +248,14 @@ export function TurnWorkbench({
                     <div className="member-title">
                         工具类型与状态<span>{data.tools.rows.length} 类</span>
                     </div>
-                    {data.tools.coverage !== "complete" && <span className="muted tiny" title="部分轮次的工具记录缺失，以下显示已读取的调用。">部分记录</span>}
+                    {data.tools.coverage !== "complete" && (
+                        <span
+                            className="muted tiny"
+                            title="部分轮次的工具记录缺失，以下显示已读取的调用。"
+                        >
+                            部分记录
+                        </span>
+                    )}
                     <div className="tool-status-total">
                         {Object.entries(data.tools.status_counts).map(
                             ([s, n]) => (
@@ -259,8 +300,60 @@ export function TurnWorkbench({
                     )}
                 </aside>
             </div>
+        </section>
+    );
+}
+export function TurnTable({
+    data,
+    global,
+    onPage,
+    onOpen,
+    view,
+    onSort,
+}: {
+    data: TurnsAnalysis;
+    global: GlobalQuery;
+    onPage: (offset: number) => void;
+    onOpen: (r: TurnRow) => void;
+    view: TurnView;
+    onSort: (sort: string, order: "asc" | "desc") => void;
+}) {
+    return (
+        <section
+            className="turn-table-panel panel"
+            data-testid="turn-table-panel"
+        >
             <div className="turn-table-heading">
-                <h3>轮次明细</h3>
+                <h3>
+                    轮次明细 <span>{data.total} 轮</span>
+                </h3>
+                <label>
+                    排序
+                    <select
+                        data-testid="turn-sort"
+                        aria-label="轮次排序"
+                        value={view.sort}
+                        onChange={(e) => onSort(e.target.value, view.order)}
+                    >
+                        <option value="start">开始时间</option>
+                        <option value="cost_usd">估算费用</option>
+                        <option value="tokens">Tokens</option>
+                        <option value="duration">耗时</option>
+                        <option value="calls">模型调用</option>
+                        <option value="tool_calls">已记录工具调用</option>
+                    </select>
+                </label>
+                <button
+                    data-testid="turn-order"
+                    onClick={() =>
+                        onSort(
+                            view.sort,
+                            view.order === "desc" ? "asc" : "desc",
+                        )
+                    }
+                >
+                    {view.order === "desc" ? "从高到低 ↓" : "从低到高 ↑"}
+                </button>
             </div>
             <div className="table-scroll">
                 <table className="turn-table">
@@ -285,16 +378,21 @@ export function TurnWorkbench({
                                         onClick={() => onOpen(r)}
                                         title={`${r.harness} / ${r.session_id} / ${r.turn_id}`}
                                     >
-                                        <span>{r.turn_id}</span>
+                                        <span>
+                                            {timeLabel(
+                                                r.start,
+                                                global.timezone,
+                                                true,
+                                            )}
+                                        </span>
                                         <Icon name="arrow" />
                                     </button>
                                     <small className="row-subtitle">
-                                        {harnessLabel(r.harness)} ·{" "}
-                                        {timeLabel(
-                                            r.start,
-                                            global.timezone,
-                                            true,
-                                        )}
+                                        {r.project
+                                            ?.split("/")
+                                            .filter(Boolean)
+                                            .at(-1) ?? "未归属项目"}{" "}
+                                        · {harnessLabel(r.harness)}
                                     </small>
                                 </td>
                                 <td>
@@ -319,10 +417,10 @@ export function TurnWorkbench({
                                 </td>
                                 <td>{rowMetrics(r).calls}</td>
                                 <td>
-                                    {r.tool_calls ?? "—"}
+                                    {r.tool_calls_known}
                                     {r.tool_calls == null && (
                                         <small className="table-quality">
-                                            已记录 {r.tool_calls_known}
+                                            部分记录
                                         </small>
                                     )}
                                 </td>
@@ -444,12 +542,14 @@ export function TurnDrawer({
                         <strong>{sec(row.duration_seconds)}</strong>
                     </div>
                     <div>
-                        <span>工具调用</span>
-                        <strong>{row.tool_calls ?? "—"}</strong>
+                        <span>已记录工具调用</span>
+                        <strong>{row.tool_calls_known}</strong>
                     </div>
                     <div>
-                        <span>已记录工具小计</span>
-                        <strong>{row.tool_calls_known}</strong>
+                        <span>工具覆盖</span>
+                        <strong>
+                            {row.tool_calls == null ? "部分记录" : "记录完整"}
+                        </strong>
                     </div>
                 </div>
                 <details className="detail-coverage">
@@ -483,7 +583,6 @@ export function TurnDrawer({
                             {detail.usage_scope === "filtered_calls"
                                 ? "保持全局模型等条件筛选"
                                 : "所有已记录调用"}
-
                         </p>
                         <h3>模型调用</h3>
                         {detail.calls.map((c) => (

@@ -53,13 +53,6 @@ const dimensions: Record<Dimension, string> = {
     service_tier: "服务档位",
     session: "会话",
 };
-const filterKeys: FilterKey[] = [
-    "harness",
-    "model",
-    "project",
-    "provider",
-    "purpose",
-];
 const metrics: Metric[] = [
     "cost",
     "tokens",
@@ -109,22 +102,7 @@ const ratio = (m: Metric) =>
         "rps",
         "timed_tps",
     ].includes(m);
-function initialQuery(): Query {
-    const until = new Date(),
-        since = new Date(until.getTime() - 7 * 86400000);
-    return {
-        since: since.toISOString(),
-        until: until.toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        bucket: "day",
-        dimension: "harness",
-        metric: "cost",
-        filters: {},
-    };
-}
-function value(v: Values, m: Metric) {
-    return v[m] ?? null;
-}
+const value = (v: Values, m: Metric) => v[m] ?? null;
 function Icon({
     name,
 }: {
@@ -243,175 +221,53 @@ function Facet({
         </div>
     );
 }
-function TimeRange({
-    query,
-    onChange,
-    relativeDays,
+function MetricStrip({
+    data,
+    turnCount,
 }: {
-    query: Query;
-    onChange: (q: Query, relativeDays?: number | null) => void;
-    relativeDays?: number | null;
+    data: Analysis;
+    turnCount?: number;
 }) {
-    const [open, setOpen] = useState(false),
-        [start, setStart] = useState(""),
-        [end, setEnd] = useState(""),
-        [error, setError] = useState("");
-    function edit() {
-        setStart(dateInput(query.since, query.timezone));
-        setEnd(dateInput(query.until, query.timezone));
-        setError("");
-        setOpen(true);
-    }
-    function apply() {
-        try {
-            const since = inputDate(start, query.timezone),
-                until = inputDate(end, query.timezone);
-            if (since >= until) throw new Error("结束时间须晚于开始时间");
-            onChange({ ...query, since, until }, null);
-            setOpen(false);
-        } catch (e) {
-            setError((e as Error).message);
-        }
-    }
-    return (
-        <div className="range" data-testid="time-range">
-            <div className="presets">
-                {[1, 7, 30].map((days) => (
-                    <button
-                        key={days}
-                        className={relativeDays === days ? "selected" : ""}
-                        onClick={() => {
-                            const until = new Date();
-                            onChange(
-                                {
-                                    ...query,
-                                    since: new Date(
-                                        until.getTime() - days * 86400000,
-                                    ).toISOString(),
-                                    until: until.toISOString(),
-                                    bucket: query.bucket,
-                                },
-                                days,
-                            );
-                        }}
-                    >
-                        近{days === 1 ? "24小时" : `${days}天`}
-                    </button>
-                ))}
-            </div>
-            <button className="range-button" onClick={edit}>
-                <Icon name="clock" />
-                {dateInput(query.since, query.timezone).replace("T", " ")}
-                <span>—</span>
-                {dateInput(query.until, query.timezone).replace("T", " ")}
-                <small>⌄</small>
-            </button>
-            <select
-                value={query.timezone}
-                title="全局时区"
-                data-testid="timezone"
-                onChange={(e) =>
-                    onChange({ ...query, timezone: e.target.value })
-                }
-            >
-                {[
-                    ...new Set([
-                        query.timezone,
-                        "Asia/Singapore",
-                        "Asia/Shanghai",
-                        "UTC",
-                        "America/Los_Angeles",
-                        "America/New_York",
-                        "Europe/London",
-                    ]),
-                ].map((z) => (
-                    <option key={z}>{z}</option>
-                ))}
-            </select>
-            {open && (
-                <div className="modal-backdrop" onClick={() => setOpen(false)}>
-                    <div
-                        className="time-dialog"
-                        data-testid="time-dialog"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="panel-title">
-                            <h2>自定义时间范围</h2>
-                            <button
-                                className="icon-button"
-                                onClick={() => setOpen(false)}
-                            >
-                                <Icon name="close" />
-                            </button>
-                        </div>
-                        <p className="muted">
-                            按 {query.timezone}{" "}
-                            输入，精确到秒；结束时间不含在统计范围内。
-                        </p>
-                        <label>
-                            开始
-                            <input
-                                type="datetime-local"
-                                step="1"
-                                data-testid="range-start"
-                                value={start}
-                                onChange={(e) => setStart(e.target.value)}
-                            />
-                        </label>
-                        <label>
-                            结束
-                            <input
-                                type="datetime-local"
-                                step="1"
-                                data-testid="range-end"
-                                value={end}
-                                onChange={(e) => setEnd(e.target.value)}
-                            />
-                        </label>
-                        {error && <p className="error-text">{error}</p>}
-                        <button className="primary" onClick={apply}>
-                            应用时间范围
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-function MetricStrip({ data }: { data: Analysis }) {
     return (
         <section className="metric-strip" data-testid="summary">
-            {(["cost", "tokens", "calls", "cache_rate"] as Metric[]).map(
-                (m) => (
-                    <article key={m}>
-                        <div className="metric-label">{metricLabels[m]}</div>
-                        <div className="metric-value">
-                            {formatMetric(value(data.summary, m), m)}
-                        </div>
-                        <div className="metric-foot">
-                            <span>
-                                {m === "cost"
-                                    ? data.summary.unpriced
-                                        ? `缺价 ${formatNumber(data.summary.unpriced)} 条调用`
-                                        : "USD"
-                                    : m === "tokens"
-                                      ? `${data.summary.input_complete === false ? "已记录小计 · " : ""}输入 ${formatNumber(data.summary.input)} · 输出 ${formatNumber(data.summary.output)}`
-                                      : m === "calls"
-                                        ? `${formatNumber(data.summary.sessions)} 个会话`
-                                        : data.summary.cache_rate == null ? "输入数据不完整" : ""}
-                            </span>
-                            <span className="change">
-                                {displayedChange(
-                                    data.changes?.[m],
-                                    value(data.summary, m),
-                                    value(data.previous_summary, m),
-                                )}
-                                <small> 较前窗</small>
-                            </span>
-                        </div>
-                    </article>
-                ),
-            )}
+            {(["cost", "tokens", "calls"] as Metric[]).map((m) => (
+                <article key={m}>
+                    <div className="metric-label">
+                        {m === "calls" ? "模型调用" : metricLabels[m]}
+                    </div>
+                    <div className="metric-value" data-testid={`summary-${m}`}>
+                        {formatMetric(value(data.summary, m), m)}
+                    </div>
+                    <div className="metric-foot">
+                        <span>
+                            {m === "cost"
+                                ? data.summary.unpriced
+                                    ? `部分价格 · ${formatNumber(data.summary.unpriced)} 次缺价`
+                                    : "USD"
+                                : m === "tokens"
+                                  ? `${data.summary.input_complete === false ? "已记录 · " : ""}输入 ${formatNumber(data.summary.input)} / 输出 ${formatNumber(data.summary.output)}`
+                                  : `${formatNumber(data.summary.sessions)} 个会话`}
+                        </span>
+                        <span className="change">
+                            {displayedChange(
+                                data.changes?.[m],
+                                value(data.summary, m),
+                                value(data.previous_summary, m),
+                            )}
+                            <small> 较前期</small>
+                        </span>
+                    </div>
+                </article>
+            ))}
+            <article>
+                <div className="metric-label">轮次</div>
+                <div className="metric-value" data-testid="turn-count">
+                    {turnCount == null ? "—" : formatNumber(turnCount)}
+                </div>
+                <div className="metric-foot">
+                    <span>与当前范围相交</span>
+                </div>
+            </article>
         </section>
     );
 }
@@ -496,7 +352,11 @@ function Comparison({
                     {formatMetric(previous, metric)} →{" "}
                     {formatMetric(current, metric)}
                 </span>
-                {knownMode && <small title="部分调用缺少价格，变化仅对应已计价部分。">部分费用</small>}
+                {knownMode && (
+                    <small title="部分调用缺少价格，变化仅对应已计价部分。">
+                        部分费用
+                    </small>
+                )}
             </div>
             <div className="contributions">
                 {changes.map(({ m, delta }) => (
@@ -915,7 +775,6 @@ function Detail({
 export {
     Icon,
     Facet,
-    TimeRange,
     MetricStrip,
     BucketZoom,
     Comparison,

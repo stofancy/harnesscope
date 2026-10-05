@@ -231,6 +231,11 @@ export type TurnsAnalysis = {
             calls: number | null;
             tokens: number | null;
             cost_usd: number | null;
+            tokens_known_mean?: number | null;
+            cost_usd_known_mean?: number | null;
+            tokens_complete_samples?: number;
+            cost_complete_samples?: number;
+            cost_priced_samples?: number;
         };
     };
     trend: {
