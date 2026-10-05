@@ -1,15 +1,18 @@
 """Synthetic Codex events: the web ledger and CLI share legacy metering."""
 
 import json
+from dataclasses import replace
 
 import pytest
 
 from codex_usage.adapters.codex import CodexAdapter
-from codex_usage.domain import timestamp_us
+from codex_usage.domain import ParseBatch, SourceFile, UsageEvent, timestamp_us
+from codex_usage.index import SQLiteIndex
 from codex_usage.parser import parse_codex_file, parse_rollout
 
 SID = "00000000-0000-0000-0000-000000000001"
 PARENT = "00000000-0000-0000-0000-000000000002"
+RUNTIME = "00000000-0000-0000-0000-000000000003"
 
 
 def record(kind, payload, second=0, day=1):
@@ -38,6 +41,17 @@ def context():
     return [record("session_meta", {"id": SID, "model_provider": "local",
                     "thread_source": "user", "cwd": "/synthetic"}),
             record("turn_context", {"model": "gpt-example"})]
+
+
+def resumed_subagent():
+    return [record("session_meta", {
+        "id": SID, "model_provider": "local", "thread_source": "subagent",
+        "cwd": "/synthetic", "source": {"subagent": {"thread_spawn": {
+            "parent_thread_id": PARENT, "agent_nickname": "worker",
+            "agent_role": "executor"}}}}),
+        record("session_meta", {"id": RUNTIME, "thread_source": "user",
+                               "cwd": "/synthetic", "source": "cli"}),
+        record("turn_context", {"model": "gpt-example"})]
 
 
 def write(tmp_path, lines, suffix=""):
@@ -161,6 +175,98 @@ def test_native_owner_cache_write_and_response_identity_survive_copy(tmp_path):
     assert event.cache_write == 5
     assert event.source_total == 110
     assert event.key == second.events[0].key
+    assert event.parent_session_id is None
+    assert event.agent_type is None
+    assert event.agent_label is None
+    assert event.project is None
+    assert event.provider is None
+    assert event.service_tier is None
+
+
+def test_resumed_subagent_retains_thread_identity_and_origin(tmp_path):
+    path = write(tmp_path, resumed_subagent() + [native()])
+    batch = parse_codex_file(str(path))
+    event = batch.events[0]
+    assert event.session_id == batch.state["web_session_id"] == batch.state["sid"] == SID
+    assert event.parent_session_id == PARENT
+    assert event.agent_type == "executor"
+    assert event.agent_label == "worker(executor)"
+    assert event.purpose == "subagent"
+    assert event.project == "/synthetic"
+    assert tokens(batch.events) == [100, 20, 10, 0]
+
+
+def test_resume_metadata_after_refresh_retains_original_subagent_origin(tmp_path):
+    path = write(tmp_path, resumed_subagent()[:1])
+    first = parse_codex_file(str(path))
+    with path.open("a") as stream:
+        stream.write("\n".join(resumed_subagent()[1:] + [native()]) + "\n")
+    second = parse_codex_file(str(path), first.next_offset, first.state)
+    assert second.events[0].parent_session_id == PARENT
+    assert second.events[0].agent_type == "executor"
+    assert second.events[0].purpose == "subagent"
+    assert second.state["web_session_id"] == SID
+
+
+def test_codex_version_rebuild_recovers_old_runtime_state_only_for_codex(tmp_path):
+    home = tmp_path / "codex"
+    directory = home / "sessions"
+    directory.mkdir(parents=True)
+    source = write(directory, resumed_subagent() + [native()])
+    other_path = tmp_path / "other.txt"
+    other_path.write_text("synthetic\n")
+
+    class LegacyCodex(CodexAdapter):
+        version = "1"
+
+        def parse_file(self, path, offset=0, state=None):
+            batch = super().parse_file(path, offset, state)
+            batch.events = [replace(e, parent_session_id=None, agent_type=None,
+                                    agent_label=None, purpose=None) for e in batch.events]
+            batch.state["web_session_id"] = RUNTIME
+            batch.state["type"] = "user"
+            batch.state.pop("logical_metadata_seen", None)
+            return batch
+
+    class OtherAdapter:
+        harness = "claude"
+        calls = 0
+
+        def discover(self):
+            yield SourceFile(str(other_path), self.harness)
+
+        def parse_file(self, path, offset=0, state=None):
+            self.calls += 1
+            return ParseBatch(events=[UsageEvent(key="other", timestamp_us=1,
+                              harness=self.harness, session_id="other", output=1)],
+                              next_offset=other_path.stat().st_size)
+
+    index = SQLiteIndex(tmp_path / "cache.sqlite3")
+    other = OtherAdapter()
+    index.refresh([LegacyCodex(home), other])
+    with index.read_snapshot() as conn:
+        assert conn.execute("SELECT parent_session_id FROM events WHERE harness='codex'").fetchone()[0] is None
+        assert json.loads(conn.execute("SELECT state FROM files WHERE path=?",
+                                      (str(source),)).fetchone()[0])["web_session_id"] == RUNTIME
+    refreshed = index.refresh([CodexAdapter(home), other])
+    assert refreshed["unchanged_files"] == 1
+    assert other.calls == 1
+    with index.read_snapshot() as conn:
+        event = conn.execute("SELECT * FROM events WHERE harness='codex'").fetchone()
+        assert event["parent_session_id"] == PARENT
+        assert event["agent_type"] == "executor"
+        assert event["purpose"] == "subagent"
+        row = conn.execute("SELECT adapter_version,state FROM files WHERE path=?", (str(source),)).fetchone()
+        assert row["adapter_version"] == CodexAdapter.version
+        state = json.loads(row["state"])
+    assert state["web_session_id"] == SID
+    with source.open("a") as stream:
+        stream.write(native(response="r2") + "\n")
+    index.refresh([CodexAdapter(home), other])
+    with index.read_snapshot() as conn:
+        assert conn.execute("SELECT count(*) FROM events WHERE harness='codex' AND parent_session_id=?",
+                            (PARENT,)).fetchone()[0] == 2
+    assert other.calls == 1
 
 
 def test_copied_native_mirror_is_suppressed_without_losing_child_legacy(tmp_path):

@@ -176,7 +176,10 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
             setattr(rec, key, state[key])
     provider = state.get("provider")
     agent_type = state.get("agent_type")
-    web_session_id = state.get("web_session_id") or rec.sid
+    # Rollout filenames identify the persistent thread. Later session_meta.id
+    # values may identify a resumed runtime session while native thread_id stays put.
+    web_session_id = rec.sid
+    logical_metadata_seen = state.get("logical_metadata_seen", offset > 0)
     native_owners = set(state.get("native_owners") or [])
     native_mirror_pending = state.get("native_mirror_pending", False)
     owner_settings = dict(state.get("owner_settings") or {})
@@ -215,12 +218,14 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     rec.cwd = p.get("cwd")
                     provider = p.get("model_provider") or provider
                     ts = p.get("thread_source")
-                    rec.type = TYPE_SHORT.get(ts, ts)
-                    if len(uuids) >= 2 and ts == "subagent":
+                    if len(uuids) >= 2 and ts == "subagent" and (not capture or not logical_metadata_seen):
                         rec.sid = uuids[1]
-                    web_session_id = p.get("id") or rec.sid
+                    web_session_id = rec.sid
+                    accept_identity = not capture or not logical_metadata_seen or p.get("id") == rec.sid
+                    if accept_identity:
+                        rec.type = TYPE_SHORT.get(ts, ts)
                     src = p.get("source")
-                    if isinstance(src, dict):
+                    if accept_identity and isinstance(src, dict):
                         spawn = (src.get("subagent") or {}).get("thread_spawn") or {}
                         if spawn:
                             rec.parent = spawn.get("parent_thread_id") or uuids[0]
@@ -228,6 +233,7 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                             role = spawn.get("agent_role") or spawn.get("agent_path") or ""
                             agent_type = spawn.get("agent_role") or None
                             rec.agent = f"{nick}({role})" if role else nick
+                    logical_metadata_seen = True
                 elif '"turn_context"' in tag:
                     context = json.loads(line).get("payload", {})
                     mm = context.get("model")
@@ -319,12 +325,14 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                         timestamp_us=event_us, harness="codex", session_id=owner,
                         source_file=path,
                         parent_session_id=rec.parent if owner == web_session_id else None,
-                        provider=own_settings.get("model_provider_id") or provider,
-                        model=current_model, project=rec.cwd,
+                        provider=own_settings.get("model_provider_id") or (
+                            provider if owner == web_session_id else None),
+                        model=current_model, project=rec.cwd if owner == web_session_id else None,
                         agent_type=agent_type if owner == web_session_id else None,
                         agent_label=rec.agent if owner == web_session_id else None,
                         purpose=rec.type if owner == web_session_id else None,
-                        service_tier=own_settings.get("service_tier") or current_tier,
+                        service_tier=own_settings.get("service_tier") or (
+                            current_tier if owner == web_session_id else None),
                         input_net=gross - cached - written, cache_read=cached,
                         cache_write=written, output=output,
                         reasoning=_token(usage, "reasoning_output_tokens"),
@@ -424,6 +432,7 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
         "turn_outputs": turn_outputs, "turn_in_window": turn_in_window,
         "metering_mode": "native" if web_session_id in native_owners else "legacy",
         "web_session_id": web_session_id, "native_owners": sorted(native_owners),
+        "logical_metadata_seen": logical_metadata_seen,
         "native_mirror_pending": native_mirror_pending,
         "owner_settings": owner_settings,
         "seen_responses": sorted(seen_responses),

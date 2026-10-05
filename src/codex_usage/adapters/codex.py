@@ -9,6 +9,7 @@ from ..parser import UUID_RE, parse_codex_file
 
 class CodexAdapter:
     harness = "codex"
+    version = "2"
 
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
