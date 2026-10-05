@@ -438,3 +438,7 @@ export type UsageAnalysis = {
     offset: number;
     limit: number;
 };
+
+export type CalendarValues = Pick<Values, "tokens" | "calls" | "cost" | "cost_complete" | "input_complete" | "unpriced">;
+export type CalendarPoint = Pick<Point, "start" | "end" | "window_start" | "window_end"> & { date: string; total: CalendarValues };
+export type CalendarAnalysis = { snapshot_id: string; query: GlobalQuery; trend: CalendarPoint[] };

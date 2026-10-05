@@ -1,8 +1,7 @@
-import { useMemo, useState, type CSSProperties } from "react";
-import type { Analysis, GlobalQuery, Point } from "./types";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import type { CalendarAnalysis, CalendarPoint, GlobalQuery } from "./types";
 import type { CalendarMetric } from "./preferences";
-import { dateInput, inputDate, formatNumber } from "./format";
-import type { TimeSpec } from "./time";
+import { dateInput, inputDate } from "./format";
 import "./calendar.css";
 
 const DAY = 86400000;
@@ -16,54 +15,69 @@ const valueLabel = (n: number | null, metric: CalendarMetric) =>
     n == null ? "—" : `${metric === "cost" ? "$" : ""}${exact(n)}`;
 const nominalDate = (time: number) => new Date(time).toISOString().slice(0, 10);
 
-export function calendarYearRange(year: number, timezone: string): {
-    timeSpec: TimeSpec; window: { since: string; until: string };
-} {
+export function calendarYearRange(year: number, timezone: string): { since: string; until: string } {
     const now = new Date();
     const thisYear = Number(dateInput(now.toISOString(), timezone).slice(0, 4));
     if (year > thisYear) throw new Error("不能选择未来年份");
-    const since = inputDate(`${year}-01-01T00:00:00`, timezone);
-    const end = year === thisYear ? "now" : inputDate(`${year + 1}-01-01T00:00:00`, timezone);
-    return { timeSpec: { start: since, end }, window: { since, until: end === "now" ? now.toISOString() : end } };
+    return {
+        since: inputDate(`${year}-01-01T00:00:00`, timezone),
+        until: year === thisYear ? now.toISOString() : inputDate(`${year + 1}-01-01T00:00:00`, timezone),
+    };
 }
 
 type Day = {
-    date: string; point?: Point; value: number | null;
+    date: string; point?: CalendarPoint; value: number | null;
     state: "empty" | "available" | "partial" | "unknown" | "future" | "outside" | "padding" | "unavailable";
     level: number; since: string; until: string;
 };
 
-export function UsageCalendar({ data, global, metric, onMetric, onYear, onDay }: {
-    data: Analysis; global: GlobalQuery; metric: CalendarMetric;
+function dayLabel(day: Day, metric: CalendarMetric): string {
+    const parts = [day.date, `${labels[metric]} ${valueLabel(day.value, metric)}`];
+    if (day.state === "future") parts.push("未来日期");
+    else if (day.state === "empty") parts.push("无调用");
+    else if (day.point) {
+        const values = day.point.total;
+        if (values.input_complete === false) parts.push("缓存写入未完整记录");
+        if (values.unpriced > 0) parts.push(`${exact(values.unpriced)} 次调用无法估价`);
+        else if (values.cost_complete === false || values.cost == null) parts.push("费用未知");
+    }
+    return parts.join(" · ");
+}
+
+export function UsageCalendar({ data, global, metric, onMetric, onYear, onDay, actions, loading = true }: {
+    data: CalendarAnalysis | null; global: GlobalQuery; metric: CalendarMetric;
     onMetric: (m: CalendarMetric) => void;
     onYear: (year: number) => void;
     onDay: (since: string, until: string) => void;
+    actions?: ReactNode;
+    loading?: boolean;
 }) {
     const year = Number(dateInput(global.since, global.timezone).slice(0, 4));
     const today = dateInput(new Date().toISOString(), global.timezone).slice(0, 10);
     const currentYear = Number(today.slice(0, 4));
-    const daily = (data.bucket_resolved ?? data.query.bucket) === "day";
+    const daily = !!data;
     const [hover, setHover] = useState<{ day: Day; x: number; y: number } | null>(null);
     const calendar = useMemo(() => {
+        if (!daily || !data) return { days: [] as Day[], weeks: 0, months: [], maximum: 0 };
         // Nominal UTC dates are used only for grid positions. Day boundaries below
         // are resolved in the query timezone, including its daylight-saving changes.
         const first = Date.UTC(year, 0, 1), last = Date.UTC(year, 11, 31);
         const offset = (new Date(first).getUTCDay() + 6) % 7;
         const gridStart = first - offset * DAY;
         const weeks = Math.ceil(((last - gridStart) / DAY + 1) / 7);
-        const points = new Map(data.trend.map(p => [dateInput(p.start, global.timezone).slice(0, 10), p]));
+        const points = new Map(data.trend.map(p => [p.date, p]));
         const maximum = daily ? Math.max(0, ...data.trend.map(p => p.total[metric] ?? 0)) : 0;
         const days: Day[] = Array.from({ length: weeks * 7 }, (_, i) => {
             const t = gridStart + i * DAY, date = nominalDate(t);
             const point = daily ? points.get(date) : undefined;
-            const since = inputDate(`${date}T00:00:00`, global.timezone);
-            const until = inputDate(`${nominalDate(t + DAY)}T00:00:00`, global.timezone);
+            const since = point?.start ?? "";
+            const until = point?.end ?? "";
             const value = point?.total[metric] ?? null;
             let state: Day["state"];
             if (t < first || t > last) state = "padding";
             else if (date > today) state = "future";
-            else if (since >= global.until || until <= global.since) state = "outside";
             else if (!point) state = "unavailable";
+            else if (since >= global.until || until <= global.since) state = "outside";
             else if (point.total.calls === 0) state = "empty";
             else if (value == null) state = "unknown";
             else if ((metric === "cost" && (point.total.cost_complete === false || point.total.unpriced > 0)) ||
@@ -91,37 +105,33 @@ export function UsageCalendar({ data, global, metric, onMetric, onYear, onDay }:
                 <button data-testid="calendar-next-year" aria-label="下一年" disabled={year >= currentYear} onClick={() => onYear(year + 1)}>›</button>
                 {year !== currentYear && <button className="text-button" data-testid="calendar-this-year" onClick={() => onYear(currentYear)}>今年</button>}
             </div>
-            <div className="segmented calendar-metrics">
+            <div className="calendar-heading-actions"><div className="segmented calendar-metrics">
                 {(["tokens", "cost", "calls"] as CalendarMetric[]).map(m => <button key={m}
                     data-testid={`calendar-metric-${m}`} className={m === metric ? "selected" : ""}
                     onClick={() => { setHover(null); onMetric(m); }}>{labels[m]}</button>)}
-            </div>
+            </div>{actions}</div>
         </header>
-        {!daily ? <div className="calendar-loading">正在准备逐日用量…</div> : <>
+        {!daily ? (loading ? <div className="calendar-loading">加载中…</div> : null) : <>
             <div className="calendar-body" onMouseLeave={() => setHover(null)} style={{ "--calendar-weeks": calendar.weeks } as CSSProperties}>
                 <div className="calendar-months">{calendar.months.map(m => <span key={m.label} style={{ gridColumn: m.column }}>{m.label}</span>)}</div>
                 <div className="calendar-weekdays">{["一", "二", "三", "四", "五", "六", "日"].map(d => <span key={d}>{d}</span>)}</div>
                 <div className="calendar-grid">
                     {calendar.days.map(day => <button key={day.date} data-date={day.date} data-state={day.state} data-level={day.level}
                         className="calendar-day" disabled={["future", "outside", "padding", "unavailable"].includes(day.state)}
-                        aria-label={`${day.date} ${labels[metric]} ${valueLabel(day.value, metric)}${day.state === "partial" ? "，部分数据" : day.state === "unknown" ? "，费用未知" : day.state === "empty" ? "，无调用" : ""}`}
+                        aria-label={dayLabel(day, metric)}
+                        title={dayLabel(day, metric)}
                         onMouseEnter={e => showDay(day, e.currentTarget)} onFocus={e => showDay(day, e.currentTarget)}
                         onBlur={() => setHover(null)} onClick={() => onDay(day.since, day.until)} />)}
                 </div>
                 {selected && <div className="calendar-tooltip" role="tooltip" data-testid="calendar-tooltip" style={{ left: hover?.x, top: hover?.y }}>
                     <strong>{selected.date}</strong>
                     {selected.point ? <>
-                        <dl><div><dt>Tokens</dt><dd title={selected.point.total.input_complete === false ? "部分数据" : undefined}>{exact(selected.point.total.tokens)}{selected.point.total.input_complete === false ? "*" : ""}</dd></div>
-                            <div><dt>估算费用</dt><dd title={selected.point.total.cost == null ? "费用未知" : selected.point.total.unpriced > 0 || selected.point.total.cost_complete === false ? "部分费用" : undefined}>{valueLabel(selected.point.total.cost, "cost")}{selected.point.total.cost != null && (selected.point.total.unpriced > 0 || selected.point.total.cost_complete === false) ? "*" : ""}</dd></div>
+                        <dl><div><dt>Tokens</dt><dd>{exact(selected.point.total.tokens)}{selected.point.total.input_complete === false ? "*" : ""}</dd></div>
+                            <div><dt>估算费用</dt><dd>{valueLabel(selected.point.total.cost, "cost")}{selected.point.total.cost != null && (selected.point.total.unpriced > 0 || selected.point.total.cost_complete === false) ? "*" : ""}</dd></div>
                             <div><dt>调用</dt><dd>{exact(selected.point.total.calls)}</dd></div></dl>
                     </> : <p>{selected.state === "future" ? "未来日期" : selected.state === "outside" ? "不在当前时间范围内" : "无可用逐日数据"}</p>}
                 </div>}
             </div>
-            <footer className="calendar-footer">
-                <div className="calendar-legend"><span>0</span>{[0, 1, 2, 3, 4].map(level => <i key={level} data-level={level} title={level === 0 ? "0" : `≤ ${valueLabel(calendar.maximum * level / 4, metric)}`} />)}
-                    <span>{metric === "cost" ? valueLabel(calendar.maximum, metric) : formatNumber(calendar.maximum)}</span>
-                    <i data-state="partial" /><span>部分</span><i data-state="unknown" /><span>未知</span><i data-state="future" /><span>未来</span></div>
-            </footer>
         </>}
     </section>;
 }

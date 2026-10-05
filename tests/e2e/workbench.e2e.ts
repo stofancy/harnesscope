@@ -1,6 +1,6 @@
 import { test, type Browser } from '../../web/node_modules/@e2e-dev/web/dist/index.js';
 import { expect } from '../../web/node_modules/e2e/dist/index.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { initial, refreshed } from './expected.ts';
 
@@ -22,7 +22,10 @@ async function open(b: Browser) {
   await byId(b, 'slice-minute').click(); await ready(b);
   await expect(byId(b, 'summary-tokens')).toHaveText('1.3K');
 }
-async function page(b: Browser, name: 'dashboard' | 'usage') { await byId(b, `page-${name}`).click(); await ready(b); }
+async function page(b: Browser, name: 'dashboard' | 'usage' | 'calendar') {
+  await byId(b, `page-${name}`).click(); await ready(b);
+  if(name==='calendar') await expect(byId(b,'calendar-page')).toHaveAttribute('aria-busy','false');
+}
 async function group(b: Browser, name: string) { await byId(b, `usage-group-${name}`).click(); await ready(b); }
 async function reveal(b: Browser, id: string) {
   if (await byId(b, id).getAttribute('open') === null) await b.locator(`[data-testid="${id}"] > summary`).click();
@@ -503,28 +506,16 @@ async function hoverCalendarDay(b: Browser,date:string) {
   await b.mouse.move(rect.x,rect.y);
   await expect(byId(b,'calendar-tooltip')).toBeVisible();
 }
-async function projectCalendar(b: Browser) {
-  await b.locator('[data-testid="filter-project"] .facet-trigger').click();
-  await b.locator('[data-testid="filter-project"] label[title*="/synthetic/calendar"] input').check();
-  await b.locator('[data-testid="filter-project"] .dismiss').click(); await ready(b);
-}
 async function calendarClock(b: Browser) {
   return b.evaluate(() => {
     const now = new Date(), year = now.getFullYear(), p = (n: number) => String(n).padStart(2, '0');
     const day = (d: Date) => `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
     return {year, start:new Date(year,0,1).toISOString(), previousStart:new Date(year-1,0,1).toISOString(),
       dayStart:new Date(year,0,2).toISOString(), dayEnd:new Date(year,0,3).toISOString(),
+      today:day(now),todayStart:new Date(year,now.getMonth(),now.getDate()).toISOString(),
       tomorrow:day(new Date(year,now.getMonth(),now.getDate()+1))};
   });
 }
-async function openCalendar(b: Browser) {
-  await b.goto('/', {waitUntil:'networkidle'}); await ready(b);
-  await byId(b,'calendar-view').click(); await ready(b); await projectCalendar(b);
-  await expect(byId(b,'usage-calendar')).toBeVisible();
-  await expect(byId(b,'summary-tokens')).toHaveText('460');
-  await expect(byId(b,'summary-calls')).toHaveText('5');
-}
-
 test('calendar dashboard: real KPI microtrends and four token components retain unknowns', async ({browser:b,app}) => {
   await open(b);
   for (const [metric,values] of [['tokens',[800,500]],['calls',[3,3]],['cost',[.002660,.002425]]] as const) {
@@ -561,87 +552,106 @@ test('calendar dashboard: real KPI microtrends and four token components retain 
   await expect(byId(b,'token-component-bar')).toHaveAttribute('class',/empty/);
 });
 
-test('calendar dashboard: year bounds, metric states, filtering, day drill and live context restore', async ({browser:b,app}) => {
-  const queries:URL[]=[];
-  await b.route(/\/api\//,async r=>{queries.push(new URL(r.request.url));await r.continue();});
-  await openCalendar(b); const clock=await calendarClock(b), year=clock.year;
-  const latest=()=>queries.filter(q=>q.pathname==='/api/analytics').at(-1)!;
-  const assertLive=()=>{const q=latest();expect(q.searchParams.get('start')).toBe(clock.start);
-    expect(q.searchParams.get('bucket')).toBe('day');expect(Math.abs(Date.parse(q.searchParams.get('end')!)-Date.now())<5000).toBe(true);};
-  await expect(byId(b,'calendar-year')).toContainText(String(year)); assertLive();
-  await expect(byId(b,'calendar-next-year')).toBeDisabled();
-  await expect(calendarCell(b,`${year}-01-02`)).toHaveAttribute('aria-label',/Tokens 200/);
-  await expect(calendarCell(b,`${year}-01-05`)).toHaveAttribute('data-state','empty');
+test('calendar page: full annual data, isolated dashboard state, day drill and return', async ({browser:b,app}) => {
+  const requests:URL[]=[];
+  await b.route(/\/api\//,async r=>{requests.push(new URL(r.request.url));await r.continue();});
+  await open(b);
+  await byId(b,'time-start').fill('2026-10-01T00:00:00Z');
+  await byId(b,'time-end').fill('现在'); await byId(b,'time-apply').click(); await ready(b);
+  await harness(b);
+  for(const [dimension,label] of [['model','e2e-known'],['account','账号未知']]) {
+    await b.locator(`[data-testid="filter-${dimension}"] .facet-trigger`).click();
+    await byId(b,`filter-${dimension}`).getByLabel(label).check();
+    await b.locator(`[data-testid="filter-${dimension}"] .dismiss`).click(); await ready(b);
+  }
+  await expect(byId(b,'summary-tokens')).toHaveText('3.3K');
+  await expect(byId(b,'summary-tokens')).toHaveAttribute('title','Tokens 3,339');
+  await expect(byId(b,'summary-calls')).toHaveText('30');
+  await expect(byId(b,'value-consumption')).toHaveText('$0.0231');
+  await settings(b,'consumption'); await byId(b,'members-consumption').click();
+  await b.locator('[data-testid="panel-consumption"] .panel-members').getByLabel('e2e-known').check(); await ready(b);
+  await settings(b,'consumption',true);
+  const savedDashboard=async()=>b.evaluate(()=>{
+    const p=JSON.parse(localStorage.getItem('usage-dashboard.preferences.v4')!).preferences;
+    return {global:p.global,timeSpec:p.timeSpec,panels:p.panels,history:p.history};
+  });
+  const before=await savedDashboard(),clock=await calendarClock(b),year=clock.year;
+  const latest=()=>requests.filter(q=>q.pathname==='/api/analytics').at(-1)!;
+  const annual=()=>requests.filter(q=>q.pathname==='/api/calendar').at(-1)!;
+  const assertAnnual=(expectedYear=year)=>{
+    const q=annual(); expect(q.searchParams.get('year')).toBe(String(expectedYear));
+    expect([...q.searchParams.keys()].sort()).toEqual(['timezone','year']);
+  };
+  const sumCells=async(metric:'tokens'|'cost'|'calls')=>b.evaluate(metric=>{
+    const labels={tokens:'Tokens',cost:'估算费用',calls:'调用'};
+    return [...document.querySelectorAll('[data-testid="usage-calendar"] [data-date]:not([data-state="padding"])')]
+      .reduce((sum,n)=>{const text=n.getAttribute('aria-label')||'';
+        const amount=text.split(labels[metric]+' ')[1]?.match(/^\$?([\d,.]+)/)?.[1];
+        return sum+(amount?Number(amount.replaceAll(',','')):0);},0);
+  },metric);
+  const response=b.waitForResponse(/\/api\/calendar(?:\?|$)/);
+  const start=requests.length,entered=Date.now(); await page(b,'calendar');
+  await expect(calendarCell(b,`${year}-10-02`)).toHaveAttribute('aria-label',/Tokens 2,?539/);
+  const enterMs=Date.now()-entered;
+  expect(requests.slice(start).map(q=>q.pathname)).toEqual(['/api/calendar']); assertAnnual();
+  const boundary=await (await response).json<{start:string;end:string}>();
+  expect(Date.parse(boundary.start)).toBe(Date.parse(clock.start));
+  expect(Math.abs(Date.parse(boundary.end)-Date.now())<5000).toBe(true);
+  for(const id of ['global-query','account-periods','calendar-view','trend-view','summary']) await expect(byId(b,id)).toHaveCount(0);
+  expect(await sumCells('tokens')).toBe(4879);
   await expect(calendarCell(b,clock.tomorrow)).toHaveAttribute('data-state','future');
   await expect(calendarCell(b,clock.tomorrow)).toBeDisabled();
-  await byId(b,'calendar-metric-cost').click(); await ready(b);
+  const metricRequests=requests.length;
+  await byId(b,'calendar-metric-calls').click(); expect(await sumCells('calls')).toBe(46);
+  await byId(b,'calendar-metric-cost').click(); expect(Math.round(await sumCells('cost')*1e6)).toBe(29189);
+  expect(requests.length).toBe(metricRequests);
   await expect(calendarCell(b,`${year}-01-03`)).toHaveAttribute('data-state','unknown');
-  await hoverCalendarDay(b,`${year}-01-03`);
-  await expect(b.locator('[data-testid="calendar-tooltip"] dd[title="部分费用"]')).toHaveText('—');
+  await hoverCalendarDay(b,`${year}-01-03`); await expect(b.locator('[data-testid="calendar-tooltip"] dd').first()).toHaveText('30*');
   await expect(calendarCell(b,`${year}-01-04`)).toHaveAttribute('data-state','partial');
-  await hoverCalendarDay(b,`${year}-01-04`);
-  await expect(byId(b,'calendar-tooltip')).toContainText('$0.00028');
-  await expect(b.locator('[data-testid="calendar-tooltip"] dd[title="部分费用"]')).toHaveText('$0.00028*');
-  await byId(b,'calendar-metric-calls').click(); await ready(b);
-  await expect(calendarCell(b,`${year}-01-04`)).toHaveAttribute('aria-label',/已记录调用 2/);
+  await hoverCalendarDay(b,`${year}-01-04`); await expect(byId(b,'calendar-tooltip')).toContainText('$0.00028*');
+  const pastResponse=b.waitForResponse(/\/api\/calendar(?:\?|$)/);
   await byId(b,'calendar-prev-year').click(); await ready(b);
-  await expect(byId(b,'calendar-year')).toContainText(String(year-1));
-  await expect(byId(b,'summary-tokens')).toHaveText('100');
-  expect(latest().searchParams.get('start')).toBe(clock.previousStart); expect(latest().searchParams.get('end')).toBe(clock.start);
-  await expect(calendarCell(b,`${year-1}-12-31`)).toHaveAttribute('aria-label',/已记录调用 1/);
+  await expect(calendarCell(b,`${year-1}-12-31`)).toHaveAttribute('aria-label',/\$0\.000485/);
+  assertAnnual(year-1);
+  const pastBoundary=await (await pastResponse).json<{start:string;end:string}>();
+  expect(Date.parse(pastBoundary.start)).toBe(Date.parse(clock.previousStart)); expect(Date.parse(pastBoundary.end)).toBe(Date.parse(clock.start));
+  expect(Math.round(await sumCells('cost')*1e6)).toBe(27510);
   await b.reload(); await ready(b); await expect(byId(b,'calendar-year')).toContainText(String(year-1));
-  expect(latest().searchParams.get('start')).toBe(clock.previousStart); expect(latest().searchParams.get('end')).toBe(clock.start);
-  await byId(b,'calendar-next-year').click(); await ready(b); assertLive();
-  await harness(b); await expect(byId(b,'usage-calendar')).toBeVisible();
-  await expect(byId(b,'summary-tokens')).toHaveText('400'); await expect(byId(b,'summary-calls')).toHaveText('3');
-  await expect(calendarCell(b,`${year}-01-03`)).toHaveAttribute('data-state','empty');
-  await b.locator('[data-testid="filter-harness"] .facet-trigger').click();
-  await byId(b,'filter-harness').getByLabel('Codex').uncheck();
-  await b.locator('[data-testid="filter-harness"] .dismiss').click(); await ready(b);
-  await byId(b,'calendar-metric-tokens').click(); await ready(b); const before=latest().searchParams.get('end')!;
-  await b.reload(); await ready(b); await expect(byId(b,'usage-calendar')).toBeVisible();
-  await expect(byId(b,'summary-tokens')).toHaveText('460'); assertLive();
-  expect(Date.parse(latest().searchParams.get('end')!)>Date.parse(before)).toBe(true);
-  const beforeDay=latest().searchParams.get('end')!;
+  await expect(byId(b,'calendar-page')).toHaveAttribute('aria-busy','false');
+  await expect(byId(b,'calendar-metric-cost')).toHaveAttribute('class','selected');
+  assertAnnual(year-1); expect(await savedDashboard()).toEqual(before);
+  const refreshResponse=b.waitForResponse(/\/api\/calendar(?:\?|$)/);
+  await byId(b,'calendar-refresh').click(); await refreshResponse;
+  await expect(byId(b,'calendar-page')).toHaveAttribute('aria-busy','false'); expect(await savedDashboard()).toEqual(before);
+  await page(b,'dashboard');
+  await expect(byId(b,'summary-tokens')).toHaveAttribute('title','Tokens 3,339');
+  expect(await savedDashboard()).toEqual(before);
+  await settings(b,'consumption'); await expect(byId(b,'members-consumption')).toContainText('1'); await settings(b,'consumption',true);
+  await page(b,'calendar'); await byId(b,'calendar-next-year').click(); await ready(b);
+  await expect(byId(b,'calendar-next-year')).toBeDisabled();
+  await expect(calendarCell(b,`${year}-10-02`)).toHaveAttribute('aria-label',/\$0\.020312/); assertAnnual();
+  await byId(b,'theme-dark').click(); await b.setViewport({width:1024,height:1100});
+  await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>{scrollTo(0,0);r();}))));
+  expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const grid=await b.evaluate(()=>{const cells=[...document.querySelectorAll('[data-testid="usage-calendar"] [data-date]:not([data-state="padding"])')];
+    return{days:cells.length,rows:new Set(cells.map(n=>Math.round(n.getBoundingClientRect().top))).size,visible:cells.every(n=>n.getBoundingClientRect().width>0)};});
+  expect(grid).toEqual({days:365,rows:7,visible:true});
+  await hoverCalendarDay(b,`${year}-10-02`); await expect(byId(b,'calendar-tooltip')).toContainText('2,539');
+  await app.screenshot('calendar-full-year-dark-1024');
   await calendarCell(b,`${year}-01-02`).click(); await ready(b);
-  await expect(byId(b,'usage-calendar')).toHaveCount(0); await expect(byId(b,'summary-tokens')).toHaveText('200');
-  expect(latest().searchParams.get('start')).toBe(clock.dayStart); expect(latest().searchParams.get('end')).toBe(clock.dayEnd);
-  expect(latest().searchParams.get('bucket')).toBe('auto');
+  await expect(byId(b,'summary-tokens')).toHaveText('200'); await expect(byId(b,'calendar-view')).toHaveCount(0);
+  expect(Date.parse(latest().searchParams.get('start')!)).toBe(Date.parse(clock.dayStart)); expect(Date.parse(latest().searchParams.get('end')!)).toBe(Date.parse(clock.dayEnd));
+  const cleared=await savedDashboard(); expect(cleared.global.filters).toEqual({}); expect(cleared.history).toEqual([]);
+  expect(Object.values(cleared.panels as Record<string,{members:string[]}>).every(p=>p.members.length===0)).toBe(true);
   await page(b,'usage'); await expect(byId(b,'usage-total-tokens')).toHaveText('200'); await vector(b,[1,50,30,20,100]);
-  await page(b,'dashboard'); await byId(b,'zoom-back').click(); await ready(b);
-  await expect(byId(b,'usage-calendar')).toBeVisible(); await expect(byId(b,'summary-tokens')).toHaveText('460'); assertLive();
-  expect(Date.parse(latest().searchParams.get('end')!)>Date.parse(beforeDay)).toBe(true);
-  await expect(byId(b,'calendar-year')).toContainText(String(year));
-  await expect(byId(b,'slice-day')).toHaveAttribute('class','selected');
-  await app.screenshot('calendar-year-restored-after-day');
-  await byId(b,'slice-week').click(); await ready(b);
-  await expect(byId(b,'usage-calendar')).toHaveCount(0);
-});
-
-test('calendar dashboard: light and dark calendar, composition and microtrends render at desktop widths', async ({browser:b,app}) => {
-  await openCalendar(b); const {year}=await calendarClock(b);
-  await byId(b,'calendar-metric-cost').click(); await ready(b);
-  for(const theme of ['light','dark']) {
-    await byId(b,`theme-${theme}`).click();
-    for(const width of [1600,1024]) {
-      await b.setViewport({width,height:1100});
-      await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r()))));
-      expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-      const geometry=await b.evaluate(()=>{
-        const cells=[...document.querySelectorAll('[data-testid="usage-calendar"] [data-date]:not([data-state="padding"])')];
-        return {count:cells.length,rows:new Set(cells.map(n=>Math.round(n.getBoundingClientRect().top))).size,
-          visible:cells.every(n=>n.getBoundingClientRect().width>0&&n.getBoundingClientRect().height>0)};
-      });
-      expect(geometry.count).toBe(year%4===0&&(year%100!==0||year%400===0)?366:365);
-      expect(geometry.rows).toBe(7); expect(geometry.visible).toBe(true);
-      await expect(calendarCell(b,`${year}-01-03`)).toHaveAttribute('data-state','unknown');
-      await expect(calendarCell(b,`${year}-01-04`)).toHaveAttribute('data-state','partial');
-      const height=await b.evaluate(()=>{scrollTo(0,0);return Math.max(1100,document.documentElement.scrollHeight);});
-      await b.setViewport({width,height}); await app.screenshot(`calendar-dashboard-${theme}-${width}`);
-      await b.setViewport({width,height:1100});
-    }
-    await b.reload(); await ready(b); await expect(byId(b,'workbench')).toHaveAttribute('data-theme',theme);
-  }
+  await page(b,'calendar'); await expect(byId(b,'calendar-year')).toContainText(String(year));
+  await expect(byId(b,'calendar-metric-cost')).toHaveAttribute('class','selected');
+  // A current-day jump cannot put an end in the future.
+  await calendarCell(b,clock.today).click(); await ready(b);
+  expect(Date.parse(latest().searchParams.get('start')!)).toBe(Date.parse(clock.todayStart));
+  expect(Math.abs(Date.parse(latest().searchParams.get('end')!)-Date.now())<5000).toBe(true);
+  // Preserve one local timing record with the report, without a benchmark matrix.
+  writeFileSync(new URL('../../.e2e/calendar-entry.json',import.meta.url),JSON.stringify({enterMs,year,tokens:4879,calls:46}));
 });
 
 // Account logs live in May 2025, with a separate project. Only quota metadata

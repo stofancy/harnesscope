@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Moved the yearly usage calendar to its own all-source, all-account page with
+  independent year/metric selection. Dashboard and ledger keep their shared analysis
+  filters; calendar navigation and refresh preserve them. A calendar-day click opens
+  that day's unfiltered Dashboard.
+- Reduced calendar loading to a daily aggregate query and removed its permanent
+  legend and yellow completeness markers; missing values remain available on hover.
+
 - Automatic refresh scans immediately on enable, keeps running when the page loses
   visibility, and checks again on foreground return. The controls show active/paused
   state and the latest successful refresh time.
@@ -64,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remain unknown, and ordinary analysis makes no authenticated provider requests.
 
 - Yearly usage calendar with daily Tokens, estimated cost and model-call intensity,
-  shared year selection, day drilldown and range return. Empty, partial, unknown and
+  independent year selection and day drilldown. Empty, partial, unknown and
   future dates retain distinct states.
 - Real-window sparklines on cost, token and call cards, plus a four-part Token
   composition bar that preserves missing cache-write coverage.

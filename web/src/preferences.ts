@@ -14,19 +14,17 @@ export type TurnView = {
     sort: string;
     order: "asc" | "desc";
 };
-export type ConsumptionView = "trend" | "calendar";
 export type CalendarMetric = "tokens" | "cost" | "calls";
 export type RangeHistory = {
     since: string;
     until: string;
     timeSpec: TimeSpec;
     bucket?: GlobalQuery["bucket"];
-    view?: ConsumptionView;
 };
 export type Preferences = {
-    consumptionView: ConsumptionView;
+    calendarYear: number;
     calendarMetric: CalendarMetric;
-    page: "dashboard" | "usage";
+    page: "dashboard" | "calendar" | "usage";
     theme: "light" | "dark";
     autoPeriod: number;
     usageView: UsageView;
@@ -109,7 +107,7 @@ const windowValid = (q: { since?: string; until?: string }) =>
 export function defaults(): Preferences {
     const now = new Date();
     return {
-        consumptionView: "trend",
+        calendarYear: now.getFullYear(),
         calendarMetric: "tokens",
         page: "dashboard",
         theme: matchMedia("(prefers-color-scheme: dark)").matches
@@ -181,7 +179,7 @@ export function readPreferences(): Preferences {
         const p: Preferences = stored.preferences;
         if (
             !p ||
-            !["dashboard", "usage"].includes(p.page) ||
+            !["dashboard", "calendar", "usage"].includes(p.page) ||
             !["light", "dark"].includes(p.theme) ||
             ![15, 30, 60, 300].includes(p.autoPeriod) ||
             !p.usageView ||
@@ -283,9 +281,9 @@ export function readPreferences(): Preferences {
         )
             return fallback;
         const resolved = resolveTime(p.timeSpec);
-        p.global = { ...p.global, ...resolved };
+        if (p.page !== "calendar") p.global = { ...p.global, ...resolved };
         return {
-            consumptionView: p.consumptionView === "calendar" && p.global.bucket === "day" ? "calendar" : "trend",
+            calendarYear: Number.isInteger(p.calendarYear) && p.calendarYear >= 1900 && p.calendarYear <= fallback.calendarYear ? p.calendarYear : fallback.calendarYear,
             calendarMetric: ["tokens", "cost", "calls"].includes(p.calendarMetric) ? p.calendarMetric : "tokens",
             page: p.page,
             theme: p.theme,
@@ -327,7 +325,6 @@ export function readPreferences(): Preferences {
                 until: h.until,
                 timeSpec: { start: h.timeSpec.start, end: h.timeSpec.end },
                 ...(h.bucket && buckets.includes(h.bucket) ? { bucket: h.bucket } : {}),
-                ...(h.view && ["trend", "calendar"].includes(h.view) ? { view: h.view } : {}),
             })),
         };
     } catch {

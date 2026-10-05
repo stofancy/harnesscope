@@ -211,7 +211,8 @@ Backend warning classification remains outside this UI batch.
 
 ## Calendar, microtrends and token-composition acceptance
 
-Three additional cohesive scenarios precede the first synthetic usage append.
+The existing microtrend case and the independent-calendar journey precede the
+first synthetic usage append.
 They leave the October 1 ledger and the relative-window append order unchanged:
 
 - The 90-second ledger's genuine minute microtrends have Tokens `[800, 500]`,
@@ -222,14 +223,14 @@ They leave the October 1 ledger and the relative-window append order unchanged:
   October 3 remains 130 recorded tokens with a known write subtotal of 0 and an
   explicit unknown-write marker. Completely missing price produces no fake
   zero-cost microtrend; the empty window remains visibly empty.
-- Annual entry uses the browser's local January 1 through the actual current
-  clock and a day interval. Year navigation, missing/partial/empty/future states,
-  filtering, reload, day drill through the shared usage page and calendar/year/
-  day-interval/live-clock restoration use an independent source project.
-- Light/dark 1600/1024 screenshots inspect the seven-weekday-row calendar,
-  actual colored cells/legend, microtrends and token composition without document
-  overflow. Reports and screenshots for this batch are saved under the ignored
-  `.e2e/evidence/calendar-dashboard/` directory.
+- The independent annual page uses local January 1 through the current clock,
+  one lightweight `/api/calendar` response, and no Dashboard filters or selected panel members.
+  Its year/metric persist independently. Year/metric/reload/calendar refresh leave
+  the saved Dashboard query, time specification, filters, members and history alone.
+- A day click opens a fixed natural day on Dashboard, clears filters/members/history,
+  and leads to the same full-day Usage totals. Returning through the calendar nav
+  preserves its year/metric. Today clamps its end to the actual clock; future dates
+  are disabled. One dark 1024 screenshot covers the real annual grid and daily values.
 
 `prepare_calendar_cases` uses the host's current local year **Y**, project
 `/synthetic/calendar`, and local noon (13:00 for the two Claude records):
@@ -245,20 +246,58 @@ They leave the October 1 ledger and the relative-window append order unchanged:
 | **Current-year recorded subtotal** | **190** | **50** | **30 + unknown** | **190** | **460** | **5** | **0.001775 + unknown** |
 
 The January 4 day is 80 recorded tokens, 2 calls and a $0.000280 known price
-subtotal. Codex filtering leaves 400 tokens / 3 calls / $0.001775. The isolated
+subtotal. This 460-token source project is one part of the full annual page;
+Dashboard filters never restrict the calendar. The isolated
 January fixture days are intended to be historical during this batch (the
 October 2026 acceptance clock), rather than hypothetical future consumption.
+
+The full 2026 fixture calendar, before any recent appends, is hand-counted from
+all source projects:
+
+| Local date/project | Recorded tokens | Calls | Known cost USD |
+| --- | ---: | ---: | ---: |
+| January calendar records | 460 | 5 | 0.001775 |
+| September 29 native names | 80 | 3 | 0.000292 |
+| September 30 old calls | 40 | 2 | 0.000200 |
+| October 1 four sources + late unpriced call | 1330 | 7 | 0.005085 |
+| October 2 ranking | 2539 | 25 | 0.020312 |
+| October 3 partial | 130 | 2 | 0.000500 |
+| October 4 window activity | 300 | 2 | 0.001025 |
+| **Full 2026 total** | **4879** | **46** | **0.029189 + unknown** |
+
+The full 2025 calendar is 3760 tokens / 10 calls / $0.027510: the account
+project contributes 3660 / 9 / $0.027025 and December 31 adds 100 / 1 / $0.000485.
+These complete-year counts are for the October 2026 acceptance clock.
+
+The isolated Dashboard starting point is October 1→now, Codex + `e2e-known` +
+unknown account, with one selected panel member: 3339 tokens / 30 calls /
+$0.023147 (500 + 2539 + 300 tokens). It remains intact during calendar use. January
+2's day click instead yields the all-source 200 tokens / 1 call / $0.000975,
+with the four-component vector net input 50 / cache read 30 / write 20 / output 100.
+Annual sums are calculated from rendered date-cell values against these manual
+expectations. The dedicated `GET /api/calendar?year&timezone` request carries no Dashboard
+filters or member settings. Actual response start/end are checked against local
+year boundaries; numeric expectations remain manual. Browser requests are
+observed unchanged, never used to construct
+expected totals. The single journey records navigation→usable-grid latency.
 
 After application implementation is ready, the focused browser command is:
 
 ```bash
+npm --prefix web run typecheck
 npm --prefix web run build
-npm --prefix web run test:e2e -- --grep 'calendar dashboard|dashboard journey|usage page|inline time|current time'
+npm --prefix web run test:e2e -- --grep 'calendar page:|dashboard journey'
 ```
 
 It uses the same real HTTP service, isolated sources/cache/pricing and disabled
 telemetry as the existing suite. Account billing/quota periods are covered by the
 separate batch below.
+
+The October 6, 2026 focused run passed both journeys (2/2). First calendar
+navigation reached the usable full-year grid in 77 ms with the small synthetic
+fixture; this is not a measurement of a personal index. Report, traces, timing
+record and the single dark 1024-pixel screenshot are preserved in the ignored
+`.e2e/evidence/independent-calendar/` directory.
 
 ## Offline accounts and native observed periods
 
@@ -272,7 +311,7 @@ tests reuse this native schema without repeating the lower-level security checks
 They never read a personal database.
 
 All account usage belongs to `/synthetic/accounts` in **May 2025**. It therefore
-does not change the October 1 1300-token ledger, the filtered calendar 460-token
+does not change the October 1 1300-token ledger, the calendar-project 460-token
 ledger, or the sequence of synthetic recent appends. Only current quota metadata
 uses the actual clock; it adds no recent usage. Prices for `e2e-known` and
 `e2e-account-other` are input $2, cache read $0.50, cache write $3 and output $8

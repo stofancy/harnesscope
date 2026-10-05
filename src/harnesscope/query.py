@@ -253,6 +253,107 @@ class AnalyticsQuery:
         with self.index.read_snapshot() as conn:
             return {**indexed_accounts(conn), 'snapshot': self._snapshot(conn)}
 
+    def calendar(self, year: int, timezone: str = 'UTC', *, now=None):
+        """Daily all-source totals without event objects, comparisons or facets.
+
+        Pricing is linear within a model/tier and required-cache-price partition.
+        The SQL partitions preserve per-event price eligibility before summing;
+        the shared calculator still owns aliases, tier rates and cache fallbacks.
+        """
+        if type(year) is not int or not 1 <= year <= 9998:
+            raise ValueError('year must be an integer from 1 to 9998')
+        try:
+            zone = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError('unknown IANA timezone') from exc
+        current = _datetime(now) if now is not None else datetime.now(UTC)
+        if year > current.astimezone(zone).year:
+            raise ValueError('year cannot be in the local future')
+        start = datetime(year, 1, 1, tzinfo=zone).astimezone(UTC)
+        end = min(datetime(year + 1, 1, 1, tzinfo=zone).astimezone(UTC), current)
+        edges = _bucket_edges(start, end, timezone, 'day')
+        sql = '''WITH days AS (
+                SELECT CAST(key AS INTEGER) AS day, json_extract(value,'$[0]') AS left_us,
+                    json_extract(value,'$[1]') AS right_us FROM json_each(?)),
+            components AS (
+                SELECT day,model,service_tier,input_net,cache_read,cache_write,output,
+                    COALESCE(json_extract(extra_tokens,'$.cache_write_1h'),0) AS long_write
+                FROM days JOIN events ON timestamp_us>=left_us AND timestamp_us<right_us),
+            totals AS (SELECT day,model,service_tier,
+                cache_write IS NOT NULL AS known_write,
+                long_write>MAX(0,COALESCE(cache_write,0)) AS invalid_long,
+                CASE WHEN long_write<0 THEN -1 WHEN long_write>0 THEN 1 ELSE 0 END AS long_sign,
+                cache_write-long_write>0 AS short_required,
+                COUNT(*) AS calls,
+                SUM(input_net+cache_read+COALESCE(cache_write,0)+output) AS tokens,
+                SUM(MAX(0,input_net)) AS cost_input,
+                SUM(MAX(0,cache_read)) AS cost_read,
+                SUM(MAX(0,output)) AS cost_output,
+                SUM(MAX(0,COALESCE(cache_write,0)-long_write)) AS cost_short,
+                SUM(long_write) AS cost_long
+            FROM components
+            GROUP BY day,model,service_tier,known_write,invalid_long,long_sign,short_required)'''
+        columns = ('day', 'model', 'service_tier', 'known_write', 'invalid_long', 'calls',
+                   'tokens', 'cost_input', 'cost_read', 'cost_output', 'cost_short', 'cost_long')
+        # SQLite's row iterator releases/reacquires the GIL for every row. Transfer
+        # the small grouped result as one JSON value so an abandoned analytics
+        # request doing Python work cannot delay every day and every pricing row.
+        pairs = ','.join(f"'{column}',{column}" for column in columns)
+        sql += f' SELECT json_group_array(json_object({pairs})) FROM totals'
+
+        def metrics():
+            return {'tokens': 0, 'calls': 0, 'cost_usd': 0.0, 'cost_usd_known': 0.0,
+                    'priced_calls': 0, 'unpriced_calls': 0, 'cost_complete': True,
+                    'cache_write_complete': True}
+
+        summary = metrics()
+        ranges = [(left, right, max(start, left), min(end, right))
+                  for left, right in zip(edges, edges[1:])]
+        day_metrics = [metrics() for _ in ranges]
+        boundaries = json.dumps([[_us(window_start), _us(window_end)]
+                                 for _, _, window_start, window_end in ranges])
+        with self.index.read_snapshot() as conn:
+            # Establish the revision and all daily reads in one SQLite snapshot.
+            snapshot = self._snapshot(conn)
+            rows = json.loads(conn.execute(sql, (boundaries,)).fetchone()[0])
+        for row in rows:
+            day = day_metrics[row['day']]
+            calls = row['calls']
+            day['tokens'] += row['tokens']
+            day['calls'] += calls
+            day['cache_write_complete'] &= bool(row['known_write'])
+            detail = None
+            if row['known_write'] and not row['invalid_long']:
+                detail = model_cost_detail(
+                    self.pricing, row['model'], row['cost_input'], row['cost_read'],
+                    row['cost_output'], tier=row['service_tier'], config_tier='default',
+                    cache_write=row['cost_short'] + row['cost_long'],
+                    cache_write_1h=row['cost_long'], _lookup=self._lookup_price,
+                )
+            cost = detail['cost_usd'] if detail else None
+            if cost is None or not math.isfinite(cost):
+                day['unpriced_calls'] += calls
+            else:
+                day['priced_calls'] += calls
+                day['cost_usd_known'] += cost
+        days = []
+        for (left, right, window_start, window_end), day in zip(ranges, day_metrics):
+            day['cost_complete'] = day['unpriced_calls'] == 0
+            day['cost_usd'] = (None if day['calls'] and not day['priced_calls']
+                               else day['cost_usd_known'])
+            for key in ('tokens', 'calls', 'priced_calls', 'unpriced_calls', 'cost_usd_known'):
+                summary[key] += day[key]
+            summary['cache_write_complete'] &= day['cache_write_complete']
+            days.append({'date': left.astimezone(zone).date().isoformat(),
+                         'start': _iso(left), 'end': _iso(right),
+                         'window_start': _iso(window_start), 'window_end': _iso(window_end),
+                         'metrics': day})
+        summary['cost_complete'] = summary['unpriced_calls'] == 0
+        summary['cost_usd'] = (None if summary['calls'] and not summary['priced_calls']
+                               else summary['cost_usd_known'])
+        return {'snapshot': snapshot, 'year': year, 'timezone': timezone,
+                'start': _iso(start), 'end': _iso(end), 'summary': summary, 'days': days}
+
     def turns(self, request, offset=0, limit=50, sort='start', order='desc', include_rows=True):
         from .turn_query import TurnQuery
         return TurnQuery(self).turns(request, offset=offset, limit=limit, sort=sort, order=order, include_rows=include_rows)

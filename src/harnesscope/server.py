@@ -145,6 +145,17 @@ def create_app(service=None, *, static_dir: Path | None = None,
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
+    async def calendar(request: Request) -> Response:
+        try:
+            if set(request.query_params) - {'year', 'timezone'}:
+                raise ValueError('calendar 仅接受 year 与 timezone，固定查询全部来源和账号')
+            year = int(option(request, 'year', ''))
+            timezone = option(request, 'timezone', 'UTC')
+            result = await run_in_threadpool(service.calendar, year, timezone)
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({'error': str(exc)}, status_code=400)
+
     async def sessions(request: Request) -> Response:
         try:
             query = query_request(request)
@@ -224,6 +235,7 @@ def create_app(service=None, *, static_dir: Path | None = None,
         Route("/api/accounts", accounts, methods=["GET"]),
         Route("/api/refresh", refresh, methods=["POST"]),
         Route("/api/analytics", analytics, methods=["GET"]),
+        Route("/api/calendar", calendar, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),
         Route("/api/sessions", sessions, methods=["GET"]),
         Route("/api/sessions/{harness}/{sid}", detail, methods=["GET"]),

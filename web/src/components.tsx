@@ -246,7 +246,7 @@ function SummarySparkline({ data, metric }: { data: Analysis; metric: "cost" | "
                 <path d={path} className="sparkline-path" />
                 {coordinates.map((point, i) => point.y == null ? null : <circle key={i}
                     cx={point.x} cy={point.y} r={known.length === 1 ? 3 : 2}
-                    className={point.partial ? "sparkline-point partial" : "sparkline-point"}
+                    className="sparkline-point"
                     data-value={point.value} data-start={point.start} data-end={point.end}>
                     <title>{`${dateInput(point.start, data.query.timezone).replace("T", " ")} — ${dateInput(point.end, data.query.timezone).replace("T", " ")}（${data.query.timezone}）\n${metricLabels[metric]} ${metric === "cost" ? "$" : ""}${exactNumber(point.value!)}${point.partial ? ` · 已知估算小计，${exactNumber(point.unpriced)} 次无法估价` : ""}`}</title>
                 </circle>)}

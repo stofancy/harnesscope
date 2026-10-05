@@ -26,11 +26,6 @@
     vector-effect: non-scaling-stroke;
 }
 .sparkline-point { fill: currentColor; }
-.sparkline-point.partial {
-    fill: var(--surface);
-    stroke: currentColor;
-    stroke-width: 1.5;
-}
 .sparkline-empty {
     height: 46px;
     display: flex;

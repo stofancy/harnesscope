@@ -12,15 +12,8 @@
     --calendar-3: #58b599;
     --calendar-4: #a1dec0;
 }
-.consumption-observation { display:flex; justify-content:space-between; align-items:center; margin:18px 0 10px; }
-.consumption-observation h2 { margin:0; font-size:14px; font-weight:650; }
-.consumption-observation button { padding:5px 13px; }
-.primary-analysis.calendar-mode { grid-template-columns:minmax(0,1fr); }
-.calendar-mode .rank-rows { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:18px; margin:10px 0; }
-.calendar-mode .absolute-ranking { padding:12px 16px; }
-.calendar-mode .absolute-ranking header { margin-bottom:7px; }
 .usage-calendar { padding:17px 18px 13px; }
-.calendar-heading,.calendar-year-controls,.calendar-footer,.calendar-legend { display:flex; align-items:center; }
+.calendar-heading,.calendar-year-controls { display:flex; align-items:center; }
 .calendar-heading { justify-content:space-between; gap:16px; margin-bottom:16px; }
 .calendar-year-controls { gap:10px; }
 .calendar-year-controls h3 { font-size:16px; font-weight:650; margin:0; white-space:nowrap; }
@@ -36,19 +29,13 @@
 .calendar-day[data-state="padding"] { visibility:hidden; }
 .calendar-day[data-state="outside"] { background:var(--surface-soft); border:1px dotted var(--border); }
 .calendar-day:disabled { opacity:1; cursor:default; }
-.calendar-day[data-level="0"],.calendar-legend i[data-level="0"] { background:var(--calendar-zero); }
-.calendar-day[data-level="1"],.calendar-legend i[data-level="1"] { background:var(--calendar-1); }
-.calendar-day[data-level="2"],.calendar-legend i[data-level="2"] { background:var(--calendar-2); }
-.calendar-day[data-level="3"],.calendar-legend i[data-level="3"] { background:var(--calendar-3); }
-.calendar-day[data-level="4"],.calendar-legend i[data-level="4"] { background:var(--calendar-4); }
-.calendar-day[data-state="partial"]:after { content:""; position:absolute; top:1px; right:1px; width:4px; height:4px; border-radius:50%; background:var(--data-amber); box-shadow:0 0 0 1px var(--surface); }
-.calendar-day[data-state="unknown"],.calendar-day[data-state="unavailable"],.calendar-legend i[data-state="unknown"] { background:repeating-linear-gradient(135deg,var(--surface-soft) 0 3px,var(--data-amber) 3px 4px); }
-.calendar-day[data-state="future"],.calendar-legend i[data-state="future"] { background:transparent; border:1px dashed var(--border); }
-.calendar-footer { justify-content:flex-end; gap:15px; margin-top:13px; color:var(--muted); font-size:11px; flex-wrap:wrap; }
-.calendar-legend { gap:5px; }
-.calendar-legend i { display:inline-block; width:12px; height:12px; border-radius:2px; border:1px solid color-mix(in srgb,var(--text) 9%,transparent); }
-.calendar-legend i[data-state="partial"] { background:var(--calendar-zero); border:2px solid var(--data-amber); margin-left:10px; }
-.calendar-legend i[data-state="unknown"],.calendar-legend i[data-state="future"] { margin-left:8px; }
+.calendar-day[data-level="0"] { background:var(--calendar-zero); }
+.calendar-day[data-level="1"] { background:var(--calendar-1); }
+.calendar-day[data-level="2"] { background:var(--calendar-2); }
+.calendar-day[data-level="3"] { background:var(--calendar-3); }
+.calendar-day[data-level="4"] { background:var(--calendar-4); }
+.calendar-day[data-state="unknown"],.calendar-day[data-state="unavailable"] { background:var(--surface); border-color:var(--muted); }
+.calendar-day[data-state="future"] { background:transparent; border:1px dashed var(--border); }
 .calendar-tooltip { position:absolute; z-index:16; width:276px; padding:12px 14px; pointer-events:none; border:1px solid var(--border); border-radius:7px; background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
 .calendar-tooltip strong { font-size:13px; }
 .calendar-tooltip dl { margin:10px 0 7px; }
@@ -61,6 +48,8 @@
     .usage-calendar { padding:14px; }
     .calendar-year-controls { gap:6px; }
     .calendar-heading { gap:10px; }
-    .calendar-mode .rank-rows { gap:10px; }
     .calendar-body,.calendar-grid,.calendar-months { gap:3px; }
 }
+
+.calendar-page { max-width:1180px; margin:22px auto 0; }
+.calendar-heading-actions { display:flex; align-items:center; gap:16px; }

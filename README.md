@@ -88,14 +88,18 @@ area/line/bar and member choices. Chart selection narrows the shared window; the
 range-return control restores it. Choose light or dark mode in the header; the browser
 remembers the selection.
 
-The yearly usage calendar uses one local-day cell per date, with Tokens, estimated
-cost and model-call views. Opening the current year sets the shared range to January 1
-through now and uses daily buckets; previous years use complete calendar years.
-Click a day to inspect its trend and contributors, then return to restore the calendar
-and filters. Future dates are disabled. Empty dates mean no recorded usage, and partial
-or unknown costs retain distinct cells and compact value markers. The cost, token and call cards include
-sparklines for the same window. A composition bar shows uncached input, cache hits,
-output and cache writes, preserving unknown write coverage.
+The separate **用量日历** page shows the year's usage across every source and account.
+It has its own year and metric selection and does not inherit the Dashboard's filters
+or time range. Each cell represents one local day; switch between Tokens, estimated
+cost and model calls. Calendar navigation and refresh leave the analysis settings
+unchanged. Click a day to open the Dashboard for that day with all sources and accounts,
+then use the analysis filters as needed. Return through the calendar navigation tab;
+its selected year and metric are preserved. Future dates are disabled.
+The calendar has no permanent legend or warning dots. Hover a day to see its
+values and any specific missing price or cache-write information.
+
+Dashboard cost, token and call cards include sparklines for the analysis window.
+A composition bar shows uncached input, cache hits, output and cache writes.
 
 The account and usage-period selector reads **offline OMP metadata**. Subscription
 accounts and API credentials have separate labels. Choose an observed quota window,
@@ -219,7 +223,7 @@ use recorded components; zero-event buckets and missing data remain distinct. TP
 are separated by harness and timing definition. Complete response semantics and comparison
 rules are documented in [the workbench API](docs/workbench-api.md).
 
-The local API exposes GET `/api/status`, `/api/accounts`, `/api/analytics`, `/api/usage`, `/api/sessions`,
+The local API exposes GET `/api/status`, `/api/accounts`, `/api/calendar`, `/api/analytics`, `/api/usage`, `/api/sessions`,
 `/api/sessions/{harness}/{sid}`, and `/api/turns`. A turn is located through
 `/api/turns/detail?harness=...&session_id=...&turn_id=...`; URL-encode each parameter value. Session and turn lists accept `offset` and `limit` (1–200). Turn lists also accept
 `sort=start|cost_usd|tokens|duration|calls|tool_calls` and `order=asc|desc`;

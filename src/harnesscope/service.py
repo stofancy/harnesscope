@@ -94,6 +94,12 @@ class UsageService:
         with self._query_lock:
             return self._queries().analytics(request)
 
+    def calendar(self, year: int, timezone: str = 'UTC'):
+        from .query import AnalyticsQuery
+        # Calendar reads its own snapshot and calculator. It does not queue behind
+        # a heavy analytics request or share mutable price lookup state with it.
+        return AnalyticsQuery(self.index, pricing=self._queries().pricing).calendar(year, timezone)
+
     def accounts(self):
         with self._query_lock:
             return self._queries().accounts()

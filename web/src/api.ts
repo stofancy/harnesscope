@@ -21,6 +21,8 @@ import type {
     UsageRow,
     DisplayLabels,
     AccountDirectory,
+    CalendarAnalysis,
+    CalendarValues,
 } from "./types";
 import { displayNames } from "./names";
 export const demo =
@@ -758,4 +760,28 @@ export async function usage(
 
 export function accountDirectory(signal?: AbortSignal) {
     return request<AccountDirectory>("/api/accounts", { signal });
+}
+
+export async function calendar(year: number, timezone: string, signal: AbortSignal): Promise<CalendarAnalysis> {
+    type Metrics = {
+        tokens: number; calls: number; cost_usd: number | null;
+        cost_complete: boolean; cache_write_complete: boolean; unpriced_calls: number;
+    };
+    const p = new URLSearchParams({ year: String(year), timezone });
+    const raw = await request<{
+        snapshot: { id: string | number }; year: number; timezone: string; start: string; end: string;
+        days: { date: string; start: string; end: string; window_start: string; window_end: string; metrics: Metrics }[];
+    }>(`/api/calendar?${p}`, { signal });
+    const values = (m: Metrics): CalendarValues => ({
+        tokens: m.tokens, calls: m.calls, cost: m.cost_usd,
+        cost_complete: m.cost_complete, input_complete: m.cache_write_complete, unpriced: m.unpriced_calls,
+    });
+    return {
+        snapshot_id: String(raw.snapshot.id),
+        query: { since: raw.start, until: raw.end, timezone: raw.timezone, bucket: "day", filters: {} },
+        trend: raw.days.map(day => ({
+            date: day.date, start: day.start, end: day.end,
+            window_start: day.window_start, window_end: day.window_end, total: values(day.metrics),
+        })),
+    };
 }

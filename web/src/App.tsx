@@ -24,7 +24,7 @@ import { AnalyticPanel } from "./charts";
 import { TurnWorkbench } from "./turns";
 import { AbsoluteRanking } from "./ranking";
 import { TimeControl } from "./TimeControl";
-import { UsageCalendar, calendarYearRange } from "./UsageCalendar";
+import { CalendarPage } from "./CalendarPage";
 import { AccountPeriods } from "./AccountPeriods";
 import { TokenComposition } from "./TokenComposition";
 import { advanceTime, type TimeSpec } from "./time";
@@ -95,7 +95,7 @@ export default function App() {
         [global, setGlobalState] = useState(saved.global),
         [timeSpec, setTimeSpec] = useState(saved.timeSpec),
         [configs, setConfigs] = useState(saved.panels),
-        [consumptionView, setConsumptionView] = useState(saved.consumptionView),
+        [calendarYear, setCalendarYear] = useState(saved.calendarYear),
         [calendarMetric, setCalendarMetric] = useState(saved.calendarMetric),
         [turnView, setTurnView] = useState(saved.turnView),
         [history, setHistory] = useState(saved.history),
@@ -132,19 +132,14 @@ export default function App() {
             snapshot,
         ),
         u = useUsage(global, usageView, drill, revision, page === "usage");
-    const busy = page === "dashboard" ? d.pending.length > 0 : u.pending;
+    const busy = page === "dashboard" ? d.pending.length > 0 : page === "usage" ? u.pending : false;
     const current = d.data,
         counts = current?.panels.consumption,
         facets = page === "dashboard" ? counts?.facets : u.data?.facets;
-    const refs = useRef({ global, timeSpec, editing, busy, scanStatus });
+    const refs = useRef({ global, timeSpec, editing, busy, scanStatus, page });
     const liveRange = timeSpec.end === "now";
-    const calendarStartYear = Number(dateInput(global.since, global.timezone).slice(0, 4));
-    const annualRange = calendarYearRange(calendarStartYear, global.timezone);
-    const isCalendarRange = global.since === annualRange.window.since &&
-        ((timeSpec.end === "now" && calendarStartYear === new Date().getFullYear()) ||
-            global.until === annualRange.window.until);
     const updatedAt = lastRefresh ?? scanStatus?.updated_at;
-    refs.current = { global, timeSpec, editing, busy, scanStatus };
+    refs.current = { global, timeSpec, editing, busy, scanStatus, page };
     const refreshLock = useRef(false);
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -170,7 +165,7 @@ export default function App() {
         global,
         timeSpec,
         panels: configs,
-        consumptionView,
+        calendarYear,
         calendarMetric,
         turnView,
         history,
@@ -194,7 +189,6 @@ export default function App() {
         range: { since: string; until: string },
     ) {
         setTimeSpec(spec);
-        setConsumptionView("trend");
         setGlobal((g) => ({ ...g, ...range }));
         setHistory([]);
     }
@@ -210,7 +204,7 @@ export default function App() {
                 ) as unknown as Record<PanelId, PanelConfig>,
         );
     }
-    function zoom(since: string, until: string, fromCalendar = false) {
+    function zoom(since: string, until: string) {
         const start = new Date(
                 Math.max(Date.parse(since), Date.parse(global.since)),
             ).toISOString(),
@@ -221,32 +215,28 @@ export default function App() {
             return;
         setHistory((h) => [
             ...h.slice(-15),
-            { since: global.since, until: global.until, timeSpec, bucket: global.bucket, view: consumptionView },
+            { since: global.since, until: global.until, timeSpec, bucket: global.bucket },
         ]);
         setTimeSpec({ start, end });
-        setGlobal((g) => ({ ...g, since: start, until: end, ...(fromCalendar ? { bucket: "auto" as const } : {}) }));
-        if (fromCalendar) setConsumptionView("trend");
+        setGlobal((g) => ({ ...g, since: start, until: end }));
     }
     function back() {
         const h = history.at(-1);
         if (!h) return;
         setTimeSpec(h.timeSpec);
         setGlobal((g) => advanceTime({ ...g, since: h.since, until: h.until, bucket: h.bucket ?? g.bucket }, h.timeSpec));
-        if (h.view) setConsumptionView(h.view);
         setHistory((v) => v.slice(0, -1));
     }
-    function selectCalendarYear(year: number) {
-        const range = calendarYearRange(year, global.timezone);
-        setTimeSpec(range.timeSpec);
-        setGlobal((g) => ({ ...g, ...range.window, bucket: "day" }));
-        setConsumptionView("calendar");
-    }
-    function openCalendar() {
-        setHistory((h) => [...h.slice(-15), {
-            since: global.since, until: global.until, timeSpec,
-            bucket: global.bucket, view: consumptionView,
-        }]);
-        selectCalendarYear(isCalendarRange ? calendarStartYear : new Date().getFullYear());
+    function openCalendarDay(since: string, dayEnd: string) {
+        const until = new Date(Math.min(Date.parse(dayEnd), Date.now())).toISOString();
+        if (Date.parse(since) >= Date.parse(until)) return;
+        setTimeSpec({ start: since, end: until });
+        setGlobal(g => ({ ...g, since, until, bucket: "auto", filters: {} }));
+        setConfigs(c => Object.fromEntries(Object.entries(c).map(([id, config]) => [id, { ...config, members: [] }])) as unknown as Record<PanelId, PanelConfig>);
+        setHistory([]);
+        setDrill(null);
+        setEditing(false);
+        setPage("dashboard");
     }
     function memberUsage(m: Member, dimension: Dimension) {
         setDrill(null);
@@ -278,12 +268,12 @@ export default function App() {
             setTimeSpec({ start: since, end: until });
             setGlobal((g) => ({ ...g, since, until, bucket: "auto", filters }));
             setHistory([]);
-            setConsumptionView("trend");
         } else setGlobal((g) => ({ ...g, filters }));
         setConfigs(c => Object.fromEntries(Object.entries(c).map(([key, value]) => [key, { ...value, members: [] }])) as unknown as Record<PanelId, PanelConfig>);
     }
     async function scan() {
-        if (refreshLock.current || refs.current.scanStatus?.scanning || refs.current.editing) return;
+        const refreshPage = refs.current.page;
+        if (refreshLock.current || refs.current.scanStatus?.scanning || (refreshPage !== "calendar" && refs.current.editing)) return;
         refreshLock.current = true;
         setRefreshing(true);
         setError("");
@@ -299,7 +289,8 @@ export default function App() {
             const latest = await status();
             setScanStatus(latest);
             if (latest.error) throw new Error(latest.error);
-            setGlobal((g) => advanceTime(g, refs.current.timeSpec));
+            if (refreshPage !== "calendar" && refs.current.page !== "calendar")
+                setGlobal((g) => advanceTime(g, refs.current.timeSpec));
             setRevision((v) => v + 1);
             setLastRefresh(new Date().toISOString());
         } catch (e) {
@@ -316,6 +307,7 @@ export default function App() {
         const tick = () => {
             const r = refs.current;
             if (
+                r.page !== "calendar" &&
                 r.timeSpec.end === "now" &&
                 !r.editing &&
                 !r.busy &&
@@ -349,7 +341,8 @@ export default function App() {
                     if (active) setScanStatus(s);
                 }
                 if (active && scanning) {
-                    setGlobal((g) => advanceTime(g, refs.current.timeSpec));
+                    if (refs.current.page !== "calendar")
+                        setGlobal((g) => advanceTime(g, refs.current.timeSpec));
                     setRevision((v) => v + 1);
                 }
                 if (active && s.error) setError(`刷新失败：${s.error}`);
@@ -361,8 +354,8 @@ export default function App() {
             active = false;
         };
     }, []);
-    const updating = page === "dashboard" ? d.globalUpdating : u.pending;
-    const fetchError = page === "dashboard" ? d.errors.global : u.error;
+    const updating = page === "dashboard" ? d.globalUpdating : page === "usage" ? u.pending : false;
+    const fetchError = page === "dashboard" ? d.errors.global : page === "usage" ? u.error : "";
     const scanning = refreshing || scanStatus?.scanning;
     return (
         <main className="app-shell" data-testid="workbench" data-theme={theme}>
@@ -374,13 +367,14 @@ export default function App() {
                 <nav className="page-nav">
                     {[
                         ["dashboard", "Dashboard"],
+                        ["calendar", "用量日历"],
                         ["usage", "用量明细"],
                     ].map(([k, l]) => (
                         <button
                             key={k}
                             data-testid={`page-${k}`}
                             className={page === k ? "selected" : ""}
-                            onClick={() => setPage(k as typeof page)}
+                            onClick={() => { setEditing(false); setPage(k as typeof page); }}
                         >
                             {l}
                         </button>
@@ -409,7 +403,7 @@ export default function App() {
                     </div>
                 </div>
             </header>
-            <section className="global-query" data-testid="global-query">
+            {page !== "calendar" && <section className="global-query" data-testid="global-query">
                 <div className="range-row">
                     <TimeControl
                         global={global}
@@ -453,7 +447,6 @@ export default function App() {
                                             : s.label
                                     }
                                     onClick={() => {
-                                        setConsumptionView("trend");
                                         setGlobal((g) => ({ ...g, bucket: s.key }));
                                     }}
                                 >
@@ -561,7 +554,7 @@ export default function App() {
                     {dateInput(global.until, global.timezone).replace("T", " ")}
                     <span>{global.timezone}</span>
                 </div>}
-            </section>
+            </section>}
             {(error || fetchError) && (
                 <div className="error-banner">
                     {error || fetchError}
@@ -569,7 +562,7 @@ export default function App() {
                         onClick={() => {
                             setError("");
                             if (page === "dashboard") d.retry();
-                            else u.retry();
+                            else if (page === "usage") u.retry();
                             void scan();
                         }}
                     >
@@ -582,6 +575,10 @@ export default function App() {
                     正在加载…
                 </div>
             )}
+            {page === "calendar" && <CalendarPage year={calendarYear} metric={calendarMetric}
+                timezone={global.timezone} revision={revision} scanning={!!scanning}
+                onYear={setCalendarYear} onMetric={setCalendarMetric}
+                onRefresh={() => void scan()} onDay={openCalendarDay} />}
             {page === "dashboard" && <AccountPeriods snapshot={snapshot} revision={revision}
                 timezone={global.timezone} onApply={applyAccount} />}
             {page === "dashboard" && current && counts && JSON.stringify(current.global) === JSON.stringify(global) && (
@@ -593,29 +590,12 @@ export default function App() {
                         data={counts}
                         turnCount={current.turns.summary.turns}
                     />
-                    <div className="consumption-observation">
-                        <h2>消耗与分布</h2>
-                        <div className="segmented">
-                            <button data-testid="trend-view"
-                                className={consumptionView === "trend" ? "selected" : ""}
-                                onClick={() => setConsumptionView("trend")}>趋势</button>
-                            <button data-testid="calendar-view"
-                                className={consumptionView === "calendar" ? "selected" : ""}
-                                onClick={() => { if (consumptionView !== "calendar") openCalendar(); }}>{consumptionView === "calendar" || isCalendarRange ? "用量日历" : "今年用量日历"}</button>
-                        </div>
-                    </div>
-                    <div className={`primary-analysis ${consumptionView === "calendar" ? "calendar-mode" : ""}`}>
+                    <div className="primary-analysis">
                         <PartState
                             pending={d.pending.includes("consumption")}
                             error={d.errors.consumption}
                             onRetry={() => d.retry("consumption")}
                         >
-                            {consumptionView === "calendar" ? (
-                                <UsageCalendar data={counts} global={current.global}
-                                    metric={calendarMetric} onMetric={setCalendarMetric}
-                                    onYear={selectCalendarYear}
-                                    onDay={(since, until) => zoom(since, until, true)} />
-                            ) : (
                             <AnalyticPanel
                                 id="consumption"
                                 data={counts}
@@ -629,7 +609,6 @@ export default function App() {
                                 }
                                 onZoom={zoom}
                             />
-                            )}
                         </PartState>
                         <PartState
                             pending={d.pending.includes("consumption")}

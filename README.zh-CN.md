@@ -77,11 +77,14 @@ Dashboard 首屏显示估算费用、Tokens、模型调用和轮次。主消耗�
 分组、区域 / 折线 / 柱形及比较成员。点击图表数据点或框选时段会缩小全局窗口，范围返回
 操作恢复上一视图。页头可切换亮色与暗色，选择保存在当前浏览器。
 
-年度用量日历按本机自然日显示格子，可切换 Tokens、估算费用与模型调用。进入今年日历时，
-全局范围同步为 1 月 1 日至现在，间隔为天；历史年份使用完整自然年。点击一天查看该日趋势与
-贡献，返回恢复日历及筛选。未来日期不可选，空日表示无已记录用量；部分费用与全部未知分别标识。
-费用、Tokens 和调用卡提供同窗口微趋势。Token 构成条展示未缓存输入、缓存命中、输出和缓存写入，
-缓存写入缺失时保留已记录小计与未知范围。
+**用量日历** 是独立的全年总览页，展示全部来源和账号，不继承 Dashboard 的时间或筛选。
+页内独立选择年份及 Tokens、估算费用、调用指标，每格对应一个本机自然日。切换年份、指标
+或刷新日历不会改变分析页的条件。点击一天进入该日的 Dashboard，范围为当天、来源和账号
+均为全部，再按需筛选；通过导航返回日历时保留年份与指标。未来日期不可选。
+日历不显示常驻图例或警告点；悬浮日期查看数值，以及具体缺价或缓存写入未记录信息。
+
+Dashboard 的费用、Tokens 和调用卡提供同窗口微趋势；Token 构成条展示未缓存输入、缓存命中、
+输出和缓存写入。
 
 账号与用量周期选择器读取 **OMP 离线元数据**，分别标识订阅账号与 API 凭证。选定已观测的
 额度窗口并应用后，全局时间、Provider 与账号同步切换；模型及其他筛选继续可用，现有总览、
@@ -168,7 +171,7 @@ harnesscope --analytics --query 'harness=codex&group_by=model&metric=tokens'
 缓存命中率返回未知。用量按已记录分量统计，无事件桶与缺失数据分别表达。
 TPS 按 harness 与计时定义分别提供。完整响应与比较语义见[工作台 API 文档](docs/workbench-api.md)。
 
-本机 API 提供 GET `/api/status`、`/api/accounts`、`/api/analytics`、`/api/usage`、`/api/sessions`、
+本机 API 提供 GET `/api/status`、`/api/accounts`、`/api/calendar`、`/api/analytics`、`/api/usage`、`/api/sessions`、
 `/api/sessions/{harness}/{sid}`、`/api/turns`。单轮详情使用
 `/api/turns/detail?harness=...&session_id=...&turn_id=...`，每个参数值须 URL 编码。
 会话与轮次列表支持 `offset`、`limit`（1–200）。轮次支持
