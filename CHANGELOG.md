@@ -20,13 +20,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Local browser usage workbench (`codex-usage --web`) for Codex, Claude, OMP and
+  DSH, backed by a rebuildable SQLite event index and a shared multi-source query layer.
+  React/TypeScript/Recharts assets ship with the Python package; Starlette/Uvicorn serve
+  them on loopback without a Node runtime for users.
+- Time-window filters, dimension breakdowns and trends, previous equal-window comparison,
+  member change contributions, cost-per-call / per-million-token and cache-rate analysis.
+  `--analytics --query` emits the same shared analysis JSON for automation.
+  Cost displays separate known estimates and unknown coverage; recorded usage provides
+  no output-quality evidence. Existing terminal/JSON reports remain Codex-specific.
+- DSH compressed-session decoding uses the Python `zstandard` runtime dependency.
+  Claude cache writes preserve 5-minute/1-hour TTL subsets and can apply verified
+  Anthropic write-price rules when explicit rates are missing. Missing fields or
+  unpriced models retain unknown cost coverage.
+
 - TPS in all table views and session/model JSON: time-weighted end-to-end output
   throughput from complete single-model turns, including tool execution and waiting.
   Missing, clipped, in-progress, and mixed-model timing remains unknown (`-` / `null`).
   Existing token and cost fields keep their accounting; `--schema` describes `tps`.
 
+### Changed
+
+- Statistics source files remain read-only; `--web` writes only its own statistics index.
+  The local HTTP service uses Host/Origin/Fetch Metadata checks with no CORS or user
+  authentication. Other same-machine processes and accounts can read statistics while it runs.
+- Contributor documentation reflects blocking pytest, ruff and mypy gates and the frontend
+  build required for shipping static assets.
+
 ### Fixed
 
+- Codex resumed rollout files preserve their logical thread identity when later session
+  metadata uses a different ID. Parent, agent label, role and subagent purpose are restored
+  from recorded spawn metadata without changing usage or pricing identities; absent roles
+  stay unknown. The adapter version triggers rebuilding the affected statistics index.
 - Added bundled Standard and Fast API prices for `gpt-6.1-sol`, `gpt-6-sol`, and
   `gpt-6-luna`, verified against OpenAI's model pages on 2026-09-30. Fast now applies
   the published 2× API rate for input, cached input, and output on these models.

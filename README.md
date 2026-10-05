@@ -6,38 +6,134 @@
 
 **English** · [中文](README.zh-CN.md)
 
-Local Codex usage statistics: parse the rollout session files under `~/.codex/sessions`, aggregate them by **session / subagent / day / model**, and view the result as terminal tables ([rich](https://github.com/Textualize/rich)) or charts, with per-model cost estimation.
+Local personal usage analytics for **Codex, Claude, OMP (oh my pi), and DSH (deepseek harness)**. Run `codex-usage --web` on a PC to explore usage, estimated costs, time trends, and contributing dimensions in a browser. Existing Codex terminal reports, charts, and JSON remain available.
 
 Charts default to **native images**: [matplotlib](https://matplotlib.org/) renders a PNG and [textual-image](https://github.com/lnqs/textual-image) puts it into the terminal. Terminals with a graphics protocol (kitty / Sixel) show the image itself, others show colored half-blocks; this needs the optional image dependencies and a terminal on stdout. Without the extra, when stdout is redirected to a pipe, or with `--ascii`, charts fall back to ASCII art ([plotext](https://github.com/piccolomo/plotext) + [termcharts](https://github.com/zvovcahovo/termcharts)).
 
-Everything runs locally and reads local files only. The single network action is the explicit `codex-usage --update-pricing` refresh; counting and charting never touch the network. Cost is computed from a pricing table merged from three layers — the built-in public price list, a local cache, and your own `CODEX_USAGE_PRICING_FILE` (highest priority) — see [Pricing](#pricing) and [docs/pricing.md](docs/pricing.md). A model with no price still has its tokens counted: its cost is $0 and the row is marked `*`.
+Source files remain read-only. The web workbench maintains its own rebuildable SQLite statistics index and serves bundled assets on loopback; ordinary queries need no external network access. `codex-usage --update-pricing` explicitly downloads public prices. Cost estimates use the built-in table, local price cache, and `CODEX_USAGE_PRICING_FILE` overrides — see [Pricing](#pricing). The web workbench displays known estimated cost and unpriced coverage separately. Actual bills are unavailable. Legacy Codex reports retain their `$0*` display convention for unpriced models; that marker means unknown cost.
 
 > The human-readable CLI output (table headers, chart titles, `--help`, `--doctor`) is currently Chinese; the screenshots below are real output. The machine-readable surface (`--json`, `--schema`, `--doctor --json`) has a language-neutral, documented contract.
 
 ## Why codex-usage
 
-Five differences we can point at; the full comparison, the weaknesses and every citation live in [docs/competitors.md](docs/competitors.md).
+- **One local web workbench for four harnesses.** Compare sources, models, projects, sessions, purposes, and other recorded dimensions; source coverage exposes missing or malformed data.
+- **Time-based analysis.** Usage events determine time buckets. Filter a window, compare the preceding window, and inspect the members contributing to the change.
+- **Cost and efficiency with explicit limits.** Known estimated cost, missing prices, cache rates, cost per call, and cost per million tokens carry their accounting scope. Logged usage provides no evidence of output quality or model value for money.
+- **Existing Codex CLI retained.** Session/subagent/family reports, filters, charts, TPS, and JSON continue to serve command-line workflows. `--schema` describes the command contract and `--doctor` diagnoses its environment, including four-source path discovery. Path existence alone does not establish parsing coverage.
+- **Local data stays local.** No telemetry or source-file writes; the web server and statistics index stay on this machine. See [SECURITY.md](SECURITY.md) for the HTTP and local-process boundary.
 
-- **Native images in the terminal.** matplotlib renders the chart and textual-image puts it into the terminal: a graphics-protocol terminal (kitty TGP / Sixel) shows the real image, others get colored half-blocks, and a missing extra, a pipe or `--ascii` falls back to ASCII art — `CODEX_USAGE_IMAGE_MODE` can force any tier. In the eleven projects surveyed, charts live in web/desktop dashboards or PDF reports (anthropometer), and none of their READMEs documents terminal graphics support.
-- **Machine-readable self-description.** `--schema` is generated from the argparse definition, so the option list cannot drift from the implementation, and it exposes the `--json` field contract plus the chart-rendering environment; `--doctor` checks the data sources, the pricing layer, image support, the active terminal tier and the CJK font, with `--json` for agents.
-- **Subagents and family trees are first-class.** Every rollout file is parsed on its own and subagents are listed by nickname + role; `--family` puts a main thread and its subagents into one tree. Some aggregators derive Codex usage from higher-level state and can permanently defer sessions after a fork ([farion1231/cc-switch#5687](https://github.com/farion1231/cc-switch/issues/5687)).
-- **Offline by default.** Counting, aggregating and charting never touch the network, and the built-in price snapshot (2086 models) makes the cost column useful right after install; `--update-pricing` is the only network action and only runs when you ask for it.
-- **Accounting you can verify.** Tokens come from the delta of the cumulative `total_token_usage` snapshots, attributed to the model in effect for that turn, with `last_token_usage` as the fallback when a counter resets or is missing — and no double-counting of repeated snapshots or inherited parent history ([Metering](#metering)). On a fixed window (`--since 20260911 --until 20260912`, recomputed 2026-09-21) our per-(day, model) ledger matches ccusage exactly — 1,830,205,933 tokens, difference 0 — and the [remaining cost difference](#reconciliation-with-ccusage) is a Fast-tier add-on ccusage does not apply. The whole suite runs on synthetic fixtures (no local Codex data needed) across a Python 3.10–3.13 CI matrix.
-
-And the honest part: [ccusage](https://github.com/ccusage/ccusage) has 18,520 stars (fetched 2026-09-21), covers 18 CLI tools and installs with `npx`, while codex-usage is a single-source, single-author project. We aim to be the deepest Codex-only view, not another 40-tool dashboard.
+The [2026-09-27 research](docs/research/2026-09-27-harness-usage-proposal.md) preserves the earlier competitor comparison and the current implementation baseline. CodeBurn and New API informed the dimensions, filters, and timelines; the browser interface has its own design.
 
 ## Install
 
 Requires **Python ≥ 3.10**.
 
 ```bash
-uv tool install codex-usage                                          # tables + ASCII charts
+uv tool install codex-usage                                          # latest published package
 uv tool install "git+https://github.com/stofancy/codex-usage[image]" # + native image charts
 ```
 
+The workbench is currently in the **Unreleased** source version. To install this checkout,
+build its bundled frontend before installing the Python package:
+
+```bash
+cd web
+npm ci
+npm run build
+cd ..
+uv tool install .
+codex-usage --web
+```
+
+Node.js >=22.12 and npm are build dependencies; the installed workbench runs with Python only.
+
 The optional `[image]` extra pulls in matplotlib and textual-image, and `textual-image` requires **Python ≥ 3.12**; on 3.10/3.11 charts stay in ASCII mode and everything else keeps working. Without the extra, when stdout is not a terminal, or with `--ascii`, charts automatically fall back to ASCII art.
 
-## Usage
+## Web workbench
+
+```bash
+codex-usage --web
+codex-usage --web --port 8766   # choose a local port
+```
+
+Open the local address printed by the command (default `http://127.0.0.1:8765`). Startup begins a background source scan; use the workbench refresh control to scan subsequent changes. Keep the foreground process running while browsing; stop it with Ctrl-C to release the port. Closing a browser tab leaves the process running.
+
+The web entry uses a shared multi-source event query layer and its own statistics index. The existing report flags below continue to read Codex sessions. The CLI reports have not been migrated to a four-source output contract.
+
+The workbench targets PC browsers; existing basic responsive layout is retained. The browser starts with a seven-day window. Choose a time range and timezone, group by
+one of eight dimensions, and combine dimension filters. Select trend members (Top 5 plus
+Other by default), switch additive metrics between amounts and shares, or click a peak to
+narrow the window and inspect the session ledger. The previous equal-length window and
+member contributions explain changes; session details show recorded metadata, child
+sessions and timing coverage. Coverage warnings preserve usable partial results.
+
+### Source discovery and coverage
+
+| Harness | Default source | Override |
+|---|---|---|
+| Codex | `~/.codex/sessions` and `~/.codex/archived_sessions` | `CODEX_HOME` sets the web source root |
+| Claude | `~/.claude/projects/**/*.jsonl` | `CLAUDE_CONFIG_DIR` |
+| OMP | `~/.omp/agent/sessions/**/*.jsonl` | `OMP_SESSIONS_DIR`, or `PI_CODING_AGENT_DIR` followed by `/sessions` |
+| DSH | `~/.dsh/sessions` | `DSH_HOME` sets the DSH root |
+
+The web statistics index is `~/.cache/codex-usage/usage.sqlite3`; `CODEX_USAGE_CACHE_DIR`
+changes that directory. Legacy Codex reports retain their `CODEX_USAGE_SESSIONS_DIR` and
+`CODEX_USAGE_ARCHIVE_DIR` overrides.
+
+Claude reads assistant usage and advisor iterations, including recorded cache read/write
+components. Provider and per-call timing are unavailable when absent from the logs;
+Claude's session-level cost summary is not added to event costs. OMP includes assistant
+and `model_usage` records with their recorded purposes and model timing. DSH reads the
+highest session generation, including current compact v4 streams, and usage-bearing
+assistant attempts; title/search request logs with no settled usage cannot contribute tokens.
+The bundled Python `zstandard` dependency reads compressed DSH sources; no separate
+system decompression package is required. An unsupported latest generation appears as
+a source read failure; an older generation is not silently substituted.
+
+Coverage shows scan state, parsing warnings/errors, and missing prices. Partial coverage
+keeps usable statistics available and identifies the excluded records. DSH interrupted or
+error turns retain recorded tokens while being excluded from complete-turn TPS; Claude
+local all-zero `<synthetic>` messages are excluded from API-call counts. Usage cost recorded
+by a source is an estimate; it is not a provider invoice. Parent relationships and copied
+history are used only where the source supplies evidence. The index and API exclude
+conversation bodies, prompts and credentials.
+
+### Shared analytics JSON
+
+```bash
+codex-usage --analytics --query 'harness=codex&group_by=model&metric=tokens'
+```
+
+`--analytics` refreshes the statistics index, queries the same multi-source layer as the
+browser and emits JSON. Specify its filters through `--query`; legacy `--since`,
+`--model`, and report/layout flags are rejected with this entry.
+
+| Query parameter | Accepted values / meaning |
+|---|---|
+| `start`, `end` | Both required together; ISO 8601 with UTC offset; start inclusive, end exclusive |
+| `timezone` | IANA timezone for buckets; default `UTC` |
+| `bucket` | `hour`, `day`, `week`, `month` |
+| `group_by` | One to three comma-separated dimensions |
+| Dimensions / filters | `harness`, `model`, `provider`, `project`, `agent_type`, `purpose`, `service_tier`, `session`; repeated values select alternatives within a dimension |
+| `metric` | `cost_usd`, `tokens`, `calls`, `input`, `output`, `cache_read`, `cache_write`, `cache_hit_rate`, `cost_per_call`, `cost_per_mtok` |
+| `member` | Repeat to select trend members from the current grouping |
+
+Eight dimensions include agent type and service tier. Source-reported totals and their
+coverage are listed separately from the sum of recorded token components; extra components
+and TTL/reasoning subsets are not added twice.
+
+Cost-per-call and cost-per-million-token ratios are unknown if any selected call is
+unpriced. Cache hit rate is unknown when cache-write accounting is incomplete. Counts
+use recorded components; zero-event buckets and missing data remain distinct. TPS samples
+are separated by harness and timing definition. Complete response semantics and comparison
+rules are documented in [the workbench API](docs/workbench-api.md).
+
+The local API exposes GET `/api/status`, `/api/analytics`, `/api/sessions`, and
+`/api/sessions/{harness}/{sid}`. Session lists accept `offset` and `limit` (1–200).
+POST `/api/refresh` with `Content-Type: application/json` starts an explicit background
+scan. Query responses identify their snapshot; reading them does not rescan source files.
+
+## Codex CLI usage
 
 ```bash
 codex-usage                                          # today's sessions (incl. subagents, one row per session)
@@ -58,7 +154,7 @@ codex-usage --json                                   # machine-readable output (
 codex-usage --help                                   # self-documenting help (/? , -? , help are equivalent)
 codex-usage --schema                                 # machine-readable contract (JSON)
 codex-usage --doctor                                 # environment self-check (data source / pricing / image support)
-codex-usage --update-pricing                         # refresh the local pricing cache (the only network action)
+codex-usage --update-pricing                         # explicit external price download
 ```
 
 ### Time formats
@@ -108,7 +204,7 @@ Token counts are derived from the rollout's cumulative `token_count.total_token_
 | Output | `--json` | session-level JSON Lines with per-model details (including call counts), compatible with the other options |
 | Self-description | `--schema` `--doctor` | machine-readable contract / environment self-check, taking precedence over other options |
 
-A model with no pricing entry: tokens are still counted, cost is $0, the row is marked `*`, and the model names are listed below the table.
+In legacy Codex reports, an unpriced model keeps its tokens, displays `$0*`, and is listed below the table. This is an unknown-cost marker. The web workbench uses explicit unknown/partial cost states.
 
 ## Pricing
 
@@ -122,7 +218,7 @@ Token counting is always local; only the cost column needs prices. `codex-usage`
 
 A layer that is missing, empty or corrupt is simply skipped; if all three are unusable, tokens are still counted and the cost shows `$0.00*`. The format is cc-switch compatible — `{"models":[{"modelId": …, "inputCostPerMillion": …, "cacheReadCostPerMillion": …, "outputCostPerMillion": …}]}` — so an existing cc-switch table keeps working and only overrides the entries it defines.
 
-Refresh the cache from a public channel (the only network action in the tool, and only when you ask for it):
+Refresh the cache from a public channel with an explicit external download:
 
 ```bash
 codex-usage --update-pricing                         # models.dev (default)
@@ -137,7 +233,9 @@ Three details shape the resulting numbers:
 - **Service tiers.** Codex records which tier a turn ran under. `priority` and `fast` are the same tier (OpenAI renamed priority processing to Fast) and are priced with the official per-model Fast rates — 2.0× standard for `gpt-6.1-sol`, GPT-6 Sol/Luna/Astra, and the 5.6 Sol/Terra/Luna family, 2.5× for `gpt-5.5` — while `flex` is 0.5×. Prices are **API-equivalent USD**, not the ChatGPT subscription credit multipliers (a different rate card). Models without a public Fast price (for example `gpt-5-codex`) stay at the standard price and report `tier_priced: false`.
 - **Labels with no public price.** `codex-auto-review` has no price fields in any public source, so it goes through an auditable alias table (`src/codex_usage/data/model_aliases.json`) that maps it to `gpt-5.5` and flags the mapping `assumed: true` (following ccusage's dated fallback table and a three-way token reconciliation). `gpt-reserve` has no public price from any source, so it stays `$0.00*` instead of being guessed. The alias table and the tier price table can be replaced with `CODEX_USAGE_ALIASES_FILE` and `CODEX_USAGE_TIER_PRICING_FILE`.
 
-Caveats: the built-in table is a snapshot (it carries an `updated` timestamp); context-tier prices (`>200k`), cache-write pricing and per-reseller markups are not modelled; a model that no public channel prices stays `$0.00*`. Point `CODEX_USAGE_PRICING_FILE` at your own table if you need exact billing. Sources, field mapping and licenses are documented in [docs/pricing.md](docs/pricing.md).
+The web workbench accounts for cache writes, including Claude 5-minute and 1-hour TTL subsets. Explicit write prices take precedence; verified Claude models can use the official 1.25× / 2× input-price rules when those prices are absent. Missing required components or rates keep that event cost unknown. See [cache-write pricing](docs/pricing.md#11-多源工作台缓存写计价) for the verified model scope and assumptions.
+
+Legacy CLI caveats: the built-in table is a snapshot (with an `updated` timestamp); context-tier prices (`>200k`), cache-write pricing and per-reseller markups are not modelled in those reports. Unpriced models display `$0.00*`. `CODEX_USAGE_PRICING_FILE` can align estimates with custom rates; it does not supply actual invoices. Sources, field mapping and licenses are documented in [docs/pricing.md](docs/pricing.md).
 
 ### Reconciliation with ccusage
 
@@ -252,9 +350,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and [CHANGELOG.md](
 
 ## Known limitations
 
-- Only rollout files produced by the official OpenAI subscription (OAuth) are parsed; usage that goes through third-party gateways never reaches the local session files.
-- Time filtering uses each event's timestamp (UTC → local time): a session spanning the window only contributes the turns inside it, and day grouping uses the session's activity start.
-- Daily totals can still differ from other tools' day bucketing (codex-usage groups by the session's activity start and filters turns by their event timestamps), but on a fixed window the per-(day, model) token ledger matches ccusage exactly — see [Reconciliation with ccusage](#reconciliation-with-ccusage); the cost difference there comes from Fast-tier handling, not from tokens.
+- Multi-source analysis is available through `--web`; the existing terminal/JSON report path remains Codex-specific.
+- Source logs only expose recorded usage. Missing provider, project, agent, tier, or timing fields remain unknown; local estimates do not establish actual charges or output quality.
+- The local web server has no user authentication. Other processes and accounts on the same machine can read its statistics while it runs. It is intended for one personal machine.
+
+- The legacy CLI consumes Codex rollout files; usage absent from those files cannot be recovered by that report path.
+- Legacy CLI time filtering uses each event's timestamp (UTC → local time): a session spanning the window only contributes the turns inside it, and legacy day grouping uses the session's activity start. The web query layer buckets by usage-event time.
+- Legacy CLI daily totals can still differ from other tools' day bucketing (it groups by the session's activity start and filters turns by their event timestamps), but on a fixed window the per-(day, model) token ledger matches ccusage exactly — see [Reconciliation with ccusage](#reconciliation-with-ccusage); the cost difference there comes from Fast-tier handling, not from tokens.
 - Native image charts depend on textual-image probing the terminal's graphics support: tmux needs passthrough enabled, and a few terminals don't report their cell pixel size, in which case a default raster is used and the displayed size may differ slightly. Use `--ascii` if you don't want native images.
 - The human-readable output is Chinese-only; the JSON contracts are language-neutral.
 

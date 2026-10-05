@@ -6,36 +6,119 @@
 
 [English](README.md) · **中文**
 
-本地 Codex 用量统计：解析 `~/.codex/sessions` 的 rollout 会话文件，按 **会话 / 子代理 / 天 / 模型** 任意聚合，用终端表格（[rich](https://github.com/Textualize/rich)）或图表展示，并按模型折算成本。
+本机个人用量分析，支持 **Codex、Claude、OMP（oh my pi）、DSH（deepseek harness）**。运行 `codex-usage --web`，在 PC 浏览器查看用量、估算费用、时间趋势与维度贡献。现有 Codex 终端报表、图表和 JSON 继续可用。
 
 图表默认出**真图**：[matplotlib](https://matplotlib.org/) 渲染 PNG 后由 [textual-image](https://github.com/lnqs/textual-image) 送进终端——支持图形协议（kitty / Sixel）的终端直接显示图片，其余终端显示彩色半块字符；装了可选依赖且输出是终端时才会启用。未装依赖、输出被管道重定向或加 `--ascii` 时，回退到字符画（[plotext](https://github.com/piccolomo/plotext) + [termcharts](https://github.com/zvovcahovo/termcharts)）。
 
-全程本地运行、只读本地文件；唯一的联网动作是显式的 `codex-usage --update-pricing` 刷新定价缓存，统计与出图不会联网。成本按定价表折算：内置公开定价表、本地缓存、你自己的 `CODEX_USAGE_PRICING_FILE`（优先级最高）三层**合并**，详见[定价](#定价)与 [docs/pricing.md](docs/pricing.md)。无定价的模型 token 照常统计，成本按 $0 计，行内标 `*`。
+源文件保持只读；网页版维护自有、可重建的 SQLite 统计索引，在 loopback 提供随包静态资源，普通查询无需访问外网。`codex-usage --update-pricing` 显式下载公开价格。估算费用采用内置表、价格缓存和 `CODEX_USAGE_PRICING_FILE` 覆盖值，详见[定价](#定价)。网页分别展示已知估算小计与缺价覆盖，真实账单未知。旧 Codex 报表沿用 `$0*` 的缺价展示约定，`*` 表示费用未知。
 
 ## 为什么是它
 
-五条能指到证据的差异；完整对照、劣势清单与全部引用见 [docs/competitors.md](docs/competitors.md)。
+- **四种 harness 的本机工作台**：按来源、模型、项目、会话、用途等已记录维度分析，覆盖状态说明缺字段与解析失败。
+- **时间分析**：按用量事件时间分桶，筛选时间窗、比较上一窗口、查看各成员对变化的贡献。
+- **费用与效率有清楚口径**：已知估算金额、缺价覆盖、缓存率、每调用成本和每百万 tokens 成本注明计算范围；用量日志没有产出质量信息，不推断模型性价比。
+- **保留现有 Codex CLI**：会话 / 子代理 / 家族报表、筛选、图表、TPS、JSON 继续可用；`--schema` 描述命令契约，`--doctor` 诊断环境及四源路径发现；路径存在仅表示发现来源，无法证明解析覆盖。
+- **数据留在本机**：无遥测，源文件只读，网页服务与统计索引在本机运行；HTTP 与同机进程边界见 [SECURITY.md](SECURITY.md)。
 
-- **终端里的真图**：matplotlib 出 PNG 由 textual-image 送进终端——支持图形协议（kitty TGP / Sixel）的终端显示真图，其余显示彩色半块，未装 extras / 被管道重定向 / `--ascii` 时退到字符画，`CODEX_USAGE_IMAGE_MODE` 可强制档位。本次调研的 11 个项目里，图表基本都在 Web / 桌面 dashboard，只有 anthropometer 出 PDF，没有一家在 README 里写明支持终端图形协议。
-- **机器可读的自描述**：`--schema` 的选项清单由 argparse 定义生成（不会与实现漂移），并给出 `--json` 字段契约与图表档位的环境变量；`--doctor` 自检数据源、定价层、真图依赖、终端档位与中文字体，支持 `--json` 供 Agent 消费。
-- **子代理与家族树是一等公民**：逐文件解析、子代理按昵称+角色单列，`--family` 把主线程与各子代理放进同一棵树；部分聚合工具从更高层状态派生 Codex 用量，fork 之后可能永久延迟会话（[farion1231/cc-switch#5687](https://github.com/farion1231/cc-switch/issues/5687)）。
-- **默认离线**：统计、聚合、出图全程不联网，内置定价快照（2086 个模型）让装完就有可用的成本列；`--update-pricing` 是唯一联网动作，且只在显式触发时发生。
-- **口径可验证**：token 取自 `total_token_usage` **累计值的增量**，归因到该轮 `turn_context` 的模型；累计值回落或缺失时回退 `last_token_usage`，重复帧不重计，继承父线程历史的空首帧不计（见[计量口径](#计量口径)）。定窗 `--since 20260911 --until 20260912`（复算日 2026-09-21）下我们与 ccusage 的逐 (天,模型) 台账**完全一致（1,830,205,933 tokens，差 0）**，[剩下的成本差异](#与-ccusage-的对账)来自 ccusage 未施加的 Fast 档加成。整套用例跑在合成夹具上（不依赖本机 Codex 数据），覆盖 Python 3.10–3.13 CI 矩阵。
-
-如实说明差距：[ccusage](https://github.com/ccusage/ccusage) 有 18,520 stars（抓取日 2026-09-21）、覆盖 18 个 CLI、`npx` 一行即用；codex-usage 是单数据源、单作者的项目。我们想做的是**把 Codex 一件事做深**，而不是再做一个横跨 40 个工具的聚合面板。
+[2026-09-27 研究文档](docs/research/2026-09-27-harness-usage-proposal.md) 保留历史竞品对照与本次实施基线。CodeBurn、New API 的参考重点是维度、筛选与时间线，浏览器界面独立设计。
 
 ## 安装
 
 要求 **Python ≥ 3.10**。
 
 ```bash
-uv tool install codex-usage                                          # 基础：表格 + 字符画图表
+uv tool install codex-usage                                          # 最新已发布版本
 uv tool install "git+https://github.com/stofancy/codex-usage[image]" # 可选：加终端真图图表
 ```
 
+网页工作台当前属于 **Unreleased** 源码版本。安装本次 checkout 时，先构建随包网页资源：
+
+```bash
+cd web
+npm ci
+npm run build
+cd ..
+uv tool install .
+codex-usage --web
+```
+
+Node.js >=22.12 和 npm 用于构建；安装后的工作台只需 Python 运行时。
+
 可选 extras `[image]` 会装上 matplotlib 与 textual-image，其中 `textual-image` 要求 **Python ≥ 3.12**；Python 3.10/3.11 下图表保持字符画，其余功能不受影响。未装 extras、输出不是终端或加 `--ascii` 时，图表自动回退字符画。
 
-## 使用
+## 网页用量工作台
+
+```bash
+codex-usage --web
+codex-usage --web --port 8766   # 指定本机端口
+```
+
+打开命令打印的本机地址（默认 `http://127.0.0.1:8765`）。启动时会后台扫描来源，后续变化通过工作台的刷新操作重新扫描。浏览期间保留前台进程，按 Ctrl-C 退出并释放端口；关闭浏览器标签页后进程继续运行。
+
+网页采用共享的多源事件查询层与自有统计索引。下面的现有报表参数继续读取 Codex 会话，终端报表尚未迁移为四源输出契约。
+
+工作台面向 PC 浏览器，保留已有基本响应式布局；网页默认查看最近 7 天。选择时间范围与时区，切换八个分组维度并组合筛选；选择趋势成员
+（默认 Top 5 与 Other），对加性指标切换绝对量 / 占比，或点击峰值缩小时间窗进入会话账本。
+上一等长窗口与成员增量贡献用于查看变化；会话详情展示已记录元数据、子会话与计时覆盖。
+覆盖警告保留可用的部分结果。
+
+### 来源发现与覆盖
+
+| Harness | 默认来源 | 覆盖配置 |
+|---|---|---|
+| Codex | `~/.codex/sessions`、`~/.codex/archived_sessions` | `CODEX_HOME` 指定网页来源根目录 |
+| Claude | `~/.claude/projects/**/*.jsonl` | `CLAUDE_CONFIG_DIR` |
+| OMP | `~/.omp/agent/sessions/**/*.jsonl` | `OMP_SESSIONS_DIR`，或 `PI_CODING_AGENT_DIR` 下的 `/sessions` |
+| DSH | `~/.dsh/sessions` | `DSH_HOME` 指定 DSH 根目录 |
+
+网页统计索引为 `~/.cache/codex-usage/usage.sqlite3`，可用 `CODEX_USAGE_CACHE_DIR`
+更改目录。旧 Codex 报表继续使用 `CODEX_USAGE_SESSIONS_DIR`、`CODEX_USAGE_ARCHIVE_DIR`
+覆盖路径。
+
+Claude 读取 assistant 用量与 advisor iterations，保留已记录的缓存读写分量；日志缺失时
+provider 与逐调用计时未知，会话汇总费用不会叠加进事件费用。OMP 包含 assistant 与
+`model_usage` 用量、原始用途和模型计时。DSH 读取会话最高 generation，支持当前 v4
+compact stream 与带 usage 的 assistant attempt；title/search 请求日志缺少结算用量，
+无法据此统计 tokens。DSH 压缩来源由随包 Python `zstandard` 依赖读取，无需另装系统解压包。
+最新 generation 不受支持时显示读取失败，保留诊断，不自动替换为旧 generation。
+
+覆盖状态显示扫描结果、解析警告 / 错误与缺价范围；部分覆盖保留可用统计并说明未计记录。
+DSH interrupted / error turn 的已记录 tokens 保留，计时排除出完整 turn TPS；Claude 本地
+全零 `<synthetic>` 消息不计为 API 调用。来源记录的成本仍属估值，真实账单未知。
+父子关系与复制历史按实际来源证据处理；索引与 API 不含会话正文、prompt 和凭据。
+
+### 共享分析 JSON
+
+```bash
+codex-usage --analytics --query 'harness=codex&group_by=model&metric=tokens'
+```
+
+`--analytics` 刷新统计索引，查询与网页共用的多源分析层并输出 JSON。筛选通过
+`--query` 指定；此入口会拒绝旧 `--since`、`--model` 和报表布局参数。
+
+| 查询参数 | 值与含义 |
+|---|---|
+| `start`、`end` | 同时提供，带 UTC offset 的 ISO 8601 时间；包含 start，排除 end |
+| `timezone` | 分桶的 IANA 时区，默认 `UTC` |
+| `bucket` | `hour`、`day`、`week`、`month` |
+| `group_by` | 1–3 个逗号分隔的维度 |
+| 维度 / 筛选 | `harness`、`model`、`provider`、`project`、`agent_type`、`purpose`、`service_tier`、`session`；同维度重复传值表示任选其一 |
+| `metric` | `cost_usd`、`tokens`、`calls`、`input`、`output`、`cache_read`、`cache_write`、`cache_hit_rate`、`cost_per_call`、`cost_per_mtok` |
+| `member` | 可重复，指定当前分组中的趋势成员 |
+
+八个维度包含代理类型与服务档位。来源自报总量及其覆盖单列展示，并保留与已记录 token
+分量总计的差异；额外分量和 TTL / reasoning 子集不重复累加。
+
+所选调用有缺价时，每调用成本和每百万 tokens 成本返回未知；缓存写入量未知时，
+缓存命中率返回未知。用量按已记录分量统计，无事件桶与缺失数据分别表达。
+TPS 按 harness 与计时定义分别提供。完整响应与比较语义见[工作台 API 文档](docs/workbench-api.md)。
+
+本机 API 提供 GET `/api/status`、`/api/analytics`、`/api/sessions`、
+`/api/sessions/{harness}/{sid}`。会话列表支持 `offset`、`limit`（1–200）。
+POST `/api/refresh` 携带 `Content-Type: application/json`，显式启动后台扫描。
+查询响应注明快照，读取查询不重扫源文件。
+
+## Codex CLI 使用
 
 ```bash
 codex-usage                                          # 今天的会话明细（含子代理，每会话一行）
@@ -56,7 +139,7 @@ codex-usage --json                                   # 机器可读输出（含�
 codex-usage --help                                   # 自说明帮助（/? 、-? 、help 等价）
 codex-usage --schema                                 # 机器可读自描述（JSON 契约）
 codex-usage --doctor                                 # 环境自检（数据源/定价/真图能力）
-codex-usage --update-pricing                         # 刷新本地定价缓存（唯一联网动作）
+codex-usage --update-pricing                         # 显式从外网下载价格
 ```
 
 ### 时间格式
@@ -120,7 +203,7 @@ token 统计完全在本地完成，只有成本列需要价格。`codex-usage` 
 
 任一层缺失 / 为空 / JSON 损坏只跳过该层；三层都不可用时 token 照常统计、成本显示 `$0.00*`。文件格式与 cc-switch 兼容 —— `{"models":[{"modelId": …, "inputCostPerMillion": …, "cacheReadCostPerMillion": …, "outputCostPerMillion": …}]}` —— 已有 cc-switch 表可继续使用，只覆盖它定义的同名条目。
 
-从公开渠道刷新缓存（全局唯一的联网动作，且只在显式触发时发生）：
+显式从公开渠道下载价格并刷新缓存：
 
 ```bash
 codex-usage --update-pricing                         # 默认 models.dev
@@ -135,7 +218,9 @@ codex-usage --update-pricing --pricing-source litellm
 - **服务档位**：Codex 会记录每一轮走的档位。`priority` 与 `fast` 是同一档（OpenAI 把 priority processing 改名为 Fast），按官方逐模型 Fast 价计——`gpt-6.1-sol`、GPT-6 Sol/Luna/Astra 与 5.6 Sol/Terra/Luna 为标准的 2.0×、`gpt-5.5` 为 2.5×，`flex` 为 0.5×。价格口径是 **API 等价美元**，不是 ChatGPT 订阅 credits 的倍率（那是另一套价目表）。没有公开 Fast 价的模型（如 `gpt-5-codex`）保持标准价并标 `tier_priced: false`。
 - **没有公开价的标签**：`codex-auto-review` 在任何公开渠道都没有价格字段，因此走一张可审计的别名表（`src/codex_usage/data/model_aliases.json`）映射到 `gpt-5.5`，并标 `assumed: true`（依据是 ccusage 按发布日的 fallback 表 + 三方 token 对账）。`gpt-reserve` 任何渠道都没有公开价，保持 `$0.00*`，不臆造。别名表与档位价表可分别用 `CODEX_USAGE_ALIASES_FILE`、`CODEX_USAGE_TIER_PRICING_FILE` 替换。
 
-注意：内置表是快照（文件里有 `updated` 时间戳）；context 阶梯价（`>200k`）、缓存写价与转售商加价不建模；公开渠道查不到价格的模型保持 `$0.00*`。需要精确账单请把自建表放到 `CODEX_USAGE_PRICING_FILE`。数据源、字段映射与许可见 [docs/pricing.md](docs/pricing.md)。
+网页工作台包含缓存写计价，保留 Claude 5 分钟 / 1 小时 TTL 分项。显式写入价格优先；已核实 Claude 型号缺写入价格时，可采用官方输入价 1.25× / 2× 规则。必需分量或价格缺失时，该调用费用未知。型号范围与假设见[缓存写计价](docs/pricing.md#11-多源工作台缓存写计价)。
+
+旧 CLI 的限制：内置表是快照（含 `updated` 时间戳）；旧报表未建模 context 阶梯价（`>200k`）、缓存写价与转售商加价，缺价显示 `$0.00*`。自建 `CODEX_USAGE_PRICING_FILE` 可对齐渠道价格估算，真实账单仍需独立来源。数据源、字段映射与许可见 [docs/pricing.md](docs/pricing.md)。
 
 ### 与 ccusage 的对账
 
@@ -250,9 +335,13 @@ uv venv && uv pip install -e ".[image]" pytest   # 含真图依赖；只装 -e .
 
 ## 已知边界
 
-- 只解析 OpenAI 官方订阅（OAuth）产生的 rollout 文件；第三方网关的用量不在本地会话文件里。
-- 时间过滤按事件时间戳（UTC→本地时区）判定，跨窗口会话只统计窗口内的轮次；按天分组按会话活动起点。
-- 与 ccusage 等工具按天对账仍可能有出入（本工具按会话活动起点归日、按事件时间戳裁轮次），但定窗下逐 (天,模型) 的 token 台账与 ccusage 完全一致——见[与 ccusage 的对账](#与-ccusage-的对账)；那边的成本差额来自 Fast 档处理，不是 token。
+- 多源分析通过 `--web` 提供，现有终端 / JSON 报表入口仍针对 Codex。
+- 仅统计来源实际记录的用量；缺失的 provider、项目、代理、档位和计时字段保留未知，估算费用不代表真实扣费或产出质量。
+- 本机网页服务没有用户认证，运行期间其他同机进程及账户可以读取统计；使用范围是个人单机。
+
+- 旧 CLI 读取 Codex rollout 文件，无法恢复源文件中未记录的用量。
+- 旧 CLI 时间过滤按事件时间戳（UTC→本地时区）判定，跨窗口会话只统计窗口内的轮次；旧按天分组使用会话活动起点。网页查询按用量事件时间分桶。
+- 旧 CLI 与 ccusage 等工具按天对账仍可能有出入（旧报表按会话活动起点归日、按事件时间戳裁轮次），但定窗下逐 (天,模型) 的 token 台账与 ccusage 完全一致——见[与 ccusage 的对账](#与-ccusage-的对账)；那边的成本差额来自 Fast 档处理，不是 token。
 - 真图图表依赖 textual-image 探测终端图形协议：tmux 需开启 passthrough，个别终端拿不到格子像素时按默认值出图，显示尺寸可能与终端略有出入；不想要真图用 `--ascii`。
 - 面向人的可读输出目前只有中文；JSON 契约与字段不依赖语言。
 

@@ -9,34 +9,51 @@
 
 ## What this tool touches (privacy facts)
 
-codex-usage is a local, read-only analytics tool. These are the exact behaviours that
-matter for security review:
+codex-usage is personal, local analytics. Source data is read-only; the web entry creates
+its own statistics index and listens on loopback.
 
 | Aspect | Behaviour |
 |---|---|
-| Data read | Local Codex rollout session files (default `~/.codex/sessions` and `~/.codex/archived_sessions`) and a pricing table (default `~/.cc-switch/model-pricing.json`) |
-| Path overrides | `CODEX_USAGE_SESSIONS_DIR`, `CODEX_USAGE_ARCHIVE_DIR`, `CODEX_USAGE_PRICING_FILE`, `CODEX_USAGE_CACHE_DIR` |
-| Network by default | **None.** Parsing, aggregation, tables, ASCII charts and real-image rendering all happen locally |
-| Writes by default | **None.** Session files are never modified, moved or deleted |
-| Pricing cache | Only `--update-pricing` writes a file, and only to `~/.cache/codex-usage/pricing.json` (atomic write; `CODEX_USAGE_CACHE_DIR` overrides the directory) |
-| Charts | Rendered in memory (including the matplotlib PNG for real-image mode) and sent straight to the terminal - **never written to disk** |
-| Telemetry | None. No analytics, no crash reporting, no phone-home |
-| Output | Data goes to stdout; diagnostics and errors go to stderr |
-| Pricing table resolution | `CODEX_USAGE_PRICING_FILE` -> user cache -> a pricing table bundled with the package (`src/codex_usage/data/pricing.json`), so the tool works fully offline out of the box |
+| Source data | Codex, Claude, OMP and DSH local usage logs; existing terminal reports continue to use Codex rollout files |
+| Source overrides | Web: `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OMP_SESSIONS_DIR` / `PI_CODING_AGENT_DIR`, `DSH_HOME`; legacy Codex report paths retain `CODEX_USAGE_SESSIONS_DIR` / `CODEX_USAGE_ARCHIVE_DIR` |
+| Index path | `~/.cache/codex-usage/usage.sqlite3` (`CODEX_USAGE_CACHE_DIR` overrides the directory) |
+| Pricing reads | Bundled public prices, the tool's pricing cache and optional user overrides |
+| External network | No external access for ordinary analysis; public prices are downloaded only by explicit `--update-pricing` |
+| Local HTTP | `--web` starts a loopback server serving bundled assets and statistical JSON |
+| Writes | The web entry writes a rebuildable SQLite index; explicit pricing refresh writes the tool's price cache. Source logs, harness settings and user pricing overrides are never modified |
+| Stored/output fields | Usage metadata, token counts, price basis, source identities and recorded session relationships; no conversation body, prompts, tool arguments or credentials in the statistics index or API |
+| Charts | Legacy terminal charts are rendered in memory and sent to the terminal |
+| Telemetry | None; no analytics, crash reporting or remote usage upload |
+| Lifetime | The server runs in the foreground; Ctrl-C stops it and releases the port. Closing a tab leaves it running |
 
-### The only network path: `--update-pricing`
+### Local HTTP boundary
 
-`codex-usage --update-pricing` is optional, and its boundaries are:
+The web workbench is intended for one personal machine. It binds to loopback, validates
+Host and same-origin Origin values, and rejects cross-site Fetch Metadata requests. It
+does not enable CORS. Mutating requests use POST with JSON; GET queries do not initiate
+source scanning or pricing downloads.
 
-- It runs **only** when the user explicitly passes the flag; nothing else in the tool
-  opens a socket, and no implicit refresh happens in the background.
-- `--pricing-source models.dev` (default) downloads <https://models.dev/api.json>;
-  `--pricing-source litellm` downloads the LiteLLM price table from
-  `https://raw.githubusercontent.com/BerriAI/litellm/main/...`. Both are public,
-  unauthenticated price datasets; the requests are plain HTTPS with a 30 s timeout.
-- It **does not** upload or transmit any local data: not session contents, not token
-  statistics, not file paths, not environment information.
-- The result is a local pricing file. Nothing about your usage leaves the machine.
+There is no startup token, login or authentication cookie. Other processes and accounts
+on the same machine can query the statistics while the server runs, even when filesystem
+permissions prevent them from reading the original source files. This does not provide isolation
+between users sharing a host. Keep the service local; publishing it through a proxy or
+port forward changes the trust boundary and is outside the supported deployment.
+
+API output includes usage identities and project metadata, which can reveal local work
+patterns. It excludes raw conversation content and secrets. Source-root configuration is
+local to startup; the API does not offer arbitrary filesystem reads or writes.
+
+### Explicit external download: `--update-pricing`
+
+- The download runs only when the flag is passed; web analysis has no implicit pricing
+  refresh or background external requests.
+- `--pricing-source models.dev` (default) downloads the public models.dev price dataset;
+  `--pricing-source litellm` downloads the public LiteLLM price table. Both are
+  unauthenticated HTTPS requests with a 30 s timeout.
+- The request carries no local session contents, usage statistics, source paths or
+  environment information.
+- The result is written to `~/.cache/codex-usage/pricing.json`; `CODEX_USAGE_CACHE_DIR`
+  overrides the cache directory.
 
 ## Reporting a vulnerability
 
@@ -57,8 +74,8 @@ prefer to stay anonymous.
 
 ## Out of scope
 
-- Vulnerabilities in third-party dependencies (rich, plotext, termcharts, matplotlib,
-  textual-image). Report those upstream; we are happy to pick up upgraded versions.
+- Vulnerabilities in third-party dependencies (including Starlette, Uvicorn, React, Recharts, rich, plotext,
+  termcharts, matplotlib and textual-image). Report those upstream; we are happy to pick up upgraded versions.
 - Attacks that require the local session files to be malicious: they are treated as trusted
   user data. We do, however, welcome reports about **parser robustness** (malformed input
   causing crashes or unbounded resource use).
