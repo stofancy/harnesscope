@@ -11,11 +11,21 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
-from .domain import ParseBatch, SourceFile, TimingSample, UsageAdapter, UsageEvent
+from .domain import (
+    ParseBatch, SourceFile, TimingSample, ToolCall, TurnRecord, UsageAdapter, UsageEvent,
+)
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 EVENT_COLUMNS = tuple(f.name for f in fields(UsageEvent))
 TIMING_COLUMNS = tuple(f.name for f in fields(TimingSample))
+TURN_COLUMNS = tuple(f.name for f in fields(TurnRecord))
+TOOL_COLUMNS = tuple(f.name for f in fields(ToolCall))
+RECORD_TABLES = (
+    ("events", "event_sources", EVENT_COLUMNS),
+    ("timing_samples", "timing_sources", TIMING_COLUMNS),
+    ("turns", "turn_sources", TURN_COLUMNS),
+    ("tool_calls", "tool_sources", TOOL_COLUMNS),
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -36,7 +46,7 @@ CREATE TABLE IF NOT EXISTS events (
     input_net INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER,
     output INTEGER NOT NULL, reasoning INTEGER, source_total INTEGER,
     source_cost_usd TEXT, source_cost_kind TEXT, quality TEXT NOT NULL,
-    extra_tokens TEXT NOT NULL DEFAULT '{}', PRIMARY KEY (harness, key)
+    extra_tokens TEXT NOT NULL DEFAULT '{}', turn_id TEXT, PRIMARY KEY (harness, key)
 );
 CREATE INDEX IF NOT EXISTS events_time ON events(timestamp_us);
 CREATE INDEX IF NOT EXISTS events_harness_time ON events(harness, timestamp_us);
@@ -50,7 +60,8 @@ CREATE INDEX IF NOT EXISTS event_sources_file ON event_sources(source_file);
 CREATE TABLE IF NOT EXISTS timing_samples (
     key TEXT NOT NULL, harness TEXT NOT NULL, session_id TEXT NOT NULL, model TEXT NOT NULL,
     start_us INTEGER NOT NULL, end_us INTEGER NOT NULL, output INTEGER NOT NULL,
-    source_file TEXT NOT NULL, kind TEXT NOT NULL, provider TEXT, PRIMARY KEY (harness, key)
+    source_file TEXT NOT NULL, kind TEXT NOT NULL, provider TEXT, turn_id TEXT,
+    PRIMARY KEY (harness, key)
 );
 CREATE INDEX IF NOT EXISTS timing_window ON timing_samples(end_us, start_us);
 CREATE INDEX IF NOT EXISTS timing_source ON timing_samples(source_file);
@@ -59,6 +70,35 @@ CREATE TABLE IF NOT EXISTS timing_sources (
     PRIMARY KEY(harness,key,source_file)
 );
 CREATE INDEX IF NOT EXISTS timing_sources_file ON timing_sources(source_file);
+CREATE TABLE IF NOT EXISTS turns (
+    key TEXT NOT NULL, harness TEXT NOT NULL, session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+    start_us INTEGER NOT NULL, end_us INTEGER, status TEXT NOT NULL, source_file TEXT NOT NULL,
+    parent_session_id TEXT, root_turn_id TEXT, project TEXT, agent_type TEXT,
+    boundary_quality TEXT NOT NULL, tool_coverage TEXT NOT NULL, PRIMARY KEY (harness,key)
+);
+CREATE INDEX IF NOT EXISTS turns_window ON turns(start_us);
+CREATE INDEX IF NOT EXISTS turns_session ON turns(harness,session_id,start_us);
+CREATE INDEX IF NOT EXISTS turns_identity ON turns(harness,session_id,turn_id);
+CREATE INDEX IF NOT EXISTS turns_root ON turns(harness,root_turn_id);
+CREATE INDEX IF NOT EXISTS turns_source ON turns(source_file);
+CREATE TABLE IF NOT EXISTS turn_sources (
+    harness TEXT NOT NULL, key TEXT NOT NULL, source_file TEXT NOT NULL,
+    PRIMARY KEY(harness,key,source_file)
+);
+CREATE INDEX IF NOT EXISTS turn_sources_file ON turn_sources(source_file);
+CREATE TABLE IF NOT EXISTS tool_calls (
+    key TEXT NOT NULL, harness TEXT NOT NULL, session_id TEXT NOT NULL, tool_name TEXT NOT NULL,
+    start_us INTEGER NOT NULL, turn_id TEXT, end_us INTEGER, status TEXT NOT NULL,
+    source_file TEXT NOT NULL, PRIMARY KEY(harness,key)
+);
+CREATE INDEX IF NOT EXISTS tools_window ON tool_calls(start_us);
+CREATE INDEX IF NOT EXISTS tools_turn ON tool_calls(harness,session_id,turn_id,start_us);
+CREATE INDEX IF NOT EXISTS tools_source ON tool_calls(source_file);
+CREATE TABLE IF NOT EXISTS tool_sources (
+    harness TEXT NOT NULL, key TEXT NOT NULL, source_file TEXT NOT NULL,
+    PRIMARY KEY(harness,key,source_file)
+);
+CREATE INDEX IF NOT EXISTS tool_sources_file ON tool_sources(source_file);
 """
 
 
@@ -90,19 +130,30 @@ class SQLiteIndex:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
             version = conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
+            if version and version[0] not in ("1", "2", SCHEMA_VERSION):
+                raise ValueError("Usage index schema changed; remove the rebuildable usage.sqlite3 cache")
             if version and version[0] == "1":
                 conn.execute("INSERT OR IGNORE INTO event_sources SELECT harness,key,source_file FROM events")
                 conn.execute("INSERT OR IGNORE INTO timing_sources "
                              "SELECT harness,key,source_file FROM timing_samples")
-                # Version one did not preserve all mirror owners. Rescan source metadata once.
-                conn.execute("UPDATE files SET adapter_version='provenance-v1'")
+            if version and version[0] in ("1", "2"):
+                for table in ("events", "timing_samples"):
+                    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                    if "turn_id" not in columns:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN turn_id TEXT")
+                # Keep old usage visible until each source is successfully reparsed.
+                conn.execute("UPDATE files SET adapter_version='turn-metadata-v3'")
                 conn.execute("UPDATE metadata SET value=? WHERE key='schema_version'", (SCHEMA_VERSION,))
-            elif version and version[0] != SCHEMA_VERSION:
-                raise ValueError("Usage index schema changed; remove the rebuildable usage.sqlite3 cache")
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('schema_version', ?)",
                          (SCHEMA_VERSION,))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('revision', '0')")
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('sources', '{}')")
+            conn.execute("CREATE INDEX IF NOT EXISTS events_turn "
+                         "ON events(harness,session_id,turn_id,timestamp_us)")
+            conn.execute("CREATE INDEX IF NOT EXISTS timing_turn "
+                         "ON timing_samples(harness,session_id,turn_id)")
+            if version and version[0] in ("1", "2"):
+                self._bump(conn)
         os.chmod(self.path, 0o600)
 
     def _connect(self) -> sqlite3.Connection:
@@ -141,7 +192,7 @@ class SQLiteIndex:
 
     @staticmethod
     def _clear_file(conn: sqlite3.Connection, path: str) -> None:
-        for table, owners in (("events", "event_sources"), ("timing_samples", "timing_sources")):
+        for table, owners, _columns in RECORD_TABLES:
             conn.execute(f"DELETE FROM {owners} WHERE source_file=?", (path,))
             conn.execute(f"DELETE FROM {table} WHERE source_file=? AND NOT EXISTS "
                          f"(SELECT 1 FROM {owners} WHERE {owners}.harness={table}.harness "
@@ -181,18 +232,32 @@ class SQLiteIndex:
             row = asdict(sample)
             row["source_file"] = source.path
             timing_rows.append(row)
+        turn_rows = []
+        for turn in batch.turns:
+            if turn.harness != source.harness:
+                raise ValueError("Adapter returned a turn for a different harness")
+            row = asdict(turn)
+            row["source_file"] = source.path
+            turn_rows.append(row)
+        tool_rows = []
+        for tool in batch.tool_calls:
+            if tool.harness != source.harness:
+                raise ValueError("Adapter returned a tool call for a different harness")
+            row = asdict(tool)
+            row["source_file"] = source.path
+            tool_rows.append(row)
         prefix_size, prefix_hash, boundary_hash = _fingerprint(source.path, batch.next_offset)
         with self._write_lock, self._transaction() as conn:
             before = conn.execute("SELECT count(*) FROM event_sources WHERE source_file=?",
                                   (source.path,)).fetchone()[0]
             if rebuild:
                 self._clear_file(conn, source.path)
-            self._upsert(conn, "events", EVENT_COLUMNS, event_rows)
-            self._upsert(conn, "timing_samples", TIMING_COLUMNS, timing_rows)
-            conn.executemany("INSERT OR IGNORE INTO event_sources(harness,key,source_file) VALUES (?,?,?)",
-                             [(row["harness"], row["key"], source.path) for row in event_rows])
-            conn.executemany("INSERT OR IGNORE INTO timing_sources(harness,key,source_file) VALUES (?,?,?)",
-                             [(row["harness"], row["key"], source.path) for row in timing_rows])
+            for (table, owners, columns), rows in zip(
+                    RECORD_TABLES, (event_rows, timing_rows, turn_rows, tool_rows)):
+                self._upsert(conn, table, columns, rows)
+                conn.executemany(
+                    f"INSERT OR IGNORE INTO {owners}(harness,key,source_file) VALUES (?,?,?)",
+                    [(row["harness"], row["key"], source.path) for row in rows])
             count = conn.execute("SELECT count(*) FROM event_sources WHERE source_file=?",
                                  (source.path,)).fetchone()[0]
             previous = conn.execute("SELECT warning_count FROM files WHERE path=?",

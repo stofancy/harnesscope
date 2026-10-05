@@ -30,6 +30,7 @@ class UsageEvent:
     source_cost_kind: str | None = None
     quality: str = "exact"
     extra_tokens: dict[str, int] = field(default_factory=dict)
+    turn_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,38 @@ class TimingSample:
     source_file: str = ""
     kind: str = "end_to_end"
     provider: str | None = None
+    turn_id: str | None = None
+
+
+@dataclass(frozen=True)
+class TurnRecord:
+    key: str
+    harness: str
+    session_id: str
+    turn_id: str
+    start_us: int
+    end_us: int | None = None
+    status: str = "unknown"
+    source_file: str = ""
+    parent_session_id: str | None = None
+    root_turn_id: str | None = None
+    project: str | None = None
+    agent_type: str | None = None
+    boundary_quality: str = "exact"
+    tool_coverage: str = "unknown"
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    key: str
+    harness: str
+    session_id: str
+    tool_name: str
+    start_us: int
+    turn_id: str | None = None
+    end_us: int | None = None
+    status: str = "unknown"
+    source_file: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,6 +96,8 @@ class ParseBatch:
     state: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     records_read: int = 0
+    turns: list[TurnRecord] = field(default_factory=list)
+    tool_calls: list[ToolCall] = field(default_factory=list)
 
 
 class UsageAdapter(Protocol):
