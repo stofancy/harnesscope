@@ -360,7 +360,7 @@ export function TurnTable({
                     <thead>
                         <tr>
                             <th className="name-col">轮次 / 来源</th>
-                            <th>状态与覆盖</th>
+                            <th>状态</th>
                             <th>Tokens</th>
                             <th>估算费用</th>
                             <th>已记录模型调用</th>
@@ -401,14 +401,6 @@ export function TurnTable({
                                     >
                                         {stateLabel(r.status)}
                                     </span>
-                                    <small className="table-quality">
-                                        {boundaryLabel(r.boundary_quality)} ·{" "}
-                                        {r.recorded_usage_available
-                                            ? "整轮已记录小计"
-                                            : r.full_window
-                                              ? "已记录组成未知"
-                                              : "窗口截断 / 进行中"}
-                                    </small>
                                 </td>
                                 <td>{formatNumber(rowMetrics(r).tokens)}</td>
                                 <td>
