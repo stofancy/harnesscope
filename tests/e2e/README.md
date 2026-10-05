@@ -78,7 +78,7 @@ same append and refresh keeps these counts stable.
 
 ## Acceptance scope
 
-Nine browser scenarios use one shared inline time/filter context, the machine's
+The browser scenarios use one shared inline time/filter context, the machine's
 actual timezone, aggregate-only Dashboard panels and the separate usage page:
 
 1. Overview → chart zoom → contribution ranking → requests → restore the range.
@@ -207,3 +207,54 @@ metadata record and one assistant attempt without usage. It contributes three
 categorized source warnings and zero usage, preserving the 1300-token ledger.
 The source-health scenario verifies each reason, count, impact, suggested action and
 file-path tooltip, including light/dark 1024-pixel screenshots.
+
+## Calendar, microtrends and token-composition acceptance
+
+Three additional cohesive scenarios precede the first synthetic usage append.
+They leave the October 1 ledger and the relative-window append order unchanged:
+
+- The 90-second ledger's genuine minute microtrends have Tokens `[800, 500]`,
+  calls `[3, 3]`, and costs `[$0.002660, $0.002425]`. Both circles and SVG curve
+  geometry must exist. Its composition remains net input 540, cache read 210,
+  output 450, cache write 100 = 1300; the first Codex call now reports 10 reasoning
+  tokens **within** its existing 30 output tokens. Reasoning is never added again.
+  October 3 remains 130 recorded tokens with a known write subtotal of 0 and an
+  explicit unknown-write marker. Completely missing price produces no fake
+  zero-cost microtrend; the empty window remains visibly empty.
+- Annual entry uses the browser's local January 1 through the actual current
+  clock and a day interval. Year navigation, missing/partial/empty/future states,
+  filtering, reload, day drill through the shared usage page and calendar/year/
+  day-interval/live-clock restoration use an independent source project.
+- Light/dark 1600/1024 screenshots inspect the seven-weekday-row calendar,
+  actual colored cells/legend, microtrends and token composition without document
+  overflow. Reports and screenshots for this batch are saved under the ignored
+  `.e2e/evidence/calendar-dashboard/` directory.
+
+`prepare_calendar_cases` uses the host's current local year **Y**, project
+`/synthetic/calendar`, and local noon (13:00 for the two Claude records):
+
+| Local day | Net input | Cache read | Cache write | Output | Recorded tokens | Calls | Known cost USD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Y−1 December 31 | 40 | 10 | 0 | 50 | 100 | 1 | 0.000485 |
+| Y January 1 | 80 | 20 | 10 | 40 | 150 | 1 | 0.000520 |
+| Y January 2 | 50 | 30 | 20 | 100 | 200 | 1 | 0.000975 |
+| Y January 3 | 20 | 0 | unknown | 10 | 30 | 1 | unknown |
+| Y January 4, priced call | 20 | 0 | 0 | 30 | 50 | 1 | 0.000280 |
+| Y January 4, unpriced call | 20 | 0 | unknown | 10 | 30 | 1 | unknown |
+| **Current-year recorded subtotal** | **190** | **50** | **30 + unknown** | **190** | **460** | **5** | **0.001775 + unknown** |
+
+The January 4 day is 80 recorded tokens, 2 calls and a $0.000280 known price
+subtotal. Codex filtering leaves 400 tokens / 3 calls / $0.001775. The isolated
+January fixture days are intended to be historical during this batch (the
+October 2026 acceptance clock), rather than hypothetical future consumption.
+
+After application implementation is ready, the focused browser command is:
+
+```bash
+npm --prefix web run build
+npm --prefix web run test:e2e -- --grep 'calendar dashboard|dashboard journey|usage page|inline time|current time'
+```
+
+It uses the same real HTTP service, isolated sources/cache/pricing and disabled
+telemetry as the existing suite. Account billing/quota periods are outside this
+first calendar batch.

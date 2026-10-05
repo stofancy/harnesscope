@@ -88,6 +88,15 @@ area/line/bar and member choices. Chart selection narrows the shared window; the
 range-return control restores it. Choose light or dark mode in the header; the browser
 remembers the selection.
 
+The yearly usage calendar uses one local-day cell per date, with Tokens, estimated
+cost and model-call views. Opening the current year sets the shared range to January 1
+through now and uses daily buckets; previous years use complete calendar years.
+Click a day to inspect its trend and contributors, then return to restore the calendar
+and filters. Future dates are disabled. Empty dates mean no recorded usage, and partial
+or unknown costs keep explicit coverage labels. The cost, token and call cards include
+sparklines for the same window. A composition bar shows uncached input, cache hits,
+output and cache writes, preserving unknown write coverage.
+
 Inline time fields support relative expressions such as `-18h` and `-2days`, a fixed
 start **until now**, and fixed historical start/end times. Each field accepts an
 expression or a concrete time and has a calendar picker with second precision;

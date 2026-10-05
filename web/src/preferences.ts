@@ -14,7 +14,18 @@ export type TurnView = {
     sort: string;
     order: "asc" | "desc";
 };
+export type ConsumptionView = "trend" | "calendar";
+export type CalendarMetric = "tokens" | "cost" | "calls";
+export type RangeHistory = {
+    since: string;
+    until: string;
+    timeSpec: TimeSpec;
+    bucket?: GlobalQuery["bucket"];
+    view?: ConsumptionView;
+};
 export type Preferences = {
+    consumptionView: ConsumptionView;
+    calendarMetric: CalendarMetric;
     page: "dashboard" | "usage";
     theme: "light" | "dark";
     autoPeriod: number;
@@ -26,7 +37,7 @@ export type Preferences = {
     ledger: { dimension: Dimension; metric: Metric };
     detailView: "summary" | "turns";
     turnView: TurnView;
-    history: { since: string; until: string; timeSpec: TimeSpec }[];
+    history: RangeHistory[];
 };
 const storageKey = "usage-dashboard.preferences.v4";
 const dimensions = [
@@ -97,6 +108,8 @@ const windowValid = (q: { since?: string; until?: string }) =>
 export function defaults(): Preferences {
     const now = new Date();
     return {
+        consumptionView: "trend",
+        calendarMetric: "tokens",
         page: "dashboard",
         theme: matchMedia("(prefers-color-scheme: dark)").matches
             ? "dark"
@@ -271,6 +284,8 @@ export function readPreferences(): Preferences {
         const resolved = resolveTime(p.timeSpec);
         p.global = { ...p.global, ...resolved };
         return {
+            consumptionView: p.consumptionView === "calendar" && p.global.bucket === "day" ? "calendar" : "trend",
+            calendarMetric: ["tokens", "cost", "calls"].includes(p.calendarMetric) ? p.calendarMetric : "tokens",
             page: p.page,
             theme: p.theme,
             autoPeriod: p.autoPeriod,
@@ -310,6 +325,8 @@ export function readPreferences(): Preferences {
                 since: h.since,
                 until: h.until,
                 timeSpec: { start: h.timeSpec.start, end: h.timeSpec.end },
+                ...(h.bucket && buckets.includes(h.bucket) ? { bucket: h.bucket } : {}),
+                ...(h.view && ["trend", "calendar"].includes(h.view) ? { view: h.view } : {}),
             })),
         };
     } catch {

@@ -76,6 +76,8 @@ def prepare(root):
         codex_tool(82, 'tool-live'),
         codex_call('response-codex-live', 'codex-turn-live', 85, 50, 0, 50),
     ]
+    # Reasoning is a subset of output; the 1300-token ledger is unchanged.
+    codex[4]['payload']['usage']['reasoning_output_tokens'] = 10
     write(root / 'codex/sessions/2026/10/01' / CODEX_NAME, codex)
     # A completed human turn; read tool result is a continuation of that turn.
     claude = [
@@ -141,6 +143,7 @@ def prepare(root):
     prepare_daily_cases(root)
     prepare_activity_cases(root)
     prepare_names(root)
+    prepare_calendar_cases(root)
     (root / 'codex/config.toml').write_text('service_tier = "default"\n')
     return root
 
@@ -303,6 +306,58 @@ def prepare_activity_cases(root):
         {'timestamp': old.isoformat(), 'type': 'turn_context', 'payload': {'model': MODEL, 'cwd': project}},
         call,
     ])
+
+
+def prepare_calendar_cases(root):
+    """Independent local-year days; none overlap the fixed October ledger."""
+    year = datetime.now().astimezone().year
+    project = '/synthetic/calendar'
+    for point_year, points in [
+        (year - 1, [('12-31', 40, 10, 0, 50)]),
+        (year, [('01-01', 80, 20, 10, 40), ('01-02', 50, 30, 20, 100),
+                ('01-04', 20, 0, 0, 30)]),
+    ]:
+        sid = f'88888888-{point_year}-4888-8888-88888888{point_year}'
+        header = datetime(point_year, 1, 1).astimezone(timezone.utc).isoformat()
+        records = [
+            {'timestamp': header, 'type': 'session_meta', 'payload': {
+                'id': sid, 'cwd': project, 'timestamp': header, 'model_provider': 'e2e'}},
+            {'timestamp': header, 'type': 'turn_context', 'payload': {'model': MODEL, 'cwd': project}},
+        ]
+        for index, (day, net, read, cache_write, output) in enumerate(points):
+            at = datetime.fromisoformat(f'{point_year}-{day}T12:00:00').astimezone(timezone.utc)
+            turn = f'calendar-turn-{point_year}-{day}'
+            call = codex_call(f'calendar-response-{point_year}-{day}', turn, 10,
+                              net + read + cache_write, read, output)
+            call['timestamp'] = at.isoformat()
+            call['payload'].update(thread_id=sid, session_id=sid)
+            call['payload']['usage'].update(cache_write_input_tokens=cache_write,
+                                           reasoning_output_tokens=10)
+            records.extend([
+                {'timestamp': (at - timedelta(seconds=2)).isoformat(), 'type': 'event_msg',
+                 'payload': {'type': 'task_started', 'turn_id': turn,
+                             'started_at': (at - timedelta(seconds=2)).timestamp()}},
+                call,
+                {'timestamp': (at + timedelta(seconds=1)).isoformat(), 'type': 'event_msg',
+                 'payload': {'type': 'task_complete', 'turn_id': turn,
+                             'completed_at': (at + timedelta(seconds=1)).timestamp()}},
+            ])
+        write(root / f'codex/sessions/{point_year}/01/01/rollout-calendar-{sid}.jsonl', records)
+    records = []
+    for day in ['01-03', '01-04']:
+        at = datetime.fromisoformat(f'{year}-{day}T13:00:00').astimezone(timezone.utc)
+        ident = f'calendar-unknown-{year}-{day}'
+        records.extend([
+            {'type': 'user', 'uuid': f'{ident}-user', 'sessionId': 'calendar-unknown',
+             'timestamp': (at - timedelta(seconds=2)).isoformat(), 'cwd': project,
+             'message': {'role': 'user', 'content': 'Synthetic calendar request'}},
+            {'type': 'assistant', 'uuid': f'{ident}-assistant', 'parentUuid': f'{ident}-user',
+             'sessionId': 'calendar-unknown', 'timestamp': at.isoformat(), 'cwd': project,
+             'requestId': ident, 'message': {'id': ident, 'role': 'assistant',
+                 'model': 'e2e-unpriced', 'stop_reason': 'end_turn', 'content': [],
+                 'usage': {'input_tokens': 20, 'cache_read_input_tokens': 0, 'output_tokens': 10}}},
+        ])
+    write(root / 'claude/projects/synthetic/calendar-unknown.jsonl', records)
 
 
 def append_completion(root):

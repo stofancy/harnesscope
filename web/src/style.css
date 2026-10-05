@@ -8,12 +8,12 @@
     --surface-soft: #f1f2ef;
     --surface-hover: #eaf0f1;
     --text: #263037;
-    --muted: #68757d;
-    --border: #dde2e1;
+    --muted: #586770;
+    --border: #cfd8d5;
     --accent: #167b75;
     --accent-soft: #e1f0eb;
     --accent-border: #a1cac0;
-    --chart-grid: #dde3e4;
+    --chart-grid: #d3ddde;
     --chart-brush: #b1bfc4;
     --data-blue: #5085c6;
     --data-teal: #29988c;
@@ -33,12 +33,12 @@
     --surface-soft: #252f38;
     --surface-hover: #2a3a43;
     --text: #e3e9ed;
-    --muted: #a2afb9;
-    --border: #35414a;
+    --muted: #b0bdc6;
+    --border: #43515b;
     --accent: #65c7b8;
     --accent-soft: #233e40;
     --accent-border: #426e6c;
-    --chart-grid: #36434e;
+    --chart-grid: #43515b;
     --chart-brush: #617585;
     --data-blue: #75a5e2;
     --data-teal: #56c6b7;
@@ -169,10 +169,10 @@ code {
     padding: 0 28px 30px;
 }
 .workbench-header {
-    height: 62px;
+    height: 56px;
     display: flex;
     align-items: center;
-    gap: 32px;
+    gap: 25px;
 }
 .workbench-header h1 {
     font-size: 16px;
@@ -522,7 +522,7 @@ code {
     font-size: 12px;
 }
 .metric-value {
-    font-size: 30px;
+    font-size: 34px;
     font-weight: 650;
     letter-spacing: -0.04em;
     line-height: 1.6;
@@ -533,7 +533,7 @@ code {
     gap: 5px;
     justify-content: space-between;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 11px;
     flex-wrap: wrap;
 }
 .change {

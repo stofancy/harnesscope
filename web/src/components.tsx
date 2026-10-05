@@ -18,6 +18,7 @@ import {
     formatNumber,
     metricLabels,
 } from "./format";
+import "./insights.css";
 const dimensions: Record<Dimension, string> = {
     harness: "来源",
     model: "模型",
@@ -217,6 +218,55 @@ function Facet({
         </div>
     );
 }
+function SummarySparkline({ data, metric }: { data: Analysis; metric: "cost" | "tokens" | "calls" }) {
+    const points = data.trend.map((point) => ({
+        start: point.window_start ?? point.start,
+        end: point.window_end ?? point.end,
+        value: point.total[metric],
+        partial: metric === "cost" && point.total.cost_complete === false,
+        unpriced: point.total.unpriced,
+    }));
+    const costUnknown = metric === "cost" && data.summary.calls > 0 && data.summary.cost == null;
+    const known = costUnknown ? [] : points.filter((point) => point.value != null);
+    const maximum = Math.max(0, ...known.map((point) => point.value!));
+    const left = new Date(data.query.since).getTime();
+    const right = new Date(data.query.until).getTime();
+    const coordinates = points.map((point) => ({ ...point,
+        x: right > left ? 5 + ((new Date(point.start).getTime() + new Date(point.end).getTime()) / 2 - left) / (right - left) * 190 : 100,
+        y: point.value == null ? null : 39 - (maximum ? point.value / maximum : 0) * 32,
+    }));
+    let path = "", connected = false;
+    for (const point of coordinates) {
+        if (point.y == null) { connected = false; continue; }
+        path += `${connected ? "L" : "M"}${point.x},${point.y} `;
+        connected = true;
+    }
+    const period = `${dateInput(data.query.since, data.query.timezone).replace("T", " ")} — ${dateInput(data.query.until, data.query.timezone).replace("T", " ")}`;
+    const label = `${metricLabels[metric]}，当前范围逐桶合计；${period}（${data.query.timezone}）。${known.length}/${points.length} 桶有可用数值。`;
+    return (
+        <div className={`summary-microtrend summary-microtrend-${metric}`}
+            data-testid={`summary-sparkline-${metric}`} data-state={costUnknown ? "unknown" : known.length ? "available" : "empty"}>
+            {known.length ? <svg viewBox="0 0 200 46" role="img" aria-label={label}>
+                <title>{label}</title>
+                <path d="M5,39 L195,39" className="sparkline-baseline" />
+                <path d={path} className="sparkline-path" />
+                {coordinates.map((point, i) => point.y == null ? null : <circle key={i}
+                    cx={point.x} cy={point.y} r={known.length === 1 ? 3 : 2}
+                    className={point.partial ? "sparkline-point partial" : "sparkline-point"}
+                    data-value={point.value} data-start={point.start} data-end={point.end}>
+                    <title>{`${dateInput(point.start, data.query.timezone).replace("T", " ")} — ${dateInput(point.end, data.query.timezone).replace("T", " ")}（${data.query.timezone}）\n${metricLabels[metric]} ${metric === "cost" ? "$" : ""}${exactNumber(point.value!)}${point.partial ? ` · 已知估算小计，${exactNumber(point.unpriced)} 次无法估价` : ""}`}</title>
+                </circle>)}
+            </svg> : <div className="sparkline-empty" role="img" aria-label={label}>
+                {points.length ? "当前范围费用未知" : "当前范围暂无趋势记录"}
+            </div>}
+            <div className="sparkline-caption" title={label}>
+                <span>当前范围 · 逐桶合计</span>
+                <span>{points.some((point) => point.partial) ? known.length ? "费用含已知小计" : "缺少可估价数据" : `${points.length} 个时间桶`}</span>
+            </div>
+        </div>
+    );
+}
+
 function MetricStrip({
     data,
     turnCount,
@@ -232,14 +282,16 @@ function MetricStrip({
             <span>{comparisonPeriod(data)}</span>
         </div>
         <section className="metric-strip" data-testid="summary">
-            {(["cost", "tokens", "calls"] as Metric[]).map((m) => (
+            {(["cost", "tokens", "calls"] as const).map((m) => (
                 <article key={m}>
                     <div className="metric-label">
                         {m === "calls" ? "模型调用" : metricLabels[m]}
                     </div>
-                    <div className="metric-value" data-testid={`summary-${m}`}>
+                    <div className="metric-value" data-testid={`summary-${m}`}
+                        title={`${metricLabels[m]} ${m === "cost" && data.summary.cost != null ? "$" : ""}${value(data.summary, m) == null ? "未知" : exactNumber(value(data.summary, m)!)}`}>
                         {formatMetric(value(data.summary, m), m)}
                     </div>
+                    <SummarySparkline data={data} metric={m} />
                     <div className="metric-foot">
                         <span>
                             {m === "cost"

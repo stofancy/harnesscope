@@ -110,6 +110,7 @@ export type RawMetrics = {
     seconds?: number;
     input_net?: number | null;
     cache_write?: number | null;
+    cache_write_known?: number | null;
     cost_usd: number;
     cost_complete: boolean;
     cache_write_complete?: boolean;
@@ -215,6 +216,7 @@ export function normalizeMetrics(m: RawMetrics): Values {
         seconds: m.seconds,
         input_net: m.input_net ?? null,
         cache_write: m.cache_write ?? null,
+        cache_write_known: m.cache_write_known ?? null,
         cost: m.calls > 0 && m.priced_calls === 0 ? null : m.cost_usd,
         tokens: m.tokens,
         calls: m.calls,

@@ -52,6 +52,7 @@ export type Values = {
     rps?: number | null;
     input_net?: number | null;
     cache_write?: number | null;
+    cache_write_known?: number | null;
     timed_tps?: number | null;
     seconds?: number;
     cost_complete?: boolean;

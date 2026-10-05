@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Yearly usage calendar with daily Tokens, estimated cost and model-call intensity,
+  shared year selection, day drilldown and range return. Empty, partial, unknown and
+  future dates retain distinct states.
+- Real-window sparklines on cost, token and call cards, plus a four-part Token
+  composition bar that preserves missing cache-write coverage.
+
 - Snapshot-consistent `labels` on analytics, usage, turns, session lists and session/turn
   details, sourced from explicit native title fields and existing project metadata.
 
