@@ -24,14 +24,31 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[image,test]" ruff mypy   # drop [image] if you don't need charts
 ```
 
-## Running the tests
+## Browser acceptance for dashboard changes
+
+The current dashboard work uses browser automation for functional acceptance. Do not
+add or expand unit or component tests for this work. Preserve the existing historical
+suites; their results do not establish acceptance of the new dashboard behavior.
+
+Reusable cases use the local `tester-army/e2e` Web engine with deterministic browser
+actions and assertions. Commit the cases, sanitized source-log fixtures and their run
+instructions together. Exercise the running Python application, its index and the web
+UI; do not mock analytics responses or derive expected numbers from the implementation.
+Fixture servers must isolate all four source roots, cache and pricing from personal data.
+
+Cover the single global time range and slice, linked filters, chart forms, throughput
+metrics, and turn/tool drilldown with a small set of end-to-end user scenarios. Disable
+e2e telemetry and use no-model execution by default. Keep generated reports and browser
+artifacts out of version control. Static checks and production builds remain applicable.
+
+## Historical test suites
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
 ```
 
-- Tests use synthetic fixtures. New adapters must have sanitized examples with accounting
-  expectations; tests must not depend on personal source directories or external services.
+- Tests use synthetic fixtures. Source examples and acceptance cases must not depend on
+  personal source directories or external services.
 - Base installation excludes optional native terminal image dependencies; tests requiring
   those dependencies can be skipped on unsupported Python versions.
 - HTTP tests use the application test client; include `httpx` in the development setup.
@@ -45,7 +62,6 @@ assets to `src/codex_usage/web_static/`.
 cd web
 npm ci
 npm run typecheck
-npm test
 npm run build
 ```
 
@@ -65,10 +81,10 @@ Vite development server.
 .venv/bin/mypy src       # mypy.ini
 ```
 
-`pytest`, `ruff check .`, and `mypy src` are blocking CI gates. Run all checks affected
-by your change before opening a pull request; frontend changes also require typechecking,
-format/metric tests and the static build. The exact test count varies with the installed
-extras and Python version.
+The existing CI includes historical Python tests, `ruff check .`, and `mypy src`.
+For the current dashboard work, use the browser cases above for functional verification,
+plus typechecking and the static build. The historical test count varies with installed
+extras and Python version; it is not the acceptance measure for the new functionality.
 
 ## Code and commit conventions
 
@@ -96,8 +112,9 @@ extras and Python version.
 ## Pull request process
 
 1. Fork the repository and create a branch (for example `fix/until-boundary`).
-2. Add or update tests, and record the change under `[Unreleased]` in `CHANGELOG.md`.
-3. Run `pytest`, `ruff` and `mypy`, plus frontend checks/build when affected.
+2. Add or update reusable browser cases for dashboard behavior, and record the change
+   under `[Unreleased]` in `CHANGELOG.md`.
+3. Run the applicable browser cases, static checks and production build.
 4. Open the pull request and fill in the template. All required CI checks must pass.
 
 ## Reporting issues
