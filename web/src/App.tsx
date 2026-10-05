@@ -127,6 +127,7 @@ export default function App() {
         counts = current?.panels.consumption,
         facets = page === "dashboard" ? counts?.facets : u.data?.facets;
     const refs = useRef({ global, timeSpec, editing, busy, scanStatus });
+    const liveRange = timeSpec.end === "now";
     refs.current = { global, timeSpec, editing, busy, scanStatus };
     const refreshLock = useRef(false);
     useEffect(() => {
@@ -139,6 +140,15 @@ export default function App() {
         if (page === "usage" && u.data && !u.pending)
             setSnapshot(u.data.snapshot_id);
     }, [page, current, u.data, d.globalUpdating, u.pending]);
+    useEffect(() => {
+        if (page !== "usage" || u.pending || !u.data) return;
+        const lastOffset = Math.max(
+            0,
+            (Math.ceil(u.data.total / usageView.limit) - 1) * usageView.limit,
+        );
+        if (usageView.offset > lastOffset)
+            setUsageView((v) => ({ ...v, offset: lastOffset }));
+    }, [page, u.pending, u.data, usageView.offset, usageView.limit]);
     const prefs = {
         ...saved,
         global,
@@ -205,6 +215,7 @@ export default function App() {
         setHistory((v) => v.slice(0, -1));
     }
     function memberUsage(m: Member, dimension: Dimension) {
+        setDrill(null);
         if (dimension === "session" && m.harness && m.session_id) {
             setGlobal((g) => ({
                 ...g,
@@ -247,11 +258,12 @@ export default function App() {
     const scanRef = useRef(scan);
     scanRef.current = scan;
     useEffect(() => {
-        if (!autoSeconds) return;
+        if (!autoSeconds || !liveRange) return;
         const timer = setInterval(() => {
             const r = refs.current;
             if (
                 !document.hidden &&
+                r.timeSpec.end === "now" &&
                 !r.editing &&
                 !r.busy &&
                 !refreshLock.current &&
@@ -260,7 +272,7 @@ export default function App() {
                 void scanRef.current();
         }, autoSeconds * 1000);
         return () => clearInterval(timer);
-    }, [autoSeconds]);
+    }, [autoSeconds, liveRange]);
     useEffect(() => {
         if (demo) return;
         let active = true;
@@ -394,7 +406,9 @@ export default function App() {
                         <input
                             type="checkbox"
                             data-testid="auto-refresh-toggle"
-                            checked={autoSeconds > 0}
+                            checked={liveRange && autoSeconds > 0}
+                            disabled={!liveRange}
+                            title={liveRange ? undefined : "截止时间为现在时，恢复自动刷新设置"}
                             onChange={(e) =>
                                 setAutoSeconds(
                                     e.target.checked ? autoPeriod : 0,
@@ -403,6 +417,11 @@ export default function App() {
                         />
                         自动刷新
                     </label>
+                    {!liveRange && (
+                        <span className="auto-refresh-note" data-testid="auto-refresh-note">
+                            历史范围不自动刷新
+                        </span>
+                    )}
                     <div className="segmented auto-period">
                         {[
                             [15, "15 秒"],
@@ -414,6 +433,7 @@ export default function App() {
                                 key={n}
                                 data-testid={`auto-period-${n}`}
                                 className={autoPeriod === n ? "selected" : ""}
+                                disabled={!liveRange}
                                 onClick={() => {
                                     setAutoPeriod(Number(n));
                                     if (autoSeconds) setAutoSeconds(Number(n));
@@ -505,7 +525,9 @@ export default function App() {
             )}
             {updating && (
                 <div className="updating-banner" data-testid="query-updating">
-                    正在更新当前范围…
+                    {(page === "dashboard" ? current : u.data)
+                        ? "正在查询当前范围，下方暂时保留上次查询结果…"
+                        : "正在加载当前范围…"}
                 </div>
             )}
             {page === "dashboard" && current && counts && (
@@ -629,8 +651,19 @@ export default function App() {
                         onView={setUsageView}
                         drill={drill}
                         onDrill={(row) => {
-                            setDrillBack(usageView);
-                            setDrill(row);
+                            if (!drill) setDrillBack(usageView);
+                            const identity = Object.fromEntries(
+                                Object.entries(row.identity).filter(
+                                    ([key, value]) =>
+                                        value != null ||
+                                        (key === "turn_id" && row.group === "turn"),
+                                ),
+                            );
+                            setDrill({
+                                identity: { ...drill?.identity, ...identity },
+                                label: drill ? `${drill.label} → ${row.label}` : row.label,
+                                group: drill?.group ?? row.group,
+                            });
                             setUsageView((v) => ({
                                 ...v,
                                 group: "request",

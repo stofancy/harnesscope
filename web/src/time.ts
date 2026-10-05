@@ -16,6 +16,8 @@ export function resolveTime(spec: TimeSpec, now = new Date()) {
     };
     const start = resolve(spec.start),
         end = resolve(spec.end);
+    if (start > now.getTime()) throw new Error("开始时间不能晚于现在");
+    if (end > now.getTime()) throw new Error("结束时间不能晚于现在");
     if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end)
         throw new Error("结束时间须晚于开始时间");
     return {

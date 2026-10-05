@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Automatic refresh runs only for ranges ending now, with saved preferences restored
+  on returning to now. Historical ranges retain manual refresh; future bounds are rejected.
+- Overview comparisons show the preceding equal-length window and explain which
+  period has unpriced calls. Known cost subtotals remain distinct from complete changes.
 - Unified time inputs accept expressions or concrete times independently, with a
   calendar picker on each field. Mixed bounds and second-precision fixed ranges
   persist across reload and page changes; refresh resolves relative expressions again.
@@ -92,6 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Usage drilldowns preserve prior identities when regrouping and narrowing again.
+  Dashboard navigation starts a fresh drill context; stale pagination returns to a valid page.
 - Historical turns and tools with missing end records no longer enter every later time
   window. Selection requires observed activity; new requests in old sessions remain visible.
 - Relative recent-time presets (24 hours / 7 days / 30 days) advance to the current time

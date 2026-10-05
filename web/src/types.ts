@@ -140,6 +140,7 @@ export type Analysis = {
     query: Query;
     summary: Values;
     previous_summary: Values;
+    comparison_range?: { since: string; until: string };
     members: Member[];
     series?: { key: string; label: string }[];
     changes?: Partial<Record<Metric, Delta>>;

@@ -64,12 +64,14 @@ export function TimeControl({
         <div className="inline-time">
             <TimeField
                 id="start" label="从" name="开始" value={start}
+                timezone={global.timezone}
                 calendarValue={pickerValue(start, global.since)}
                 onChange={setStart} onEditing={onEditing} onApply={apply}
             />
             <span className="time-arrow">→</span>
             <TimeField
                 id="end" label="到" name="结束" value={end}
+                timezone={global.timezone}
                 calendarValue={pickerValue(end, global.until)}
                 onChange={setEnd} onEditing={onEditing} onApply={apply}
             />
@@ -109,9 +111,10 @@ export function TimeControl({
 }
 
 function TimeField({
-    id, label, name, value, calendarValue, onChange, onEditing, onApply,
+    id, label, name, value, calendarValue, timezone, onChange, onEditing, onApply,
 }: {
     id: string; label: string; name: string; value: string; calendarValue: string;
+    timezone: string;
     onChange: (value: string) => void;
     onEditing: (value: boolean) => void;
     onApply: () => void;
@@ -133,6 +136,7 @@ function TimeField({
                     ref={calendar} className="time-calendar-input"
                     data-testid={`time-${id}-calendar`} type="datetime-local"
                     step="1" value={calendarValue} aria-hidden="true" tabIndex={-1}
+                    max={dateInput(new Date().toISOString(), timezone)}
                     onChange={(e) => {
                         if (e.target.value) {
                             onChange(e.target.value.replace("T", " "));
@@ -143,7 +147,13 @@ function TimeField({
                 <button
                     className="calendar-button" data-testid={`time-${id}-picker`}
                     aria-label={`选择${name}日期时间`} title={`选择${name}日期时间`}
-                    onClick={() => { onEditing(true); calendar.current?.showPicker(); }}
+                    onClick={() => {
+                        onEditing(true);
+                        if (calendar.current) {
+                            calendar.current.max = dateInput(new Date().toISOString(), timezone);
+                            calendar.current.showPicker();
+                        }
+                    }}
                 >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" strokeWidth="1.6" aria-hidden="true">

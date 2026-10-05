@@ -241,7 +241,9 @@ export function UsageTable({
                     </tbody>
                 </table>
                 {!data.rows.length && (
-                    <p className="empty">此范围没有已记录请求</p>
+                    <p className="empty">
+                        {data.total ? "此页没有记录" : "此范围没有已记录请求"}
+                    </p>
                 )}
             </div>
             <footer className="table-bottom">

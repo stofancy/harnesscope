@@ -150,9 +150,21 @@ test('usage page: all five groups preserve four components, reliable TPS, joint 
   await group(b,'turn'); await expect(row(b,'codex-turn-1','[data-testid="usage-turn-tps"]')).toHaveText('5');
   await row(b,'codex-turn-1','[data-testid="usage-row-open"]').click();
   await expect(byId(b,'usage-row')).toHaveCount(2); await expect(byId(b,'usage-total-tokens')).toHaveText('400');
+  await group(b,'model'); await byId(b,'usage-row-open').click(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(2); await expect(byId(b,'usage-total-tokens')).toHaveText('400');
+  await expect(byId(b,'usage-drill-context')).toContainText('→');
   await byId(b,'usage-drill-back').click(); await ready(b); await expect(byId(b,'usage-row')).toHaveCount(5);
   await expect(byId(b,'usage-group-turn')).toHaveAttribute('class','selected');
   await group(b,'model'); await expect(byId(b,'usage-response-tps')).toHaveText('10'); await expect(byId(b,'usage-turn-tps')).toHaveText('—');
+  await page(b,'dashboard');
+  const ranking = b.locator('[data-testid="absolute-ranking"] button[title*="e2e-known"]');
+  await ranking.click(); await ready(b);
+  await group(b,'harness');
+  await b.locator('tr[data-testid="usage-row"]:has-text("Codex") [data-testid="usage-row-open"]').click(); await ready(b);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('500');
+  await page(b,'dashboard'); await ranking.click(); await ready(b);
+  await expect(byId(b,'usage-drill-context')).toHaveCount(0);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('1,300');
   await app.screenshot('usage-four-components-and-timing');
 });
 
@@ -182,7 +194,7 @@ test('window activity: historical open metadata, same-prefix sessions, unassocia
   await page(b,'dashboard'); await expect(byId(b,'turn-count')).toHaveText('0'); await expect(byId(b,'tool-call-total')).toHaveText('0');
   await range(b,'2026-10-03T00:00:00Z','2026-10-03T00:01:00Z');
   await expect(byId(b,'summary-tokens')).toHaveText('130'); await expect(byId(b,'summary-cost')).toHaveText('$0.000500');
-  await expect(byId(b,'summary')).toContainText('部分价格'); await expect(byId(b,'tokens-per-turn')).toHaveText('65');
+  await expect(byId(b,'summary')).toContainText('已知小计 · 1 次无法估价'); await expect(byId(b,'tokens-per-turn')).toHaveText('65');
   await expect(byId(b,'cost-per-turn')).toHaveText('$0.000250'); await expect(byId(b,'panel-turns')).toContainText('部分价格覆盖');
   await page(b,'usage'); await group(b,'request');
   await expect(byId(b,'usage-total-cost')).toHaveText('$0.000500 · 部分');
@@ -216,6 +228,18 @@ test('daily use: persisted settings, isolated requests, global sorting and light
   await expect(byId(b,'usage-total-tokens')).toHaveText('2,000'); await byId(b,'usage-drill-back').click(); await ready(b);
   await expect(byId(b,'usage-row')).toHaveCount(5); await b.reload(); await ready(b);
   await expect(byId(b,'usage-row')).toHaveCount(5); await expect(byId(b,'usage-group-turn')).toHaveAttribute('class','selected');
+  // A saved second page can outlive its data, e.g. after a rolling range moves.
+  await b.evaluate(() => {
+    const key = 'usage-dashboard.preferences.v4';
+    const stored = JSON.parse(localStorage.getItem(key)!);
+    stored.preferences.timeSpec = { start: '2026-10-04T00:00:00Z', end: '2026-10-04T00:01:00Z' };
+    stored.preferences.global.since = '2026-10-04T00:00:00Z';
+    stored.preferences.global.until = '2026-10-04T00:01:00Z';
+    localStorage.setItem(key, JSON.stringify(stored));
+  });
+  await b.reload(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(2);
+  await expect(b.locator('[data-testid="usage-table"] .table-bottom')).toContainText('第 1 / 1 页');
   await range(b); await group(b,'request');
   for (const theme of ['light','dark']) {
     await byId(b,`theme-${theme}`).click(); await expect(byId(b,'workbench')).toHaveAttribute('data-theme',theme);
@@ -256,6 +280,12 @@ test('unified time: expressions on both ends, calendar selection, mixed bounds a
   await byId(b, 'time-end').fill(start!); await apply();
   await expect(b.locator('[role="alert"]')).toHaveText('结束时间须晚于开始时间');
   expect(requests.length).toBe(before); await expect(byId(b, 'summary-calls')).toHaveText('6');
+  await byId(b, 'time-end').fill('2100-01-01T00:00:00Z'); await apply();
+  await expect(b.locator('[role="alert"]')).toHaveText('结束时间不能晚于现在');
+  expect(requests.length).toBe(before);
+  await byId(b, 'time-start').fill('2100-01-01T00:00:00Z'); await byId(b, 'time-end').fill('现在'); await apply();
+  await expect(b.locator('[role="alert"]')).toHaveText('开始时间不能晚于现在');
+  expect(requests.length).toBe(before);
 
   await byId(b, 'time-start').fill('-2h'); await byId(b, 'time-end').fill('-1h'); await apply();
   let q = latest();
@@ -272,6 +302,8 @@ test('unified time: expressions on both ends, calendar selection, mixed bounds a
 
   for (const [id, local] of [['start', start!], ['end', end!]]) {
     await byId(b, `time-${id}-picker`).click();
+    const max = await byId(b, `time-${id}-calendar`).getAttribute('max');
+    expect(max != null && Math.abs(Date.parse(max) - Date.now()) < 5000).toBe(true);
     const native = local.replace(' ', 'T').replace(/:00$/, '');
     await byId(b, `time-${id}-calendar`).fill(native);
     await byId(b, `time-${id}-calendar`).press('Escape');
@@ -303,6 +335,24 @@ test('unified time: expressions on both ends, calendar selection, mixed bounds a
   await byId(b, 'time-start').fill('-6h'); await byId(b, 'time-end').fill('-1h'); await apply();
   await expect(byId(b, 'time-start')).toHaveValue('-6h');
   await expect(byId(b, 'time-end')).toHaveValue('-1h');
+});
+
+test('comparison: adjacent equal window and explicit current/previous unpriced reasons', async ({ browser: b, app }) => {
+  await open(b);
+  await range(b,'2026-10-04T00:00:00Z','2026-10-05T00:00:00Z');
+  await expect(byId(b,'summary-cost')).toHaveText('$0.001025');
+  await expect(byId(b,'summary-change-cost')).toHaveText('上期 1 次无法估价');
+  await expect(byId(b,'summary-change-cost')).toHaveAttribute('class','change unavailable');
+  const local = await b.evaluate(() => ['2026-10-03T00:00:00Z','2026-10-04T00:00:00Z'].map(v => {
+    const d = new Date(v), p = (n: number) => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }));
+  await expect(byId(b,'comparison-period')).toContainText(`${local[0]} — ${local[1]}`);
+  await expect(byId(b,'comparison-period')).toContainText('环比上一等长时段');
+  await app.screenshot('comparison-previous-unpriced');
+  await range(b,'2026-10-03T00:00:00Z','2026-10-04T00:00:00Z');
+  await expect(byId(b,'summary-change-cost')).toHaveText('本期 1 次无法估价');
+  await expect(byId(b,'summary')).toContainText('已知小计 · 1 次无法估价');
 });
 
 test('refresh: incremental dedup, completed metadata, unknown and empty windows, live zoom restoration', async ({ browser: b, app }) => {
@@ -358,8 +408,33 @@ test('inline time: relative/since/fixed, auto refresh persisted, editing pause a
   await b.reload(); await ready(b); await expect(byId(b,'auto-refresh-toggle')).toBeChecked();
   await expect(byId(b,'auto-period-15')).toHaveAttribute('class','selected'); await expect(byId(b,'time-start')).toHaveValue('-18h');
   await byId(b,'time-start').fill('-18h'); const beforeEdit=posts; await wait(16000); expect(posts).toBe(beforeEdit);
-  await byId(b,'auto-refresh-toggle').uncheck(); await range(b); const fixed=await byId(b,'resolved-range').textContent();
+  await range(b); const fixed=await byId(b,'resolved-range').textContent();
   await refresh(b); await expect(byId(b,'resolved-range')).toHaveText(fixed!); await b.reload(); await ready(b);
   await expect(byId(b,'resolved-range')).toHaveText(fixed!); await expect(byId(b,'auto-refresh-toggle')).not.toBeChecked();
+  await expect(byId(b,'auto-refresh-toggle')).toBeDisabled();
+  await expect(byId(b,'auto-refresh-note')).toHaveText('历史范围不自动刷新');
   await app.screenshot('inline-time-and-auto-refresh');
+});
+
+test('historical refresh: fixed and past-relative ends pause scans and returning to now restores preference', async ({ browser: b, app }) => {
+  let posts=0;
+  await b.route(/\/api\//, async r => {
+    if(r.request.method==='POST' && new URL(r.request.url).pathname==='/api/refresh') posts++;
+    await r.continue();
+  });
+  await b.goto('/',{waitUntil:'networkidle'}); await ready(b);
+  await byId(b,'auto-period-15').click(); await byId(b,'auto-refresh-toggle').check();
+  await range(b); await b.reload(); await ready(b);
+  await expect(byId(b,'auto-refresh-toggle')).toBeDisabled();
+  await expect(byId(b,'auto-refresh-toggle')).not.toBeChecked();
+  const beforeHistory=posts; await wait(16000); expect(posts).toBe(beforeHistory);
+  await byId(b,'time-start').fill('-2h'); await byId(b,'time-end').fill('-1h'); await byId(b,'time-apply').click(); await ready(b);
+  await expect(byId(b,'auto-refresh-toggle')).toBeDisabled();
+  const beforePast=posts; await wait(16000); expect(posts).toBe(beforePast);
+  await byId(b,'time-end').fill('现在'); await byId(b,'time-apply').click(); await ready(b);
+  await expect(byId(b,'auto-refresh-toggle')).toBeChecked();
+  await expect(byId(b,'auto-refresh-toggle')).toBeEnabled();
+  await expect(byId(b,'auto-refresh-note')).toHaveCount(0);
+  await byId(b,'auto-refresh-toggle').uncheck();
+  await app.screenshot('historical-refresh-pause-and-resume');
 });

@@ -78,7 +78,7 @@ same append and refresh keeps these counts stable.
 
 ## Acceptance scope
 
-Six browser scenarios use one shared inline time/filter context, the machine's
+Nine browser scenarios use one shared inline time/filter context, the machine's
 actual timezone, aggregate-only Dashboard panels and the separate usage page:
 
 1. Overview → chart zoom → contribution ranking → requests → restore the range.
@@ -87,7 +87,8 @@ actual timezone, aggregate-only Dashboard panels and the separate usage page:
    5/10/30-second and 1/15-minute intervals, filtering and chart/brush zoom.
 2. Request/session/turn/model/harness groups preserve all four component totals.
    Request timing is reliable only where recorded; turn timing stays on its own
-   definition. Joint identity drill and returning restore group context.
+   definition. Nested drill after regrouping retains the prior identity and returning
+   restores group context. Dashboard navigation clears the earlier local drill.
 3. Old open metadata contributes only with actual window activity. New requests
    in old sessions remain; unassociated-turn requests survive all groups/drill.
    Long-project sessions with the same eight-character prefix have visible,
@@ -95,6 +96,7 @@ actual timezone, aggregate-only Dashboard panels and the separate usage page:
 4. Saved filters, panel settings, usage page/group/page and theme survive reload.
    Browser requests prove local panel changes and usage sorting/paging load only
    their own data. Twenty-row pagination and full-result sorting use 25 turns.
+   A saved page beyond the remaining result count recovers to a valid page.
    Both pages and chart tooltips are captured in light/dark palettes at 1600 and
    1024 pixels; document overflow is checked after chart resize.
 5. Synthetic append adds one call; same-key replay stays stable. Completion
@@ -103,10 +105,18 @@ actual timezone, aggregate-only Dashboard panels and the separate usage page:
 6. Inline `-18h`, `-2days`, fixed-start-to-now and fixed history produce correct
    bounds. Explicit auto-refresh switch/period persist; editing pauses it and
    a refresh held across another interval never overlaps a second refresh.
+   Manual historical refresh remains available.
 7. Each time field accepts expressions, concrete times and calendar selections.
    Both-relative and mixed bounds resolve correctly; second-precision fixed bounds
    persist through page changes, reload and refresh. Invalid bounds keep the current
-   data; both desktop widths and themes remain usable.
+   data; future bounds are rejected and calendars have a current-time maximum.
+   Both desktop widths and themes remain usable.
+8. An October 4 daily window compares with October 3 using the same filters. The
+   current $0.001025 is complete; the previous $0.000500 has one unpriced call.
+   The page shows the previous dates and missing-estimate reason. Moving to October 3
+   instead shows current-period missing coverage and the known subtotal label.
+9. Fixed ends and past-relative ends issue no automatic scans across a full interval;
+   returning to now restores the saved switch.
 
 ## Daily-dashboard fixtures
 

@@ -354,6 +354,10 @@ code {
     font-size: 11px;
     padding: 4px 6px;
 }
+.auto-refresh-note {
+    color: var(--muted);
+    font-size: 10px;
+}
 .zoom-back {
     font-size: 11px;
     padding: 4px 7px;
@@ -473,6 +477,14 @@ code {
     gap: 14px;
     margin-bottom: 16px;
 }
+.comparison-context {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 10px;
+    margin: 0 0 8px;
+}
 .metric-strip article {
     border: 1px solid var(--border);
     background: var(--surface);
@@ -520,6 +532,9 @@ code {
 }
 .change {
     color: var(--accent);
+}
+.change.unavailable {
+    color: var(--muted);
 }
 .panel {
     background: var(--surface);
@@ -879,6 +894,7 @@ code {
 }
 .comparison-heading {
     display: flex;
+    flex-wrap: wrap;
     gap: 15px;
     font-size: 11px;
     margin-bottom: 10px;

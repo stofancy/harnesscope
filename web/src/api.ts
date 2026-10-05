@@ -186,6 +186,8 @@ export type RawAnalysis = {
     };
     breakdown: RawMember[];
     comparison: {
+        start?: string;
+        end?: string;
         summary: RawMetrics;
         delta: Record<string, Delta>;
         members: {
@@ -261,6 +263,9 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
         query: q,
         summary: normalizeMetrics(raw.summary),
         previous_summary: normalizeMetrics(raw.comparison.summary),
+        comparison_range: raw.comparison.start && raw.comparison.end
+            ? { since: raw.comparison.start, until: raw.comparison.end }
+            : undefined,
         changes: changes(raw.comparison.delta),
         knownCostChange: raw.comparison.delta.cost_usd_known,
         members: raw.breakdown.map((m) => {
@@ -682,7 +687,7 @@ export async function usage(
         const i = drill.identity;
         if (i.harness != null) p.set("harness", i.harness);
         if (i.session_id != null) p.set("session", i.session_id);
-        if (drill.group === "turn") p.set("turn_id", i.turn_id ?? "");
+        if ("turn_id" in i) p.set("turn_id", i.turn_id ?? "");
         if (i.model != null) p.set("model", i.model);
     }
     type Raw = Omit<

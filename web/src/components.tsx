@@ -12,6 +12,7 @@ import type {
 } from "./types";
 import {
     deltaPercent,
+    dateInput,
     exactNumber,
     formatMetric,
     formatNumber,
@@ -55,8 +56,30 @@ function displayedChange(
               ? "比较未知"
               : change.absolute === 0
                 ? "0.0%"
-                : "新增"
+                : "上期为 0"
         : (deltaPercent(now, before) ?? "比较未知");
+}
+function comparisonReason(data: Analysis, metric: Metric) {
+    if (["cost", "cost_per_call", "cost_per_million"].includes(metric)) {
+        const missing = [
+            data.summary.unpriced ? `本期 ${formatNumber(data.summary.unpriced)} 次无法估价` : "",
+            data.previous_summary.unpriced
+                ? `上期 ${formatNumber(data.previous_summary.unpriced)} 次无法估价` : "",
+        ].filter(Boolean);
+        if (missing.length) return missing.join("；");
+    }
+    if (data.changes?.[metric]?.absolute === null) {
+        if (value(data.previous_summary, metric) === null) return "上期无可用样本";
+        if (value(data.summary, metric) === null) return "本期无可用样本";
+        return "缺少可比较数据";
+    }
+    return null;
+}
+function comparisonPeriod(data: Analysis) {
+    const range = data.comparison_range;
+    return range
+        ? `${dateInput(range.since, data.query.timezone).replace("T", " ")} — ${dateInput(range.until, data.query.timezone).replace("T", " ")}`
+        : "紧邻当前范围的上一段等长时间";
 }
 const memberColors = new Map<string, string>();
 function memberColor(dimension: Dimension, key: string) {
@@ -203,6 +226,12 @@ function MetricStrip({
     turnCount?: number;
 }) {
     return (
+        <>
+        <div className="comparison-context" data-testid="comparison-period"
+            title="两期使用相同筛选条件；前期紧邻当前范围，时长相同。">
+            <span>环比上一等长时段</span>
+            <span>{comparisonPeriod(data)}</span>
+        </div>
         <section className="metric-strip" data-testid="summary">
             {(["cost", "tokens", "calls"] as Metric[]).map((m) => (
                 <article key={m}>
@@ -216,19 +245,25 @@ function MetricStrip({
                         <span>
                             {m === "cost"
                                 ? data.summary.unpriced
-                                    ? `部分价格 · ${formatNumber(data.summary.unpriced)} 次缺价`
+                                    ? `${data.summary.cost == null ? "" : "已知小计 · "}${formatNumber(data.summary.unpriced)} 次无法估价`
                                     : "USD"
                                 : m === "tokens"
                                   ? `${data.summary.input_complete === false ? "已记录 · " : ""}输入 ${formatNumber(data.summary.input)} / 输出 ${formatNumber(data.summary.output)}`
                                   : `${formatNumber(data.summary.sessions)} 个会话`}
                         </span>
-                        <span className="change">
-                            {displayedChange(
+                        <span
+                            className={`change ${comparisonReason(data, m) ? "unavailable" : ""}`}
+                            data-testid={`summary-change-${m}`}
+                            title={comparisonReason(data, m)
+                                ? `${comparisonReason(data, m)}，无法完整比较。${comparisonPeriod(data)}`
+                                : comparisonPeriod(data)}
+                        >
+                            {comparisonReason(data, m) ?? displayedChange(
                                 data.changes?.[m],
                                 value(data.summary, m),
                                 value(data.previous_summary, m),
                             )}
-                            <small> 较前期</small>
+                            {!comparisonReason(data, m) && <small> 较上一时段</small>}
                         </span>
                     </div>
                 </article>
@@ -243,6 +278,7 @@ function MetricStrip({
                 </div>
             </article>
         </section>
+        </>
     );
 }
 // A direct click resolves a bucket from the public axis scale. Tooltip hover
@@ -319,16 +355,16 @@ function Comparison({
         <section className="comparison">
             <div className="comparison-heading">
                 <span className="eyebrow">较上一等长窗口</span>
-                <strong>
-                    {displayedChange(data.changes?.[metric], current, previous)}
+                <strong className={comparisonReason(data, metric) ? "muted" : ""}>
+                    {comparisonReason(data, metric) ?? displayedChange(data.changes?.[metric], current, previous)}
                 </strong>
                 <span className="muted">
-                    {formatMetric(previous, metric)} →{" "}
+                    {knownMode && "已知估算小计 "}{formatMetric(previous, metric)} →{" "}
                     {formatMetric(current, metric)}
                 </span>
                 {knownMode && (
-                    <small title="部分调用缺少价格，变化仅对应已计价部分。">
-                        部分费用
+                    <small title="部分调用缺少价格或用量组成，已知小计变化不代表完整费用变化。">
+                        完整费用变化不可比
                     </small>
                 )}
             </div>
@@ -336,7 +372,7 @@ function Comparison({
                 {changes.map(({ m, delta }) => (
                     <button
                         key={m.key}
-                        title={`筛选${m.label}并查看其轮次`}
+                        title={`筛选${m.label}并查看其请求`}
                         onClick={() => onDetail(m)}
                     >
                         <span title={m.label}>{m.label}</span>
@@ -344,7 +380,7 @@ function Comparison({
                             {delta! > 0 ? "+" : "−"}
                             {formatMetric(Math.abs(delta!), metric)}
                         </b>
-                        <small>查看轮次 ↗</small>
+                        <small>{knownMode ? "已知小计差额 · " : ""}查看请求 ↗</small>
                     </button>
                 ))}
                 {!changes.length && (
