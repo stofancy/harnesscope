@@ -62,6 +62,8 @@ include = [
     "docs",
     "tools",
     "web",
+    "e2e.config.ts",
+    "CONTRIBUTING.md",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
