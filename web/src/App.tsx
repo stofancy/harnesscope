@@ -21,6 +21,7 @@ import { AnalyticPanel } from "./charts";
 import { TurnWorkbench } from "./turns";
 import { AbsoluteRanking } from "./ranking";
 import { TimeControl } from "./TimeControl";
+import { SourceHealth } from "./SourceHealth";
 import { advanceTime, type TimeSpec } from "./time";
 import { readPreferences, savePreferences } from "./preferences";
 import { useDashboard } from "./useDashboard";
@@ -101,6 +102,7 @@ export default function App() {
         [revision, setRevision] = useState(0),
         [scanStatus, setScanStatus] = useState<Status | null>(null),
         [refreshing, setRefreshing] = useState(false),
+        [lastRefresh, setLastRefresh] = useState<string | null>(null),
         [error, setError] = useState(""),
         [editing, setEditing] = useState(false),
         [snapshot, setSnapshot] = useState<string | null>(null);
@@ -128,6 +130,7 @@ export default function App() {
         facets = page === "dashboard" ? counts?.facets : u.data?.facets;
     const refs = useRef({ global, timeSpec, editing, busy, scanStatus });
     const liveRange = timeSpec.end === "now";
+    const updatedAt = lastRefresh ?? scanStatus?.updated_at;
     refs.current = { global, timeSpec, editing, busy, scanStatus };
     const refreshLock = useRef(false);
     useEffect(() => {
@@ -248,6 +251,7 @@ export default function App() {
             if (latest.error) throw new Error(latest.error);
             setGlobal((g) => advanceTime(g, refs.current.timeSpec));
             setRevision((v) => v + 1);
+            setLastRefresh(new Date().toISOString());
         } catch (e) {
             setError(`刷新失败：${(e as Error).message}`);
         } finally {
@@ -259,10 +263,9 @@ export default function App() {
     scanRef.current = scan;
     useEffect(() => {
         if (!autoSeconds || !liveRange) return;
-        const timer = setInterval(() => {
+        const tick = () => {
             const r = refs.current;
             if (
-                !document.hidden &&
                 r.timeSpec.end === "now" &&
                 !r.editing &&
                 !r.busy &&
@@ -270,8 +273,17 @@ export default function App() {
                 !r.scanStatus?.scanning
             )
                 void scanRef.current();
-        }, autoSeconds * 1000);
-        return () => clearInterval(timer);
+        };
+        tick();
+        const timer = setInterval(tick, autoSeconds * 1000);
+        const resume = () => { if (!document.hidden) tick(); };
+        document.addEventListener("visibilitychange", resume);
+        window.addEventListener("focus", resume);
+        return () => {
+            clearInterval(timer);
+            document.removeEventListener("visibilitychange", resume);
+            window.removeEventListener("focus", resume);
+        };
     }, [autoSeconds, liveRange]);
     useEffect(() => {
         if (demo) return;
@@ -326,8 +338,8 @@ export default function App() {
                 </nav>
                 <div className="heading-actions">
                     <span className="updated">
-                        {scanStatus?.updated_at
-                            ? `${timeLabel(scanStatus.updated_at, global.timezone)} 更新`
+                        {updatedAt
+                            ? `${timeLabel(updatedAt, global.timezone)} 更新`
                             : ""}
                     </span>
                     <div className="segmented theme-toggle">
@@ -443,6 +455,13 @@ export default function App() {
                             </button>
                         ))}
                     </div>
+                    {liveRange && autoSeconds > 0 && (
+                        <span className="auto-refresh-note" data-testid="auto-refresh-state"
+                            title={lastRefresh ? `最近成功刷新：${dateInput(lastRefresh, global.timezone).replace("T", " ")}` : undefined}>
+                            {editing ? "编辑期间暂停" : scanning ? "正在刷新" : busy ? "正在更新数据" :
+                                `每 ${autoSeconds} 秒刷新${lastRefresh ? ` · 最近 ${dateInput(lastRefresh, global.timezone).slice(11)}` : ""}`}
+                        </span>
+                    )}
                     {history.length > 0 && (
                         <button
                             className="zoom-back"
@@ -677,38 +696,7 @@ export default function App() {
                     />
                 </div>
             )}
-            <details className="source-health" data-testid="source-health">
-                <summary>
-                    数据来源{" "}
-                    <span>{scanStatus?.sources.length ?? 0} 个本机来源</span>
-                </summary>
-                <div className="sources-grid">
-                    {scanStatus?.sources.map((s) => (
-                        <article key={s.harness}>
-                            <header>
-                                <b>{harnessLabel(s.harness)}</b>
-                                <span className={`source-state ${s.state}`}>
-                                    {
-                                        {
-                                            ready: "已读取",
-                                            partial: "部分数据",
-                                            missing: "未发现",
-                                            error: "读取失败",
-                                            scanning: "读取中",
-                                        }[s.state]
-                                    }
-                                </span>
-                            </header>
-                            <p>
-                                {s.files} 个文件 · {s.events} 条可用记录
-                            </p>
-                            {s.warnings.map((w, i) => (
-                                <small key={i}>{w}</small>
-                            ))}
-                        </article>
-                    ))}
-                </div>
-            </details>
+            <SourceHealth sources={scanStatus?.sources ?? []} />
         </main>
     );
 }

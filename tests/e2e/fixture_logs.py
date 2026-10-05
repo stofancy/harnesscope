@@ -129,6 +129,13 @@ def prepare(root):
         {'type': 'turn/end', 'seq': 3, 'time': 1790812885000, 'data': {'turn': 1, 'reason': {'kind': 'completed'}}},
     ]
     write(root / 'dsh/sessions/dsh-session/session.v4.jsonl', dsh)
+    write(root / 'dsh/sessions/warning-session/session.v4.jsonl', [
+        {'type': 'session', 'version': 4, 'id': 'warning-session', 'cwd': PROJECT},
+        {'type': 'session/title-llm-request', 'seq': 0, 'time': 1790726400000, 'data': {}},
+        {'type': 'web/deepseek-search-llm-request', 'seq': 1, 'time': 1790726401000, 'data': {}},
+        {'type': 'assistant/attempt', 'seq': 2, 'time': 1790726402000,
+         'data': {'turn': 1, 'step': 0, 'message': {'source': {'model': MODEL}}, 'stream': []}},
+    ])
     (root / 'pricing.json').write_text(json.dumps({MODEL: {'inputCostPerMillion': 2,
         'cacheReadCostPerMillion': .5, 'cacheWriteCostPerMillion': 3, 'outputCostPerMillion': 8}}))
     prepare_daily_cases(root)

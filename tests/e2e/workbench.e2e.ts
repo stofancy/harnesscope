@@ -25,7 +25,7 @@ async function open(b: Browser) {
 async function page(b: Browser, name: 'dashboard' | 'usage') { await byId(b, `page-${name}`).click(); await ready(b); }
 async function group(b: Browser, name: string) { await byId(b, `usage-group-${name}`).click(); await ready(b); }
 async function reveal(b: Browser, id: string) {
-  if (await byId(b, id).getAttribute('open') === null) await b.locator(`[data-testid="${id}"] summary`).click();
+  if (await byId(b, id).getAttribute('open') === null) await b.locator(`[data-testid="${id}"] > summary`).click();
 }
 async function settings(b: Browser, id: string, hide = false) {
   const opened = await byId(b, `settings-${id}`).getAttribute('open') !== null;
@@ -505,6 +505,64 @@ test('historical refresh: fixed and past-relative ends pause scans and returning
   await expect(byId(b,'auto-refresh-note')).toHaveCount(0);
   await byId(b,'auto-refresh-toggle').uncheck();
   await app.screenshot('historical-refresh-pause-and-resume');
+});
+
+test('source health: DSH reasons explain counts, impact, action and source files', async ({ browser: b, app }) => {
+  await open(b); await reveal(b, 'source-health');
+  const source = byId(b, 'source-DSH');
+  await expect(source).toContainText('部分数据');
+  await expect(source).toContainText('3 条解析提示');
+  for (const [code, label] of [
+    ['aux_title_usage_missing', '标题生成辅助调用未记录用量'],
+    ['aux_search_usage_missing', '搜索辅助调用未记录用量'],
+    ['model_usage_missing', '部分模型尝试未记录用量'],
+  ]) {
+    const issue = byId(b, `source-issue-${code}`);
+    await expect(issue).toContainText(label);
+    await expect(issue).toContainText('1 条提示 · 1 个文件');
+    await b.locator(`[data-testid="source-issue-${code}"] summary`).click();
+    await expect(issue).toContainText('无法');
+    await expect(issue).toContainText('刷新');
+    await expect(b.locator(`[data-testid="source-issue-${code}"] li > span`)).toHaveAttribute('title', /warning-session\/session.v4.jsonl$/);
+    await expect(issue).not.toContainText('Auxiliary');
+  }
+  await source.scrollIntoView(); await app.screenshot('source-health-reasons-light');
+  await byId(b, 'theme-dark').click(); await b.setViewport({ width:1024, height:1100 });
+  await source.scrollIntoView();
+  expect(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await app.screenshot('source-health-reasons-dark-1024');
+  await expect(byId(b, 'summary-tokens')).toHaveText('1.3K');
+});
+
+test('automatic refresh: enabling scans immediately and each period receives appended data', async ({ browser: b, app }) => {
+  let posts = 0;
+  await b.route(/\/api\//, async r => {
+    if (r.request.method === 'POST' && new URL(r.request.url).pathname === '/api/refresh') posts++;
+    await r.continue();
+  });
+  await b.goto('/', { waitUntil: 'networkidle' }); await ready(b);
+  await byId(b, 'time-start').fill('-1h'); await byId(b, 'time-start').press('Enter'); await ready(b);
+  const baseline = Number(await byId(b, 'summary-calls').textContent());
+  append(997);
+  await byId(b, 'auto-period-15').click();
+  const enabled = b.waitForResponse(/\/api\/refresh/, { timeout: 5000 });
+  await byId(b, 'auto-refresh-toggle').check(); await enabled;
+  await expect(byId(b, 'summary-calls')).toHaveText(String(baseline + 1));
+  await expect(byId(b, 'auto-refresh-state')).toContainText('最近');
+  const beforePeriod = posts;
+  append(998);
+  await b.waitForResponse(/\/api\/refresh/, { timeout: 25000 });
+  await expect(byId(b, 'summary-calls')).toHaveText(String(baseline + 2));
+  expect(posts > beforePeriod).toBe(true);
+  await byId(b, 'auto-refresh-toggle').uncheck();
+  await app.screenshot('automatic-refresh-immediate-and-periodic');
+});
+
+test('calendar cancel: opening and dismissing a picker does not leave refresh paused', async ({ browser: b, app }) => {
+  await b.goto('/', { waitUntil: 'networkidle' }); await ready(b);
+  await byId(b, 'time-start-picker').click(); await b.keyboard.press('Escape');
+  await expect(byId(b, 'resolved-range')).not.toContainText('编辑期间暂停自动刷新');
+  await app.screenshot('cancelled-calendar-resumes-refresh');
 });
 
 test('current time: input blur, Enter, refresh and browser reload resolve the actual clock', async ({ browser: b, app }) => {

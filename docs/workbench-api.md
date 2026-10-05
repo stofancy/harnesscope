@@ -64,6 +64,10 @@ source_cost_usd/source_cost_calls 单列来源 api_estimate 金额及记录数�
 
 coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 harness/state/files/events/warnings/errors。`GET /api/status` 由服务返回数据源发现、索引范围、扫描状态和最近刷新结果；`POST /api/refresh` 显式触发本机日志重扫。
 
+`GET /api/status` 的 `sources[].warning_details` 按受控分类返回 `code,label,count,affected_files,impact,action,files`。每个文件项为 `name,path,count,byte_offsets,locations_omitted`，字节定位最多保留 10 个。`warnings` 继续表示解析提示总数，`failed_files` 为读取失败文件数，原计量口径保持不变；原始解析消息正文不存储或回传。旧缓存先返回“旧缓存尚未保存提示原因”，刷新后按已有 adapter version 机制重读来源、补齐分类。
+
+DSH 的标题与搜索辅助调用提示按每文件每辅助类型计一次，提示数不能代表辅助调用次数。没有原生用量的辅助调用和模型尝试无法计入 token / 费用，也无法据此判断是否收费；已记录的主模型用量仍保留。
+
 ## 会话响应
 
 `GET /api/sessions` 返回 `{snapshot,query,total,offset,limit,sessions}`，列表每行包含 harness/session_id、first/last（窗内事件范围）、model/provider/project/agent_type/purpose/service_tier 值集合及 metrics；默认按 last 降序。列表的聚合值与 analytics 使用相同查询实现。

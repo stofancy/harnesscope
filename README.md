@@ -97,14 +97,20 @@ the local timezone; future bounds are rejected. Segmented buttons select the cha
 ranges resolve against the actual clock on refresh, browser reload and range return;
 fixed historical ranges and chart zooms remain fixed.
 An explicit automatic-refresh switch and interval control scan source changes before
-updating the view. Refresh is off by default, does not overlap, and pauses in background
-tabs or while editing the time range. It runs only when the end expression is **now**;
+updating the view. Refresh is off by default; enabling it scans immediately, then runs
+at the selected period without overlap. Time editing pauses scans. Losing focus or
+moving to a background tab keeps the setting active; returning to the foreground
+checks again. The controls show refresh state and the latest successful time.
+It runs only when the end expression is **now**;
 fixed or past-relative ends disable it, while keeping the saved preference for returning
 to now. Manual refresh remains available for late historical records. Scans check file
 metadata and skip unchanged files; appendable logs resume at the saved offset, while
 changed DSH files and replaced/truncated logs are reread. The resulting index is queried
 again for the selected window. Time expressions, refresh interval, filters and panel
-choices survive reloads. Source health expands in its own section at the bottom.
+choices survive reloads. Source health expands in its own section at the bottom,
+with categorized reasons, counts, affected files, statistical impact and suggested
+actions. Full file paths are available in tooltips. Missing native usage for title/search
+auxiliary calls leaves their historical overhead unknown; recorded main-model usage remains.
 
 Overview changes compare the immediately preceding **equal-length window** with the
 same filters; the comparison dates are shown above the totals. A 48-hour range ending

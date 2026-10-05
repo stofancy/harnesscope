@@ -138,6 +138,9 @@ type RawSource = {
     files: number;
     events: number;
     warnings: number;
+    warning_details?: Source["warning_details"];
+    failed_files?: number;
+    label_error?: string;
     errors?: number;
     error?: string;
     last_scan_us?: number;
@@ -253,8 +256,10 @@ function source(s: RawSource): Source {
         warnings: [
             ...(s.warnings ? [`${s.warnings} 条解析提示`] : []),
             ...(s.error ? [s.error] : []),
-            ...((s.errors ?? 0) > 0 ? [`${s.errors} 个文件读取失败`] : []),
+            ...((s.failed_files ?? s.errors ?? 0) > 0 ? [`${s.failed_files ?? s.errors} 个文件读取失败；原有统计保留，修复读取问题后刷新`] : []),
+            ...(s.label_error ? [`会话名称读取失败：${s.label_error}；用量统计可继续，修复来源后刷新`] : []),
         ],
+        warning_details: s.warning_details ?? [],
     };
 }
 export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {

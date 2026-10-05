@@ -16,6 +16,7 @@ from .domain import (
 )
 
 from .names import native_title
+from .source_warnings import merge as merge_warnings, source_details, stored as stored_warnings, summarize as summarize_warnings
 
 SCHEMA_VERSION = "3"
 EVENT_COLUMNS = tuple(f.name for f in fields(UsageEvent))
@@ -45,7 +46,8 @@ CREATE TABLE IF NOT EXISTS files (
     state TEXT NOT NULL DEFAULT '{}', adapter_version TEXT NOT NULL DEFAULT '1',
     prefix_size INTEGER NOT NULL DEFAULT 0, prefix_hash TEXT NOT NULL DEFAULT '',
     boundary_hash TEXT NOT NULL DEFAULT '', last_scan_us INTEGER,
-    error TEXT, warning_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0
+    error TEXT, warning_count INTEGER NOT NULL DEFAULT 0, warning_details TEXT NOT NULL DEFAULT '[]',
+    event_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
     key TEXT NOT NULL, timestamp_us INTEGER NOT NULL, harness TEXT NOT NULL,
@@ -138,6 +140,9 @@ class SQLiteIndex:
         with self._transaction() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
+            file_columns = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+            if "warning_details" not in file_columns:
+                conn.execute("ALTER TABLE files ADD COLUMN warning_details TEXT NOT NULL DEFAULT '[]'")
             version = conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
             if version and version[0] not in ("1", "2", SCHEMA_VERSION):
                 raise ValueError("Usage index schema changed; remove the rebuildable usage.sqlite3 cache")
@@ -307,23 +312,26 @@ class SQLiteIndex:
             self._store_titles(conn, source.path, stat.st_mtime_ns, batch.session_titles)
             count = conn.execute("SELECT count(*) FROM event_sources WHERE source_file=?",
                                  (source.path,)).fetchone()[0]
-            previous = conn.execute("SELECT warning_count FROM files WHERE path=?",
+            previous = conn.execute("SELECT warning_count,warning_details FROM files WHERE path=?",
                                     (source.path,)).fetchone()
             warnings = len(batch.warnings) + (previous[0] if previous and not rebuild else 0)
+            details = summarize_warnings(batch.warnings)
+            if previous and not rebuild:
+                details = merge_warnings(stored_warnings(previous[1], previous[0]), details)
             conn.execute("""INSERT INTO files
                 (path,harness,source_kind,size,mtime_ns,inode,offset,state,adapter_version,
-                 prefix_size,prefix_hash,boundary_hash,last_scan_us,error,warning_count,event_count)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)
+                 prefix_size,prefix_hash,boundary_hash,last_scan_us,error,warning_count,warning_details,event_count)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
                 ON CONFLICT(path) DO UPDATE SET harness=excluded.harness,
                 source_kind=excluded.source_kind,size=excluded.size,mtime_ns=excluded.mtime_ns,
                 inode=excluded.inode,offset=excluded.offset,state=excluded.state,
                 adapter_version=excluded.adapter_version,prefix_size=excluded.prefix_size,
                 prefix_hash=excluded.prefix_hash,boundary_hash=excluded.boundary_hash,
                 last_scan_us=excluded.last_scan_us,error=NULL,
-                warning_count=excluded.warning_count,event_count=excluded.event_count""",
+                warning_count=excluded.warning_count,warning_details=excluded.warning_details,event_count=excluded.event_count""",
                 (source.path, source.harness, source.source_kind, stat.st_size, stat.st_mtime_ns,
                  stat.st_ino, batch.next_offset, _dump(batch.state), adapter_version,
-                 prefix_size, prefix_hash, boundary_hash, _now_us(), warnings, count))
+                 prefix_size, prefix_hash, boundary_hash, _now_us(), warnings, _dump(details), count))
             self._bump(conn)
         return max(0, count - before)
 
@@ -373,7 +381,7 @@ class SQLiteIndex:
                 stat = os.stat(source.path)
                 with self.read_snapshot() as conn:
                     old = conn.execute("SELECT * FROM files WHERE path=?", (source.path,)).fetchone()
-                version = str(getattr(adapter, "version", "1"))
+                version = str(getattr(adapter, "version", "1")) + ":warning-details-v1"
                 rebuild = old is None or old["adapter_version"] != version
                 if old and not rebuild:
                     changed = (stat.st_size != old["size"] or stat.st_mtime_ns != old["mtime_ns"]
@@ -446,10 +454,14 @@ class SQLiteIndex:
                 events = conn.execute("SELECT count(*),max(timestamp_us) FROM events WHERE harness=?",
                                       (harness,)).fetchone()
                 error = discovered.get(harness, {}).get("error") or row["error"]
+                warning_details = source_details(conn.execute(
+                    "SELECT path,warning_count,warning_details FROM files "
+                    "WHERE harness=? AND warning_count>0 ORDER BY path", (harness,)))
                 state = "partial" if error or row["warnings"] else (
                     "available" if row["files"] else "not_found")
                 sources.append({"harness": harness, "state": state, "files": row["files"],
                                 "events": events[0], "last_scan_us": row["last_scan_us"],
                                 "latest_event_us": events[1], "warnings": row["warnings"] or 0,
-                                "failed_files": row["failed"] or 0, "error": error})
+                                "failed_files": row["failed"] or 0, "error": error,
+                                "warning_details": warning_details})
             return {"snapshot_id": revision, "sources": sources}

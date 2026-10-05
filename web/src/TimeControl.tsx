@@ -163,7 +163,6 @@ function TimeField({
                     className="calendar-button" data-testid={`time-${id}-picker`}
                     aria-label={`选择${name}日期时间`} title={`选择${name}日期时间`}
                     onClick={() => {
-                        onEditing(true);
                         if (calendar.current) {
                             calendar.current.max = dateInput(new Date().toISOString(), timezone);
                             calendar.current.showPicker();

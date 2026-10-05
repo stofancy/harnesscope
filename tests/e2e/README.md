@@ -142,8 +142,11 @@ Time controls are exercised through the UI using the real 15-second timer
 delayed, then continued unchanged to the real service. All assertions inspect
 rendered pages or observe their actual network traffic.
 
-A real background-tab visibility change is not emulated by the e2e browser
-facade. Editing pause is browser-verified; background pause remains outside this
+The browser facade does not reproduce a real background-tab visibility change:
+opening another tab, including a headed run, still reported the original document
+as visible. Automatic-refresh enable, periodic source updates, editing pause,
+calendar cancellation and no-overlap behavior are browser-verified. Foreground
+visibility/focus event handling and browser timer throttling remain outside this
 automated evidence. Artifacts contain synthetic source data only.
 
 ## Historical-open activity fixture
@@ -189,3 +192,18 @@ a newly appended 501-token recent request appears on refresh. Future input retai
 the current result and prevents a scan until corrected. Related inline-time and
 historical-refresh scenarios cover editing pause, no overlapping scans and saved
 automatic-refresh preferences when returning to now.
+
+## Refresh and source-health acceptance
+
+The automatic-refresh scenario appends one synthetic recent request before enabling
+the switch and another before the next interval. Both must appear through the real
+POST refresh and rendered totals; enable must scan within five seconds, independent
+of the selected 15-second period. The calendar-cancel scenario opens a real date
+picker and presses Escape; an editing-pause label must not remain. Its pre-fix run
+failed with the stuck label, and the repaired run passes.
+
+An additional DSH source has one title auxiliary metadata record, one search auxiliary
+metadata record and one assistant attempt without usage. It contributes three
+categorized source warnings and zero usage, preserving the 1300-token ledger.
+The source-health scenario verifies each reason, count, impact, suggested action and
+file-path tooltip, including light/dark 1024-pixel screenshots.

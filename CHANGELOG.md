@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Automatic refresh scans immediately on enable, keeps running when the page loses
+  visibility, and checks again on foreground return. The controls show active/paused
+  state and the latest successful refresh time.
+- Source health shows categorized parsing reasons, affected files, statistical impact
+  and suggested actions. The rebuildable index preserves diagnostic codes and bounded
+  byte locations while excluding arbitrary parser messages.
 - Session filters, rankings, usage rows and details show native titles and project names,
   with IDs and full paths in tooltips. Same-name projects and cross-harness session IDs
   retain separate identities; source refresh updates title metadata in the local index.
@@ -51,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Snapshot-consistent `labels` on analytics, usage, turns, session lists and session/turn
   details, sourced from explicit native title fields and existing project metadata.
+
 - Source installer with optional systemd user service, plus the same `start`, `stop`,
   `restart` and `status` commands for service and ordinary background modes.
 - Rolling time expressions such as `-18h` and `-2days`, fixed-start-until-now ranges,
@@ -108,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Cancelling a calendar picker no longer leaves automatic refresh permanently paused
+  as if a time edit were still in progress.
 - Usage drilldowns preserve prior identities when regrouping and narrowing again.
   Dashboard navigation starts a fresh drill context; stale pagination returns to a valid page.
 - Historical turns and tools with missing end records no longer enter every later time

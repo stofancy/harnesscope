@@ -108,6 +108,21 @@ export type Source = {
     events: number;
     updated_at: string | null;
     warnings: string[];
+    warning_details?: {
+        code: string;
+        label: string;
+        count: number;
+        affected_files: number;
+        impact: string;
+        action: string;
+        files: {
+            name: string;
+            path: string;
+            count: number;
+            byte_offsets: number[];
+            locations_omitted: number;
+        }[];
+    }[];
 };
 export type FilterKey =
     | "harness"

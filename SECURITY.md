@@ -46,6 +46,10 @@ boundaries inferred from source iteration records must retain their inferred sta
 they do not establish undocumented causal relationships. Source-root configuration is
 local to startup; the API does not offer arbitrary filesystem reads or writes.
 
+Source diagnostics store controlled reason codes, counts, affected file paths and
+bounded byte positions. API explanations come from fixed text for those codes;
+arbitrary parser messages and source record bodies are neither stored nor returned.
+
 Session titles are read only from explicit native title fields; the tool does not derive
 them from conversation text. Codex title reads use SQLite `mode=ro` and `query_only`,
 including current WAL records. Database and WAL contents remain unchanged; SQLite may
