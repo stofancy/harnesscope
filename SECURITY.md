@@ -21,7 +21,7 @@ its own statistics index and listens on loopback.
 | External network | No external access for ordinary analysis; public prices are downloaded only by explicit `--update-pricing` |
 | Local HTTP | `--web` starts a loopback server serving bundled assets and statistical JSON |
 | Writes | The web entry writes a rebuildable SQLite index; explicit pricing refresh writes the tool's price cache. Source logs, harness settings and user pricing overrides are never modified |
-| Stored/output fields | Usage metadata, token counts, price basis, source identities and recorded session relationships; no conversation body, prompts, tool arguments or credentials in the statistics index or API |
+| Stored/output fields | Usage metadata, token counts, price basis, source identities and recorded session relationships; tool statistics are limited to name, identity, status and timestamps. The statistics index and API exclude conversation bodies, prompts, tool arguments, tool result bodies and credentials |
 | Charts | Legacy terminal charts are rendered in memory and sent to the terminal |
 | Telemetry | None; no analytics, crash reporting or remote usage upload |
 | Lifetime | The server runs in the foreground; Ctrl-C stops it and releases the port. Closing a tab leaves it running |
@@ -40,7 +40,10 @@ between users sharing a host. Keep the service local; publishing it through a pr
 port forward changes the trust boundary and is outside the supported deployment.
 
 API output includes usage identities and project metadata, which can reveal local work
-patterns. It excludes raw conversation content and secrets. Source-root configuration is
+patterns. Tool names and execution identities can also reveal workflow metadata. It
+excludes raw conversation content, tool parameters, result bodies and secrets. Turn
+boundaries inferred from source iteration records must retain their inferred status;
+they do not establish undocumented causal relationships. Source-root configuration is
 local to startup; the API does not offer arbitrary filesystem reads or writes.
 
 ### Explicit external download: `--update-pricing`

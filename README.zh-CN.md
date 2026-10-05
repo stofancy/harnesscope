@@ -15,7 +15,7 @@
 ## 为什么是它
 
 - **四种 harness 的本机工作台**：按来源、模型、项目、会话、用途等已记录维度分析，覆盖状态说明缺字段与解析失败。
-- **时间分析**：按用量事件时间分桶，筛选时间窗、比较上一窗口、查看各成员对变化的贡献。
+- **统一时间的 Dashboard**：全局范围、时区与切片共同驱动消耗、速率、缓存、计时和轮次 / 工具面板；图形选择缩小全页窗口并支持返回。
 - **费用与效率有清楚口径**：已知估算金额、缺价覆盖、缓存率、每调用成本和每百万 tokens 成本注明计算范围；用量日志没有产出质量信息，不推断模型性价比。
 - **保留现有 Codex CLI**：会话 / 子代理 / 家族报表、筛选、图表、TPS、JSON 继续可用；`--schema` 描述命令契约，`--doctor` 诊断环境及四源路径发现；路径存在仅表示发现来源，无法证明解析覆盖。
 - **数据留在本机**：无遥测，源文件只读，网页服务与统计索引在本机运行；HTTP 与同机进程边界见 [SECURITY.md](SECURITY.md)。
@@ -38,11 +38,11 @@ cd web
 npm ci
 npm run build
 cd ..
-uv tool install .
+uv tool install --force .
 codex-usage --web
 ```
 
-Node.js >=22.12 和 npm 用于构建；安装后的工作台只需 Python 运行时。
+开发与浏览器验收使用 Node.js 22.x >=22.22.3 或 >=24.8.0，以及 npm；安装后的工作台只需 Python 运行时。
 
 可选 extras `[image]` 会装上 matplotlib 与 textual-image，其中 `textual-image` 要求 **Python ≥ 3.12**；Python 3.10/3.11 下图表保持字符画，其余功能不受影响。未装 extras、输出不是终端或加 `--ascii` 时，图表自动回退字符画。
 
@@ -57,10 +57,28 @@ codex-usage --web --port 8766   # 指定本机端口
 
 网页采用共享的多源事件查询层与自有统计索引。下面的现有报表参数继续读取 Codex 会话，终端报表尚未迁移为四源输出契约。
 
-工作台面向 PC 浏览器，保留已有基本响应式布局；网页默认查看最近 7 天。选择时间范围与时区，切换八个分组维度并组合筛选；选择趋势成员
-（默认 Top 5 与 Other），对加性指标切换绝对量 / 占比，或点击峰值缩小时间窗进入会话账本。
-上一等长窗口与成员增量贡献用于查看变化；会话详情展示已记录元数据、子会话与计时覆盖。
-覆盖警告保留可用的部分结果。
+通过页内导航连续分析：
+
+1. **概览**：查看本期估算费用、Tokens、调用及缺价状态，按需展开计算、覆盖与计时说明。
+2. **趋势**：找到变化，点击数据点或选择图形范围缩小全局时间；“看什么”“按谁对比”“图形”分别选择本图指标、比较对象与样式。
+3. **对象**：切换模型、来源、项目的贡献视角，选择贡献对象后应用全局筛选并进入轮次。
+4. **轮次与明细**：查看模型调用、工具名称 / 状态 / 耗时，以及窗内和整轮已记录开销；工具排行默认展示前 6 项，可展开。
+5. **返回并保留上下文**：“返回轮次列表”关闭详情并保留当前分析，常驻范围返回操作恢复上一范围及其相对 / 固定模式，当前选择摘要持续可见。
+
+近 24 小时 / 7 天 / 30 天为相对范围，扫描后推进至当下；自定义范围和图表缩窗为固定历史
+时段，刷新保持原范围。返回缩窗前的范围时会恢复原模式。
+
+PC Dashboard 只有一套全局时间范围、时区与时间切片，全部面板、会话 / 轮次账本和详情
+共同使用。范围可精确到秒，切片可选自动或显式粒度；工具、模型、项目、provider、用途
+常显全局筛选，代理类型、服务档位与会话在“更多条件”中。
+
+消耗、请求强度、缓存效率与可靠计时速度同时展示，下方提供轮次与工具分析。每个面板
+可选择自己的指标、分组、区域 / 折线 / 柱形和成员，这些选择只改变本面板的观察角度。
+消耗支持构成占比，比率与速率不堆叠；计时 TPS 按来源与定义分别展示并附样本覆盖。
+
+点击图形或完成 Brush 拖选会缩小全页时间窗，全局控制可返回上一范围。展开切片数值可看
+实际分量与覆盖秒数，并点单桶下钻；选择成员后可查看相关会话，单轮详情展示模型 / 工具
+身份、状态和已记录开销。总览与明细一起更新；未知值显示 `—`，partial 覆盖保持可见，初次扫描显示进度。
 
 ### 来源发现与覆盖
 
@@ -100,10 +118,10 @@ codex-usage --analytics --query 'harness=codex&group_by=model&metric=tokens'
 |---|---|
 | `start`、`end` | 同时提供，带 UTC offset 的 ISO 8601 时间；包含 start，排除 end |
 | `timezone` | 分桶的 IANA 时区，默认 `UTC` |
-| `bucket` | `hour`、`day`、`week`、`month` |
+| `bucket` | `auto`、`second`、`10second`、`minute`、`5minute`、`15minute`、`hour`、`day`、`week`、`month` |
 | `group_by` | 1–3 个逗号分隔的维度 |
 | 维度 / 筛选 | `harness`、`model`、`provider`、`project`、`agent_type`、`purpose`、`service_tier`、`session`；同维度重复传值表示任选其一 |
-| `metric` | `cost_usd`、`tokens`、`calls`、`input`、`output`、`cache_read`、`cache_write`、`cache_hit_rate`、`cost_per_call`、`cost_per_mtok` |
+| `metric` | `cost_usd`、`tokens`、`calls`、`input`、`output`、`cache_read`、`cache_write`、`cache_hit_rate`、`cost_per_call`、`cost_per_mtok`、`tpm`、`rpm`、`throughput_tps`、`rps` |
 | `member` | 可重复，指定当前分组中的趋势成员 |
 
 八个维度包含代理类型与服务档位。来源自报总量及其覆盖单列展示，并保留与已记录 token
@@ -114,9 +132,37 @@ codex-usage --analytics --query 'harness=codex&group_by=model&metric=tokens'
 TPS 按 harness 与计时定义分别提供。完整响应与比较语义见[工作台 API 文档](docs/workbench-api.md)。
 
 本机 API 提供 GET `/api/status`、`/api/analytics`、`/api/sessions`、
-`/api/sessions/{harness}/{sid}`。会话列表支持 `offset`、`limit`（1–200）。
+`/api/sessions/{harness}/{sid}`、`/api/turns`。单轮详情使用
+`/api/turns/detail?harness=...&session_id=...&turn_id=...`，每个参数值须 URL 编码。
+会话与轮次列表支持 `offset`、`limit`（1–200）。
 POST `/api/refresh` 携带 `Content-Type: application/json`，显式启动后台扫描。
 查询响应注明快照，读取查询不重扫源文件。
+
+### 速率、计时、轮次与工具口径
+
+| 指标 | 分母与范围 |
+|---|---|
+| TPM / RPM | 已记录 tokens / 模型调用数除以实际覆盖秒数，再乘 60 |
+| 每秒平均吞吐 / RPS | 已记录 tokens / 模型调用数除以实际覆盖秒数，包含空闲时间 |
+| 可靠计时输出 TPS | 输出 tokens 除以可靠样本的完整耗时，按 harness 与计时定义分别展示 |
+| 轮次 P50 / P95 | 完整落窗、已闭合且有起止时间的轮次耗时分位数，保留 exact / inferred 样本数 |
+
+首尾不完整切片使用与全局时间窗交集的实际秒数。`auto` 选择约 120 桶以内的粒度，
+自动最细为分钟；显式细粒度受 2000 桶上限约束。速率反映持久用量记录在窗口中的平均强度，
+无法据此恢复供应商限额或瞬时 token 流。可靠计时样本按完成时间入桶并保留完整耗时，
+缺计时保持未知。
+
+会话、轮次、模型调用与工具调用分别计数，一轮可包含多模型、多次工具执行。
+窗内小计保留当前范围的匹配事件；完整落窗、已闭合且有已记录调用的轮次提供整轮已记录
+小计与每轮均值。从 iteration 推导的边界标为 `inferred`，保留数据并显示 exact / inferred
+样本数；缺 token 组成或价格时，相应每轮值保持未知。运行中、失败、中断和窗口截断轮次
+保留身份与窗内小计。整轮已记录指标仍使用当前模型调用筛选范围，无法证明供应商未记入
+日志的调用与费用已完整捕获。
+
+工具统计只保留名称、调用身份、状态与时间戳，按身份去重。覆盖 partial / unknown 时
+保留已记录小计，总调用数与每轮比率保持未知。模型 / provider / 用途 / 档位筛选选中匹配
+模型调用及其轮次，工具仍描述这些轮次已记录的工具调用。详情标明调用在全局窗口内外，
+并保留缺价信息；索引与 API 不含工具参数、结果正文、聊天正文或凭据。
 
 ## Codex CLI 使用
 
@@ -319,9 +365,32 @@ CODEX_USAGE_IMAGE_MODE=ascii    codex-usage --chart bar --by-model   # 等同 --
 ## 开发
 
 ```bash
-uv venv && uv pip install -e ".[image]" pytest   # 含真图依赖；只装 -e . pytest 时真图用例自动跳过
+uv venv && uv pip install -e ".[image,test]"   # 可选真图与 Python 测试依赖
 .venv/bin/python -m pytest tests/ -q             # 单元 + CLI 端到端（合成夹具，不依赖本机数据）
 ```
+
+本轮统一 Dashboard 使用 [`tests/e2e`](tests/e2e/README.md) 中的本地浏览器场景。
+现有单元测试保留原有覆盖；新增交互与数值通过真实应用服务和隔离四源夹具验证。
+
+```bash
+npm --prefix web ci
+E2E_TELEMETRY_DISABLED=1 npm --prefix web exec -- e2e-web install chromium
+npm --prefix web run build
+npm --prefix web run test:e2e
+# 可选：显示浏览器
+npm --prefix web run test:e2e:headed
+```
+
+runner 固定为 `e2e@0.17.0`、`@e2e-dev/web@0.12.0`，配置为
+[`e2e.config.ts`](e2e.config.ts)。随机 loopback 端口运行隔离服务，使用临时来源、索引与价格；
+不使用 agent、模型、账号登录或个人日志，遥测关闭。被 Git 忽略的 `.e2e/` 目录保存
+`report.json`、`summary.md`、trace 与截图，供本机检查，公共验收证据不含私人标识。
+本轮验收状态见 [proposal](docs/research/2026-09-27-harness-usage-proposal.md)。
+
+第二轮最终浏览器运行在桌面 Chromium（1600×1100）中 **4/4 场景通过，耗时 14.99 秒**，
+run 为 `01a10b08-e11f-7763-9de5-f9d51c1a2e58`。覆盖连续旅程、部分桶速率 / 缓存 / 计时与
+每轮值、详情和追加去重更新，以及相对刷新 / 固定历史 / 返回恢复模式。结果适用于上述隔离
+夹具与场景；本轮未新增单元 / 组件测试，不据此推断全部历史或个人来源都已完整验证。
 
 数据路径可用环境变量覆盖：`CODEX_USAGE_SESSIONS_DIR`、`CODEX_USAGE_ARCHIVE_DIR`、`CODEX_USAGE_PRICING_FILE`、`CODEX_USAGE_CACHE_DIR`、`CODEX_USAGE_TIER_PRICING_FILE`、`CODEX_USAGE_ALIASES_FILE`。
 

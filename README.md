@@ -17,7 +17,7 @@ Source files remain read-only. The web workbench maintains its own rebuildable S
 ## Why codex-usage
 
 - **One local web workbench for four harnesses.** Compare sources, models, projects, sessions, purposes, and other recorded dimensions; source coverage exposes missing or malformed data.
-- **Time-based analysis.** Usage events determine time buckets. Filter a window, compare the preceding window, and inspect the members contributing to the change.
+- **One time context for the Dashboard.** The global range, timezone and slice drive consumption, rates, cache, timing and turn/tool panels. Chart selection narrows that shared window and supports returning to the previous range.
 - **Cost and efficiency with explicit limits.** Known estimated cost, missing prices, cache rates, cost per call, and cost per million tokens carry their accounting scope. Logged usage provides no evidence of output quality or model value for money.
 - **Existing Codex CLI retained.** Session/subagent/family reports, filters, charts, TPS, and JSON continue to serve command-line workflows. `--schema` describes the command contract and `--doctor` diagnoses its environment, including four-source path discovery. Path existence alone does not establish parsing coverage.
 - **Local data stays local.** No telemetry or source-file writes; the web server and statistics index stay on this machine. See [SECURITY.md](SECURITY.md) for the HTTP and local-process boundary.
@@ -41,11 +41,11 @@ cd web
 npm ci
 npm run build
 cd ..
-uv tool install .
+uv tool install --force .
 codex-usage --web
 ```
 
-Node.js >=22.12 and npm are build dependencies; the installed workbench runs with Python only.
+For the development and browser-validation workflow, use Node.js 22.x >=22.22.3 or >=24.8.0 and npm. The installed workbench runs with Python only.
 
 The optional `[image]` extra pulls in matplotlib and textual-image, and `textual-image` requires **Python ≥ 3.12**; on 3.10/3.11 charts stay in ASCII mode and everything else keeps working. Without the extra, when stdout is not a terminal, or with `--ascii`, charts automatically fall back to ASCII art.
 
@@ -60,12 +60,35 @@ Open the local address printed by the command (default `http://127.0.0.1:8765`).
 
 The web entry uses a shared multi-source event query layer and its own statistics index. The existing report flags below continue to read Codex sessions. The CLI reports have not been migrated to a four-source output contract.
 
-The workbench targets PC browsers; existing basic responsive layout is retained. The browser starts with a seven-day window. Choose a time range and timezone, group by
-one of eight dimensions, and combine dimension filters. Select trend members (Top 5 plus
-Other by default), switch additive metrics between amounts and shares, or click a peak to
-narrow the window and inspect the session ledger. The previous equal-length window and
-member contributions explain changes; session details show recorded metadata, child
-sessions and timing coverage. Coverage warnings preserve usable partial results.
+Use the page navigation for a continuous investigation:
+
+1. **Overview (概览):** read the period's estimated cost, tokens, calls and missing-price coverage. Expand calculation/coverage explanations when needed.
+2. **Trends (趋势):** find a change, click a point or select a chart range to narrow the global time window. “看什么”, “按谁对比” and “图形” select the local metric, comparison dimension and chart style.
+3. **Objects (对象):** switch between model, harness or project contributions. Select a contributing object to apply its global filter and move to turns.
+4. **Turns and details (轮次 / 明细):** inspect recorded model calls, tool names/status/duration and window versus full-turn recorded subtotals. The tool ranking starts with six entries and can be expanded.
+5. **Return with context:** “返回轮次列表” closes details and preserves the current analysis; the persistent range-return control restores the preceding range and its relative/fixed mode. The current selection remains visible.
+
+The recent 24-hour / 7-day / 30-day presets move forward to the current time after a scan.
+Custom ranges and chart zooms are fixed historical periods and remain unchanged on refresh.
+Returning from a zoom restores the original range mode.
+
+The PC Dashboard has one global time range, timezone and time slice. All panels,
+session/turn ledgers and details share them. Set a precise range (down to seconds), select
+an automatic or explicit slice, and combine harness/model/project/provider/purpose
+filters. Agent type, service tier and session filters are under the additional conditions.
+
+Consumption, request intensity, cache efficiency and timed output speed appear together,
+with turn/tool analysis below. Each panel has its own metric, grouping, chart type and
+members; these choices affect that panel's observation. Select area, line or bar charts,
+compare members, and use consumption shares. Ratios and rates are not stacked. Timed TPS
+keeps source and timing kind separate, with sample coverage.
+
+Click a point or finish dragging a chart brush to narrow the global window; return to the
+previous range through the global control. Expanded slice values show the recorded
+numbers and actual covered seconds and support single-slice drilldown. Member selection
+leads to related sessions; turn details show model/tool identities, status and recorded
+costs. Overview and details update together. Unknown values stay `—`, partial coverage stays
+visible, and scanning progress remains available.
 
 ### Source discovery and coverage
 
@@ -112,10 +135,10 @@ browser and emits JSON. Specify its filters through `--query`; legacy `--since`,
 |---|---|
 | `start`, `end` | Both required together; ISO 8601 with UTC offset; start inclusive, end exclusive |
 | `timezone` | IANA timezone for buckets; default `UTC` |
-| `bucket` | `hour`, `day`, `week`, `month` |
+| `bucket` | `auto`, `second`, `10second`, `minute`, `5minute`, `15minute`, `hour`, `day`, `week`, `month` |
 | `group_by` | One to three comma-separated dimensions |
 | Dimensions / filters | `harness`, `model`, `provider`, `project`, `agent_type`, `purpose`, `service_tier`, `session`; repeated values select alternatives within a dimension |
-| `metric` | `cost_usd`, `tokens`, `calls`, `input`, `output`, `cache_read`, `cache_write`, `cache_hit_rate`, `cost_per_call`, `cost_per_mtok` |
+| `metric` | `cost_usd`, `tokens`, `calls`, `input`, `output`, `cache_read`, `cache_write`, `cache_hit_rate`, `cost_per_call`, `cost_per_mtok`, `tpm`, `rpm`, `throughput_tps`, `rps` |
 | `member` | Repeat to select trend members from the current grouping |
 
 Eight dimensions include agent type and service tier. Source-reported totals and their
@@ -128,10 +151,44 @@ use recorded components; zero-event buckets and missing data remain distinct. TP
 are separated by harness and timing definition. Complete response semantics and comparison
 rules are documented in [the workbench API](docs/workbench-api.md).
 
-The local API exposes GET `/api/status`, `/api/analytics`, `/api/sessions`, and
-`/api/sessions/{harness}/{sid}`. Session lists accept `offset` and `limit` (1–200).
+The local API exposes GET `/api/status`, `/api/analytics`, `/api/sessions`,
+`/api/sessions/{harness}/{sid}`, and `/api/turns`. A turn is located through
+`/api/turns/detail?harness=...&session_id=...&turn_id=...`; URL-encode each parameter value. Session and turn lists accept `offset` and `limit` (1–200).
 POST `/api/refresh` with `Content-Type: application/json` starts an explicit background
 scan. Query responses identify their snapshot; reading them does not rescan source files.
+
+### Rates, timing, turns and tools
+
+| Metric | Denominator and scope |
+|---|---|
+| TPM / RPM | Recorded tokens / model-call counts divided by covered seconds, multiplied by 60 |
+| Average tokens/s / RPS | Recorded tokens / model-call counts divided by covered seconds, including idle time |
+| Timed output TPS | Output tokens divided by reliable recorded sample durations, separated by harness and timing kind |
+| Turn P50 / P95 | Duration percentiles from closed turns fully inside the window with recorded start/end times; exact/inferred sample counts are retained |
+
+Rate buckets use the actual intersection with the global time window, including partial
+first/last slices. `auto` resolves to roughly 120 or fewer points, with minute as its
+finest automatic slice; explicit fine slices are limited to 2000 buckets. Rate charts
+show averages of persisted usage records. Provider limits and instantaneous token streams
+are unavailable from these records. Reliable timing samples retain their complete duration and enter their completion
+bucket; missing timing stays unknown.
+
+Turn lists distinguish sessions, turns, model calls and tool calls. A turn may contain
+multiple models and tools. Window metrics retain the matching events within the selected
+range. Closed turns fully inside the window with recorded calls provide full-turn recorded
+subtotals and per-turn averages. Iteration-derived boundaries remain marked `inferred` and
+retain their data, with exact/inferred sample counts shown. Missing token components or
+prices leave the corresponding per-turn value unknown. Running, failed, interrupted and
+truncated turns retain their recorded identity and window subtotal. Full-turn recorded
+metrics remain within the active model-call filters and cannot establish that omitted
+provider calls or charges were fully captured.
+
+Tools expose only name, call identity, status and timestamps. Counts are deduplicated;
+partial/unknown tool coverage keeps the known subtotal and leaves total counts and
+per-turn ratios unknown. Model/provider/purpose/tier filters select matching model calls
+and their turns; tools still describe all recorded tool calls of those selected turns.
+Turn details label calls inside/outside the global window and preserve missing prices.
+No tool arguments, result bodies, conversation text or credentials enter the index/API.
 
 ## Codex CLI usage
 
@@ -334,9 +391,37 @@ Other views (per-model cost table, day × model stacked bars, cost-share pie, da
 ## Development
 
 ```bash
-uv venv && uv pip install -e ".[image]" pytest   # with native image deps; the image tests skip without them
+uv venv && uv pip install -e ".[image,test]"   # optional native images + Python test dependencies
 .venv/bin/python -m pytest tests/ -q             # unit + CLI end-to-end (synthetic fixtures, no local data)
 ```
+
+The unified Dashboard iteration uses local browser scenarios in [`tests/e2e`](tests/e2e/README.md).
+Existing unit tests retain their prior coverage. New interactions and their numbers are
+validated against isolated four-source fixtures through the application service.
+
+```bash
+npm --prefix web ci
+E2E_TELEMETRY_DISABLED=1 npm --prefix web exec -- e2e-web install chromium
+npm --prefix web run build
+npm --prefix web run test:e2e
+# optional visible browser
+npm --prefix web run test:e2e:headed
+```
+
+The pinned runner is `e2e@0.17.0` with `@e2e-dev/web@0.12.0`; configuration lives in
+[`e2e.config.ts`](e2e.config.ts). It launches an isolated service on a random loopback port,
+with temporary source roots, index and pricing. Runs use no agent, model, account login or
+personal logs. Telemetry is disabled. Ignored `.e2e/` output contains `report.json`,
+`summary.md`, traces and screenshots; review it locally and keep private identifiers out
+of public evidence. The current iteration's acceptance status is recorded in the
+[proposal](docs/research/2026-09-27-harness-usage-proposal.md).
+
+The final second-round browser run passed **4/4 scenarios** in **14.99 s** on desktop
+Chromium (1600×1100), run `01a10b08-e11f-7763-9de5-f9d51c1a2e58`. It covers the continuous
+journey, partial-bucket rates/cache/timing and per-turn values, details plus append/dedup
+updates, and relative refresh / fixed history / range-mode restoration. These results
+apply to the isolated fixtures and scenarios above; the iteration added no unit/component
+tests. They do not establish complete historical or personal-source coverage.
 
 Data paths can be overridden with environment variables: `CODEX_USAGE_SESSIONS_DIR`, `CODEX_USAGE_ARCHIVE_DIR`, `CODEX_USAGE_PRICING_FILE`, `CODEX_USAGE_CACHE_DIR`, `CODEX_USAGE_TIER_PRICING_FILE`, `CODEX_USAGE_ALIASES_FILE`.
 

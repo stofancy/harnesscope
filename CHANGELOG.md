@@ -20,6 +20,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Unified PC Dashboard with a single global range/timezone/slice control, parallel
+  consumption/rate/cache/timing panels, per-panel area/line/bar views and turn/tool
+  drilldown. Chart clicks and brush selection update the whole page's window with
+  range history; expanded slice values expose the numbers and covered seconds.
+- Continuous overview → trend zoom → contribution/filter → turn/tool explanation →
+  return journey, with persistent section navigation and selection context, progressive
+  calculation/coverage explanations, and an expandable top-six tool ranking.
+
+- Fine-grained shared analytics slices (`auto`, second, 10-second and minute variants)
+  and recorded TPM/RPM/average tokens-per-second/RPS rates using actual covered seconds.
+  Reliable output timing remains separated by harness and timing kind.
+- Turn and tool analytics with window/full-turn recorded accounting, duration percentiles,
+  partial tool coverage and metadata-only drilldown through `/api/turns` and
+  `/api/turns/detail` query parameters. Inferred boundaries retain labels and recorded
+  statistics; missing components, timing and prices retain their unknown states.
+- Pinned local browser-test infrastructure using `e2e@0.17.0` and `@e2e-dev/web@0.12.0`,
+  isolated four-source inputs and `npm --prefix web run test:e2e`. The final second-round
+  desktop run passed 4/4 scenarios in 14.99 s, covering the continuous journey, numerical
+  accounting, detail/append updates, and relative/fixed range behavior. This iteration
+  added no unit/component tests; fixture results retain their stated coverage.
+
 - Local browser usage workbench (`codex-usage --web`) for Codex, Claude, OMP and
   DSH, backed by a rebuildable SQLite event index and a shared multi-source query layer.
   React/TypeScript/Recharts assets ship with the Python package; Starlette/Uvicorn serve
@@ -49,6 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Relative recent-time presets (24 hours / 7 days / 30 days) advance to the current time
+  after source refresh. Custom and chart-zoomed windows stay fixed; range return restores
+  the original relative/fixed mode.
 - Codex resumed rollout files preserve their logical thread identity when later session
   metadata uses a different ID. Parent, agent label, role and subagent purpose are restored
   from recorded spawn metadata without changing usage or pricing identities; absent roles
