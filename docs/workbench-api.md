@@ -10,9 +10,9 @@
 | --- | --- | --- |
 | start, end | 全部可用事件时间范围 | ISO 8601，必须带 offset；必须一起提供 |
 | timezone | UTC | IANA 名称，例如 Asia/Singapore、America/New_York |
-| bucket | day | hour / day / week / month；week 从周一开始 |
+| bucket | day | auto / second / 10second / minute / 5minute / 15minute / hour / day / week / month；week 从周一开始 |
 | group_by | harness | harness / model / provider / project / agent_type / purpose / service_tier / session；逗号分隔支持多个维度，最多 3 个 |
-| metric | cost_usd | cost_usd / tokens / calls / input / output / cache_read / cache_write / cache_hit_rate / cost_per_call / cost_per_mtok |
+| metric | cost_usd | cost_usd / tokens / calls / input / output / cache_read / cache_write / cache_hit_rate / cost_per_call / cost_per_mtok / tpm / rpm / throughput_tps / rps |
 | harness、model 等维度名 | 无 | 可重复参数，多值同维 OR，跨维 AND；空字符串匹配未知值 |
 | member | 自动 Top 5 | 重复传 breakdown 的 key 可指定比较成员；其他成员合并 Other |
 | offset, limit | 0, 50 | 仅会话列表；limit 最大 200 |
@@ -61,3 +61,55 @@ coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 
 ## Python 调用
 
 `QueryRequest.from_params(parse_qs_result)` 统一校验和解析。`AnalyticsQuery(index, pricing=None)` 提供 `analytics(request)`、`sessions(request, offset=0, limit=50)`、`session_detail(harness, sid, request=None)`。查询错误抛出 ValueError，HTTP 层转换为 400；详情不存在返回 None。
+
+## 轮次、工具与细粒度速率（第二轮）
+
+时间粒度新增 `auto/second/10second/minute/5minute/15minute`，保留 `hour/day/week/month`。
+`auto` 按当前窗选择约 120 桶以内的粒度，最细为 minute；显式 second/10second 受 2000 桶上限约束。
+`query.bucket` 保留请求值，`query.bucket_resolved` 为实际粒度。每桶增加 `seconds/window_start/window_end`，
+其中 seconds 是完整桶与 `[start,end)` 的实际交集秒数。summary 和每桶 metrics 均增加 seconds、
+`tpm=tokens/seconds*60`、`rpm=calls/seconds*60`、`throughput_tps=tokens/seconds`、`rps=calls/seconds`。
+这些量表示本机已记录用量在分析窗内的平均速率，分母包含空闲时间。
+
+`trend.timing_members` 是 `{key,harness,kind,label}` 数组；每桶 `timed_tps` 按相同顺序返回
+`{key,harness,kind,value,output,seconds,samples}`。value 使用真实计时样本的 `Σoutput/Σseconds`，
+无样本时 null。完整落入分析窗的样本按完成时间分配到一个桶，分母保留该样本完整耗时，
+完成时间正好等于桶尾时归入该桶。不同 harness/kind 分开绘制，summary.tps 保留原有定义。
+
+`GET /api/turns` 复用 QueryRequest 与 offset/limit（0/50、最大 200），按 start 降序分页。
+返回 `{snapshot,query,summary,trend,tools,rows,total,offset,limit,coverage}`。
+
+- `rows` 每项包含原始 TurnRecord 元数据、start/end、status、duration_seconds、full_window、
+  recorded_usage_available、usage_scope、window_metrics、full_metrics、tool_calls_known、tool_calls、tool_coverage。
+  轮次区间与当前窗相交时入选；无结束时间的轮次按持续中处理。窗内 calls/tokens/cost 使用同窗口
+  与全局筛选条件，usage_scope 为 `filtered_calls` 或 `all_recorded_calls`。
+  模型/provider/purpose/service_tier 筛选通过窗内匹配的 UsageEvent 选择轮次，工具仍统计这些轮次的
+  已记录工具调用，返回 `tool_scope=selected_turns`。
+- `full_window` 表示完整闭合区间落在窗内；有已记录调用时 recorded_usage_available=true，full_metrics 提供整轮已记录小计。
+  exact/inferred 边界均保留数据及标识，来源遗漏调用无法由已有记录证明完整，字段不声明完整账单。
+  缺价时 cost_complete=false，成本效率与每轮成本为 null；截断、运行中或没有已记录调用时 full_metrics=null。
+  window_metrics 始终保留窗内已记录小计。
+- summary 包含 turns、status_counts、metrics（所有所选轮次的窗内匹配用量）、tool_calls_known、
+  tool_calls、tools_per_turn、duration_p50/duration_p95、duration_samples、full_turns、per_turn。
+  per_turn 使用完整落窗、已结束且有已记录调用的轮次，含 samples/calls/tokens/cost_usd/scope/boundary_quality；
+  scope=recorded_usage，模型筛选下为匹配调用的每轮值，保留 exact/inferred 样本数量。
+  输入组成未知时 per_turn.tokens=null，缺价时 per_turn.cost_usd=null。耗时分位数使用完整闭合且有起止时间的
+  轮次，以秒返回，采用线性插值；duration_boundary_quality 显示 exact/inferred 样本数量。
+  tool_coverage 任一为 partial/unknown 时 tool_calls/tools_per_turn=null，known 小计持续可见。
+- trend 为 `{buckets}`；每桶包含 start/end/window_start/window_end/seconds、metrics、turns、status_counts、
+  tool_calls_known、tool_calls、duration_p50/duration_p95。用量按事件时间分配，轮次数量按开始时间分配，
+  开始早于窗的截断轮次计入第一桶，工具按开始时间分配（跨窗工具也计入第一桶）。
+- tools 返回 `{coverage,scope,status_counts,rows}`，rows 按工具名包含 tool_name/calls/status_counts/
+  duration_p50/duration_p95/duration_samples；覆盖部分缺失时这些 count 表示已记录数量。
+- coverage 包含 boundary_quality、tool_coverage 分布、truncated_turns、unassigned_calls、usage_scope。
+  unassigned_calls 表示符合当前筛选、时间窗但没有已选轮次归属的事件；usage_quality 保留调用质量分布。
+
+`GET /api/turns/detail?harness=...&session_id=...&turn_id=...` 使用 URL 编码参数定位，
+返回 `{snapshot,query,turn,calls,tools,window_metrics,recorded_metrics,usage_scope,related_turns}`，
+元数据与工具排除正文和参数。calls/tools 显示整轮已记录内容并用 in_window 标记当前窗归属；
+调用仍遵循模型/provider/purpose/service_tier 等全局筛选，usage_scope 明确其范围。
+recorded_metrics 标为整轮已记录小计，完整性取决于边界与日志质量，保留缺价信息。
+related_turns 仅返回有依据的 root_turn_id 关联，parent_session_id 单独保留为元数据，未知轮次关系保持未知。
+
+Python 新增 `AnalyticsQuery.turns(request,offset=0,limit=50)`、
+`AnalyticsQuery.turn_detail(harness,sid,turn_id,request=None)`，详情不存在或被筛选排除时返回 None。

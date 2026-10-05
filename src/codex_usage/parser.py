@@ -259,11 +259,12 @@ class _CodexActivity:
             self.tools[identity] = tool
             self.batch.tool_calls.append(tool)
         elif kind in ("function_call_output", "custom_tool_call_output"):
-            tool = self.tools.get(call_id)
-            if tool is None:
+            matched_tool = self.tools.get(call_id)
+            if matched_tool is None:
                 if self.active:
                     self.partial.add(self.active)
                 return
+            tool = matched_tool
             when = _timestamp_us(timestamp)
             if when is not None and when < tool.start_us:
                 when = None

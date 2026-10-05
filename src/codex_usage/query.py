@@ -7,7 +7,7 @@ import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone as utc_timezone
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .pricing import _lookup_hit, load_pricing, model_cost_detail
@@ -16,8 +16,10 @@ UTC = utc_timezone.utc
 DIMENSIONS = ('harness', 'model', 'provider', 'project', 'agent_type', 'purpose', 'service_tier', 'session')
 COLUMN = {d: ('session_id' if d == 'session' else d) for d in DIMENSIONS}
 ADDITIVE = ('cost_usd', 'tokens', 'calls', 'input', 'output', 'cache_read', 'cache_write')
-METRICS = ADDITIVE + ('cache_hit_rate', 'cost_per_call', 'cost_per_mtok')
+RATE_METRICS = ('tpm', 'rpm', 'throughput_tps', 'rps')
+METRICS = ADDITIVE + ('cache_hit_rate', 'cost_per_call', 'cost_per_mtok') + RATE_METRICS
 MAX_BUCKETS = 2000
+BUCKET_SECONDS = {'second': 1, '10second': 10, 'minute': 60, '5minute': 300, '15minute': 900, 'hour': 3600}
 
 
 def _datetime(value):
@@ -61,8 +63,8 @@ class QueryRequest:
             ZoneInfo(self.timezone)
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError('unknown IANA timezone') from exc
-        if self.bucket not in ('hour', 'day', 'week', 'month'):
-            raise ValueError('bucket must be hour/day/week/month')
+        if self.bucket not in (*BUCKET_SECONDS, 'auto', 'day', 'week', 'month'):
+            raise ValueError('unsupported time bucket')
         groups = tuple(self.group_by.split(',')) if isinstance(self.group_by, str) else tuple(self.group_by)
         if not 1 <= len(groups) <= 3 or len(set(groups)) != len(groups) or any(g not in DIMENSIONS for g in groups):
             raise ValueError('group_by must contain 1 to 3 distinct dimensions')
@@ -104,11 +106,31 @@ def _where(start, end, filters, *, exclude=None, prefix=''):
     return ' AND '.join(clauses), args
 
 
+def _resolved_bucket(start, end, bucket):
+    if bucket != 'auto':
+        return bucket
+    seconds = (end - start).total_seconds()
+    for candidate, width in [('minute', 60), ('5minute', 300), ('15minute', 900), ('hour', 3600),
+                             ('day', 86400), ('week', 604800)]:
+        if seconds <= width * 120:
+            return candidate
+    return 'month'
+
+
+def _bucket_seconds(start, end, left, right):
+    return max(0.0, (min(end, right) - max(start, left)).total_seconds())
+
+
 def _bucket_edges(start, end, tzname, bucket):
+    bucket = _resolved_bucket(start, end, bucket)
     zone = ZoneInfo(tzname)
     local = start.astimezone(zone)
-    if bucket == 'hour':
-        local = local.replace(minute=0, second=0, microsecond=0)
+    if bucket in BUCKET_SECONDS:
+        width = BUCKET_SECONDS[bucket]
+        if width >= 60:
+            local = local.replace(minute=(local.minute // (width // 60)) * (width // 60), second=0, microsecond=0)
+        else:
+            local = local.replace(second=(local.second // width) * width, microsecond=0)
     else:
         local = local.replace(hour=0, minute=0, second=0, microsecond=0)
         if bucket == 'week':
@@ -120,9 +142,9 @@ def _bucket_edges(start, end, tzname, bucket):
     while current < end:
         if len(edges) > MAX_BUCKETS:
             raise ValueError(f'time window exceeds {MAX_BUCKETS} buckets')
-        if bucket == 'hour':
+        if bucket in BUCKET_SECONDS:
             # UTC arithmetic preserves both occurrences of a repeated DST hour.
-            nxt = current + timedelta(hours=1)
+            nxt = current + timedelta(seconds=BUCKET_SECONDS[bucket])
         else:
             wall = current.astimezone(zone)
             if bucket == 'month':
@@ -143,7 +165,7 @@ def _member(event, dimensions):
     return key, ' / '.join(value or 'Unknown' for value in values), dict(zip(dimensions, values))
 
 
-def _summary(events):
+def _summary(events, seconds=None):
     net = sum(e['input_net'] for e in events)
     read = sum(e['cache_read'] for e in events)
     write = sum(e['cache_write'] or 0 for e in events)
@@ -154,7 +176,7 @@ def _summary(events):
     cost = sum(e['_cost'] or 0.0 for e in events)
     calls = len(events)
     cost_complete = priced == calls
-    source_costs = defaultdict(float)
+    source_costs: dict[str, float] = defaultdict(float)
     for event in events:
         if event.get('source_cost_usd') is not None:
             source_costs[event.get('source_cost_kind') or 'unknown'] += float(event['source_cost_usd'])
@@ -174,6 +196,11 @@ def _summary(events):
             'source_total_calls': sum(e['source_total'] is not None for e in events),
             'source_total_difference': sum(e['source_total'] - e['input_net'] - e['cache_read'] - e['cache_write'] - e['output']
                                            for e in events if e['source_total'] is not None and e['cache_write'] is not None),
+            'seconds': seconds,
+            'tpm': (inp + output) / seconds * 60 if seconds else None,
+            'rpm': calls / seconds * 60 if seconds else None,
+            'throughput_tps': (inp + output) / seconds if seconds else None,
+            'rps': calls / seconds if seconds else None,
             'tps': []}
 
 
@@ -213,6 +240,14 @@ class AnalyticsQuery:
             self._price_matches[model] = _lookup_hit(pricing, model)
         return self._price_matches[model]
 
+    def turns(self, request, offset=0, limit=50):
+        from .turn_query import TurnQuery
+        return TurnQuery(self).turns(request, offset=offset, limit=limit)
+
+    def turn_detail(self, harness, sid, turn_id, request=None):
+        from .turn_query import TurnQuery
+        return TurnQuery(self).turn_detail(harness, sid, turn_id, request)
+
     @staticmethod
     def _snapshot(conn):
         row = conn.execute("SELECT value FROM metadata WHERE key='revision'").fetchone()
@@ -246,31 +281,32 @@ class AnalyticsQuery:
         return events
 
     @staticmethod
-    def _timing(conn, start, end, filters):
+    def _timing(conn, start, end, filters, with_samples=False):
         samples = [dict(row) for row in conn.execute(
             'SELECT * FROM timing_samples WHERE start_us>=? AND end_us<=? AND end_us>start_us',
             (_us(start), _us(end)))]
         if not samples:
-            return []
+            return ([], []) if with_samples else []
         # Response timing binds to an exact event key. Turn timing can contain
         # several usage records and is admitted only when every member passes.
         by_key, grouped, stamps = {}, defaultdict(list), {}
         if filters:
-            columns = ','.join(dict.fromkeys(['key', 'timestamp_us', 'harness', 'session_id', 'model', 'provider', 'output', *COLUMN.values()]))
+            columns = ','.join(dict.fromkeys(['key', 'timestamp_us', 'harness', 'session_id', 'model', 'provider', 'turn_id', 'output', *COLUMN.values()]))
             for row in conn.execute(f'SELECT {columns} FROM events WHERE timestamp_us>=? AND timestamp_us<=? ORDER BY timestamp_us',
                                     (_us(start), _us(end))):
                 event = dict(row)
                 by_key[(event['harness'], event['key'])] = event
-                identity = (event['harness'], event['session_id'], event['model'], event['provider'])
+                identity = (event['harness'], event['session_id'], event['model'], event['provider'], event.get('turn_id'))
                 grouped[identity].append(event)
             stamps = {key: [e['timestamp_us'] for e in value] for key, value in grouped.items()}
-        totals = {}
+        totals: dict[tuple[str, str], dict[str, Any]] = {}
+        admitted = []
         for sample in samples:
             if filters:
                 if sample['kind'] == 'model':
                     matching = [by_key[(sample['harness'], sample['key'])]] if (sample['harness'], sample['key']) in by_key else []
                 else:
-                    identity = (sample['harness'], sample['session_id'], sample['model'], sample['provider'])
+                    identity = (sample['harness'], sample['session_id'], sample['model'], sample['provider'], sample.get('turn_id'))
                     times = stamps.get(identity, [])
                     lo = bisect.bisect_left(times, sample['start_us'])
                     hi = bisect.bisect_right(times, sample['end_us'])
@@ -279,12 +315,14 @@ class AnalyticsQuery:
                         continue
                 if not matching or any(any(str(e.get(COLUMN[d]) or '') not in values for d, values in filters.items()) for e in matching):
                     continue
-            identity = (sample['harness'], sample['kind'])
-            item = totals.setdefault(identity, {'harness': identity[0], 'kind': identity[1], 'output': 0, 'seconds': 0.0, 'samples': 0})
+            admitted.append(sample)
+            timing_identity = (sample['harness'], sample['kind'])
+            item = totals.setdefault(timing_identity, {'harness': timing_identity[0], 'kind': timing_identity[1], 'output': 0, 'seconds': 0.0, 'samples': 0})
             item['output'] += sample['output']
             item['seconds'] += (sample['end_us'] - sample['start_us']) / 1e6
             item['samples'] += 1
-        return [{**item, 'tps': item['output'] / item['seconds']} for _, item in sorted(totals.items())]
+        result = [{**item, 'tps': item['output'] / item['seconds']} for _, item in sorted(totals.items())]
+        return (result, admitted) if with_samples else result
 
     @staticmethod
     def _facets(conn, start, end, filters):
@@ -309,7 +347,8 @@ class AnalyticsQuery:
     @staticmethod
     def _query(request, start, end):
         return {'start': _iso(start), 'end': _iso(end), 'timezone': request.timezone,
-                'bucket': request.bucket, 'group_by': list(request.group_by), 'metric': request.metric,
+                'bucket': request.bucket, 'bucket_resolved': _resolved_bucket(start, end, request.bucket),
+                'group_by': list(request.group_by), 'metric': request.metric,
                 'filters': {key: list(values) for key, values in request.filters.items()}}
 
     def analytics(self, request):
@@ -320,18 +359,20 @@ class AnalyticsQuery:
             events = self._events(conn, previous_start, end, request.filters)
             current = [e for e in events if e['timestamp_us'] >= _us(start)]
             previous = [e for e in events if e['timestamp_us'] < _us(start)]
-            summary, previous_summary = _summary(current), _summary(previous)
-            summary['tps'] = self._timing(conn, start, end, request.filters)
+            window_seconds = (end - start).total_seconds()
+            summary, previous_summary = _summary(current, window_seconds), _summary(previous, window_seconds)
+            summary['tps'], timing_samples = self._timing(conn, start, end, request.filters, with_samples=True)
             previous_summary['tps'] = self._timing(conn, previous_start, start, request.filters)
-            groups, prev_groups = defaultdict(list), defaultdict(list)
+            groups: dict[str, list[dict]] = defaultdict(list)
+            prev_groups: dict[str, list[dict]] = defaultdict(list)
             identities = {}
             for source, target in ((current, groups), (previous, prev_groups)):
                 for event in source:
                     key, label, dimensions = _member(event, request.group_by)
                     target[key].append(event)
                     identities[key] = {'key': key, 'label': label, 'dimensions': dimensions}
-            summaries = {key: _summary(groups[key]) for key in identities}
-            previous_summaries = {key: _summary(prev_groups[key]) for key in identities}
+            summaries = {key: _summary(groups[key], window_seconds) for key in identities}
+            previous_summaries = {key: _summary(prev_groups[key], window_seconds) for key in identities}
             ranked = sorted(identities, key=lambda key: (-abs(_value(summaries[key], request.metric) or 0), key))
             breakdown = [{**identities[key], 'metrics': summaries[key], 'value': _value(summaries[key], request.metric),
                           'share': _share(summaries[key], summary, request.metric)} for key in ranked]
@@ -340,29 +381,47 @@ class AnalyticsQuery:
                 raise ValueError('at most 50 members can be compared')
             members = [{**identities.get(key, {'key': key, 'label': key or 'Unknown'})} for key in selected]
             members.append({'key': '__other__', 'label': 'Other'})
-            buckets = [[] for _ in edges[:-1]]
+            buckets: list[list[dict]] = [[] for _ in edges[:-1]]
             edge_us = [_us(edge) for edge in edges]
+            timing_members = [{'key': f'{harness}/{kind}', 'harness': harness, 'kind': kind, 'label': f'{harness} · {kind}'}
+                              for harness, kind in sorted({(s['harness'], s['kind']) for s in timing_samples})]
+            timing_buckets: list[dict[str, dict[str, Any]]] = [defaultdict(lambda: {'output': 0, 'seconds': 0.0, 'samples': 0}) for _ in buckets]
+            for sample in timing_samples:
+                position = min(len(buckets)-1, max(0, bisect.bisect_left(edge_us, sample['end_us']) - 1))
+                slot = timing_buckets[position][f"{sample['harness']}/{sample['kind']}"]
+                slot['output'] += sample['output']
+                slot['seconds'] += (sample['end_us'] - sample['start_us']) / 1e6
+                slot['samples'] += 1
             for event in current:
                 position = bisect.bisect_right(edge_us, event['timestamp_us']) - 1
                 buckets[position].append(event)
             trend = []
             selected_set = set(selected)
             zone = ZoneInfo(request.timezone)
+            resolved_bucket = _resolved_bucket(start, end, request.bucket)
             for i, bucket_events in enumerate(buckets):
-                total = _summary(bucket_events)
+                seconds = _bucket_seconds(start, end, edges[i], edges[i+1])
+                total = _summary(bucket_events, seconds)
                 series_events = defaultdict(list)
                 for event in bucket_events:
                     key = _member(event, request.group_by)[0]
                     series_events[key if key in selected_set else '__other__'].append(event)
                 series = []
                 for member in members:
-                    metrics = _summary(series_events[member['key']])
+                    metrics = _summary(series_events[member['key']], seconds)
                     series.append({'key': member['key'], 'metrics': metrics, 'value': _value(metrics, request.metric),
                                    'share': _share(metrics, total, request.metric)})
                 local = edges[i].astimezone(zone)
-                label = local.isoformat(timespec='hours') if request.bucket == 'hour' else local.date().isoformat()
+                label = local.isoformat(timespec='seconds' if resolved_bucket in ('second', '10second') else 'minutes') if resolved_bucket in BUCKET_SECONDS else local.date().isoformat()
+                timed = []
+                for member in timing_members:
+                    slot = timing_buckets[i][member['key']]
+                    timed.append({**member, **slot, 'value': slot['output'] / slot['seconds'] if slot['seconds'] else None})
+                total['tps'] = [{'harness': x['harness'], 'kind': x['kind'], 'output': x['output'], 'seconds': x['seconds'],
+                                 'samples': x['samples'], 'tps': x['value']} for x in timed if x['samples']]
                 trend.append({'start': _iso(edges[i]), 'end': _iso(edges[i+1]), 'label': label, 'metrics': total,
-                              'value': _value(total, request.metric), 'series': series})
+                              'window_start': _iso(max(start, edges[i])), 'window_end': _iso(min(end, edges[i+1])), 'seconds': seconds,
+                              'value': _value(total, request.metric), 'series': series, 'timed_tps': timed})
             deltas = _delta(summary, previous_summary)
             total_delta = deltas[request.metric]['absolute']
             comparison_members = []
@@ -377,7 +436,7 @@ class AnalyticsQuery:
                         'missing_price_models': sorted({e['model'] for e in current if e['_cost'] is None}),
                         'quality': dict(Counter(e['quality'] for e in current)), 'sources': self._sources(conn)}
             return {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end), 'summary': summary,
-                    'trend': {'members': members, 'buckets': trend}, 'breakdown': breakdown, 'coverage': coverage,
+                    'trend': {'members': members, 'timing_members': timing_members, 'buckets': trend}, 'breakdown': breakdown, 'coverage': coverage,
                     'facets': self._facets(conn, start, end, request.filters),
                     'comparison': {'start': _iso(previous_start), 'end': _iso(start), 'summary': previous_summary,
                                    'delta': deltas, 'members': comparison_members,
@@ -400,7 +459,7 @@ class AnalyticsQuery:
                 filters = {**request.filters, 'harness': [key['harness']], 'session': [key['session_id']]}
                 events = self._events(conn, start, end, filters)
                 row = {'harness': key['harness'], 'session_id': key['session_id'], 'first': _iso(datetime.fromtimestamp(events[0]['timestamp_us']/1e6, UTC)),
-                       'last': _iso(datetime.fromtimestamp(events[-1]['timestamp_us']/1e6, UTC)), 'metrics': _summary(events)}
+                       'last': _iso(datetime.fromtimestamp(events[-1]['timestamp_us']/1e6, UTC)), 'metrics': _summary(events, (end-start).total_seconds())}
                 for dimension in DIMENSIONS[1:-1]:
                     row[dimension] = sorted({str(e[COLUMN[dimension]] or '') for e in events})
                 result.append(row)
@@ -415,7 +474,7 @@ class AnalyticsQuery:
             events = self._events(conn, start, end, filters)
             if not events:
                 return None
-            summary = _summary(events)
+            summary = _summary(events, (end-start).total_seconds())
             summary['tps'] = self._timing(conn, start, end, filters)
             children = [row[0] for row in conn.execute('SELECT DISTINCT session_id FROM events WHERE harness=? AND parent_session_id=? ORDER BY session_id', (harness, sid))]
             for event in events:
