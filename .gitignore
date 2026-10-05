@@ -4,6 +4,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+web/node_modules/
+src/codex_usage/web_static/
 .pytest_cache/
 .coverage
 
