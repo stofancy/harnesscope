@@ -23,3 +23,6 @@ coverage.xml
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Browser acceptance reports, traces and synthetic source runtime
+.e2e/
