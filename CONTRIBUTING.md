@@ -36,8 +36,11 @@ instructions together. Exercise the running Python application, its index and th
 UI; do not mock analytics responses or derive expected numbers from the implementation.
 Fixture servers must isolate all four source roots, cache and pricing from personal data.
 
-Cover the single global time range and slice, linked filters, chart forms, throughput
-metrics, and turn/tool drilldown with a small set of end-to-end user scenarios. Disable
+Cover the shared global time range and interval, linked filters, chart forms, throughput
+metrics, and the separate usage-ledger drilldown with a small set of end-to-end user
+scenarios. Dashboard scenarios should exercise aggregated views; request and turn/tool
+records belong to the usage view. Include light/dark theme persistence, recent-window
+membership and grouped token conservation when changing these behaviors. Disable
 e2e telemetry and use no-model execution by default. Keep generated reports and browser
 artifacts out of version control. Static checks and production builds remain applicable.
 

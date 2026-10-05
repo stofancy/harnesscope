@@ -17,7 +17,7 @@ Source files remain read-only. The web workbench maintains its own rebuildable S
 ## Why codex-usage
 
 - **One local web workbench for four harnesses.** Compare sources, models, projects, sessions, purposes, and other recorded dimensions; source coverage exposes missing or malformed data.
-- **One time context for the Dashboard.** The global range, timezone and slice drive consumption, rates, cache, timing and turn/tool panels. Chart selection narrows that shared window and supports returning to the previous range.
+- **Dashboard and usage records.** Explore aggregated consumption, rates, cache, timing and contributors; open a separate ledger for requests, sessions, turns, models or harnesses. Both share the time/filter context and support light and dark themes.
 - **Cost and efficiency with explicit limits.** Known estimated cost, missing prices, cache rates, cost per call, and cost per million tokens carry their accounting scope. Logged usage provides no evidence of output quality or model value for money.
 - **Existing Codex CLI retained.** Session/subagent/family reports, filters, charts, TPS, and JSON continue to serve command-line workflows. `--schema` describes the command contract and `--doctor` diagnoses its environment, including four-source path discovery. Path existence alone does not establish parsing coverage.
 - **Local data stays local.** No telemetry or source-file writes; the web server and statistics index stay on this machine. See [SECURITY.md](SECURITY.md) for the HTTP and local-process boundary.
@@ -62,29 +62,33 @@ The web entry uses a shared multi-source event query layer and its own statistic
 
 The Dashboard starts with estimated cost, tokens, model calls and turns. The main
 consumption trend sits beside a model/project/harness ranking; rate, cache, timing and
-tool panels provide the next level of detail. Panel menus hold metric, grouping,
-area/line/bar and member choices. Click a chart point or select a range to narrow the
-global window, then use the range-return control to restore the previous view.
+aggregated tool panels offer additional analysis. Panel menus hold metric, grouping,
+area/line/bar and member choices. Chart selection narrows the shared window; the
+range-return control restores it. Choose light or dark mode in the header; the browser
+remembers the selection.
 
-The global time picker supports relative expressions such as `-18h` and `-2days`,
-a fixed start **until now**, and fixed historical start/end times. Rolling ranges
-resolve again after refresh; historical ranges and chart zooms remain fixed.
-Optional automatic refresh scans new source records before updating the Dashboard.
-Refresh is off by default, does not overlap, and pauses in background tabs or while
-editing the time range. Time mode, refresh interval, filters and panel choices survive
-page reloads in this browser.
+Inline time fields support relative expressions such as `-18h` and `-2days`, a fixed
+start **until now**, and fixed historical start/end times. Display and bucketing use
+the local timezone; segmented buttons select the chart interval directly. Rolling
+ranges resolve again after refresh; historical ranges and chart zooms remain fixed.
+An explicit automatic-refresh switch and interval control scan source changes before
+updating the view. Refresh is off by default, does not overlap, and pauses in background
+tabs or while editing the time range. Time mode, refresh interval, filters and panel
+choices survive reloads. Source health expands in its own section at the bottom.
 
-All panels and details share the range, timezone, slice and global filters. Combine
-harness/model/project/provider/purpose filters; additional conditions cover agent type,
-service tier and session. Local chart changes and turn pagination reload their own data.
+All panels and usage records share the range, chart interval and global filters.
+Combine harness/model/project/provider/purpose filters; additional conditions cover
+agent type, run mode and session. Codex modes display Standard, Fast or Not recorded.
+Local chart changes and ledger pagination reload their own data.
 
-Switch between summary and turn ledgers. Turn rows show date, project and harness;
-sorting by cost, tokens, duration, calls or tools applies to all matching turns before
-pagination. Open a turn to inspect recorded model calls and tool status/duration, with
-window and whole-turn subtotals. Closing details preserves the analysis context.
-Recorded tool counts and per-turn subtotals remain useful with partial coverage; missing
-prices and samples retain their indicators. Detailed metric definitions are available
-from the header's **指标说明** action.
+The separate **用量明细** view lists individual requests or groups them by session,
+turn, model or harness. It shows uncached input, cache hits, output, cache writes,
+estimated cost and reliable timing. Response and turn TPS remain separate; missing
+timing stays unknown. Request timestamps determine membership before grouping;
+sorting applies to all matching rows before pagination. Harness, project and visible
+short IDs distinguish sessions, and drilldown preserves the filter context. Missing
+end records remain unknown; historical open turns require evidence of activity within
+the selected window. Missing prices and components retain their indicators.
 
 ### Source discovery and coverage
 
@@ -131,7 +135,7 @@ browser and emits JSON. Specify its filters through `--query`; legacy `--since`,
 |---|---|
 | `start`, `end` | Both required together; ISO 8601 with UTC offset; start inclusive, end exclusive |
 | `timezone` | IANA timezone for buckets; default `UTC` |
-| `bucket` | `auto`, `second`, `10second`, `minute`, `5minute`, `15minute`, `hour`, `day`, `week`, `month` |
+| `bucket` | `auto`, `second`, `5second`, `10second`, `30second`, `minute`, `5minute`, `15minute`, `hour`, `day`, `week`, `month` |
 | `group_by` | One to three comma-separated dimensions |
 | Dimensions / filters | `harness`, `model`, `provider`, `project`, `agent_type`, `purpose`, `service_tier`, `session`; repeated values select alternatives within a dimension |
 | `metric` | `cost_usd`, `tokens`, `calls`, `input`, `output`, `cache_read`, `cache_write`, `cache_hit_rate`, `cost_per_call`, `cost_per_mtok`, `tpm`, `rpm`, `throughput_tps`, `rps` |

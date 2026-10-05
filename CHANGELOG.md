@@ -21,29 +21,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Condensed the daily-use Dashboard around first-screen totals, a consumption trend and
-  absolute contributor ranking. Panel settings open on demand; summary and turn ledgers
-  share a tabbed area with date/project/harness labels and full-result sorting.
+  absolute contributor ranking. A separate usage ledger handles request/session/turn/model/harness
+  records with shared time/filter context, visible identities and full-result sorting.
 - Saved time/filter/panel preferences in browser local storage. Local panel changes and
   pagination query only their affected data; serialized statistical reads avoid SQLite
   row-conversion contention while refresh/status remain independently available.
 - Show recorded tool counts and known per-turn subtotals with their coverage. Strict
   complete-value fields keep their existing meaning; entirely unpriced values stay unknown.
-- Simplified the dashboard surface: removed repeated methodology notes and walkthrough prose; metric definitions open from one header action, with concise data-quality indicators beside relevant values.
+- Inline time inputs, direct interval buttons, an explicit automatic-refresh switch and
+  independent collapsible source health simplify frequent operations. Display and bucketing
+  use the local timezone; Codex modes display Standard, Fast and Not recorded.
 
 ### Added
 
 - Rolling time expressions such as `-18h` and `-2days`, fixed-start-until-now ranges,
-  calendar selection and optional automatic refresh. Refresh scans source changes before
+  inline absolute-time inputs and optional automatic refresh. Refresh scans source changes before
   updating the view, advances rolling ranges and preserves fixed historical ranges.
-- Unified PC Dashboard with a single global range/timezone/slice control, parallel
-  consumption/rate/cache/timing panels, per-panel area/line/bar views and turn/tool
-  drilldown. Chart clicks and brush selection update the whole page's window with
+- Light and dark themes with persistent selection, coordinated chart/table/control colors
+  and a richer data palette.
+- Dedicated usage ledger showing uncached input, cache reads, output, cache writes, estimated
+  cost and separate response/turn TPS from reliable samples.
+- Unified PC Dashboard with a single global range/interval control, parallel
+  consumption/rate/cache/timing panels and per-panel area/line/bar views. Usage and turn/tool
+  drilldown live in the separate records view. Chart clicks and brush selection update the whole page's window with
   range history; expanded slice values expose the numbers and covered seconds.
 - Continuous overview → trend zoom → contribution/filter → turn/tool explanation →
-  return journey, with persistent section navigation and selection context, progressive
-  calculation/coverage explanations, and an expandable top-six tool ranking.
+  return journey, with persistent selection context and an expandable top-six tool ranking.
 
-- Fine-grained shared analytics slices (`auto`, second, 10-second and minute variants)
+- Fine-grained shared analytics slices (`auto`, second, 5/10/30-second and minute variants)
   and recorded TPM/RPM/average tokens-per-second/RPS rates using actual covered seconds.
   Reliable output timing remains separated by harness and timing kind.
 - Turn and tool analytics with window/full-turn recorded accounting, duration percentiles,
@@ -51,11 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/turns/detail` query parameters. Inferred boundaries retain labels and recorded
   statistics; missing components, timing and prices retain their unknown states.
 - Pinned local browser-test infrastructure using `e2e@0.17.0` and `@e2e-dev/web@0.12.0`,
-  isolated four-source inputs and `npm --prefix web run test:e2e`. The final daily-dashboard
-  desktop run passed 6/6 scenarios in 72.45 s, covering the continuous journey, numerical
-  accounting, detail/append updates, saved context, local requests, full-result sorting,
-  relative/fixed/until-now ranges and automatic refresh. This iteration
-  added no unit/component tests; fixture results retain their stated coverage.
+  isolated four-source inputs and `npm --prefix web run test:e2e`. Cases cover numerical
+  accounting, linked analysis, append updates, context persistence, sorting and time/refresh
+  controls. This work adds no unit/component tests; recorded runs retain their stated coverage.
 
 - Local browser usage workbench (`codex-usage --web`) for Codex, Claude, OMP and
   DSH, backed by a rebuildable SQLite event index and a shared multi-source query layer.
@@ -86,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Historical turns and tools with missing end records no longer enter every later time
+  window. Selection requires observed activity; new requests in old sessions remain visible.
 - Relative recent-time presets (24 hours / 7 days / 30 days) advance to the current time
   after source refresh. Custom and chart-zoomed windows stay fixed; range return restores
   the original relative/fixed mode.
