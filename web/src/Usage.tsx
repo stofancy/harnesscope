@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { usage } from "./api";
+import { displayNames } from "./names";
 import type {
     GlobalQuery,
     UsageAnalysis,
@@ -77,16 +78,12 @@ const columns = [
     ["turn_tps", "轮次 TPS"],
     ["cost_usd", "估算费用"],
 ] as const;
-const shortId = (v: string) =>
-    v.length > 16 ? `${v.slice(0, 8)}…${v.slice(-6)}` : v;
 const tpsNumber = (v: number | null | undefined) =>
     v == null
         ? "—"
         : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(
               v,
           );
-const projectName = (v: string) =>
-    v.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) || v;
 const number = (v: number | null | undefined) =>
     v == null ? "—" : exactNumber(v);
 export function UsageTable({
@@ -105,6 +102,7 @@ export function UsageTable({
     onBack: () => void;
 }) {
     const [expanded, setExpanded] = useState<string | null>(null);
+    const names = displayNames(data.labels, data.query.timezone);
     useEffect(
         () => setExpanded(null),
         [data.snapshot_id, JSON.stringify(view), JSON.stringify(data.query)],
@@ -113,7 +111,10 @@ export function UsageTable({
         if (view.group === "model") return r.identity.model || "未记录模型";
         if (view.group === "harness")
             return harnessLabel(r.identity.harness || "");
-        return r.projects.map(projectName).join(" / ") || "未记录项目";
+        return r.identity.session_id
+            ? names.session(r.identity.harness || "", r.identity.session_id,
+                { project: r.projects[0], first: r.first })
+            : r.projects.map(names.project).join(" / ") || "未记录项目";
     }
     const sort = (key: string) =>
         onView({
@@ -223,6 +224,7 @@ export function UsageTable({
                                 name={name(r)}
                                 view={view}
                                 timezone={data.query.timezone}
+                                projectLabel={r.projects.map(names.project).join(" / ") || "未记录项目"}
                                 expanded={expanded === r.key}
                                 onClick={() => {
                                     if (view.group === "request")
@@ -232,7 +234,7 @@ export function UsageTable({
                                     else
                                         onDrill({
                                             identity: r.identity,
-                                            label: `${name(r)}${r.identity.session_id ? ` · ${shortId(r.identity.session_id)}` : ""}`,
+                                            label: name(r),
                                             group: view.group,
                                         });
                                 }}
@@ -287,6 +289,7 @@ function Rows({
     name,
     view,
     timezone,
+    projectLabel,
     expanded,
     onClick,
 }: {
@@ -294,6 +297,7 @@ function Rows({
     name: string;
     view: UsageView;
     timezone: string;
+    projectLabel: string;
     expanded: boolean;
     onClick: () => void;
 }) {
@@ -307,26 +311,28 @@ function Rows({
                     <button
                         className="row-name"
                         data-testid="usage-row-open"
-                        title={`${r.projects.join(" / ")}\n${JSON.stringify(r.identity)}`}
+                        title={`${name}\n${r.projects.join(" / ")}\n${JSON.stringify(r.identity)}`}
                         onClick={onClick}
                     >
-                        <span className="usage-project-name">{name}</span>
+                        <span className="usage-project-name" data-testid="usage-session-name">{name}</span>
                         {r.identity.session_id && (
                             <span
-                                className="usage-visible-id"
-                                data-testid="usage-session-id"
+                                className="usage-subtitle"
+                                data-testid="usage-project-name"
+                                title={r.projects.join("\n")}
                             >
-                                {shortId(r.identity.session_id)}
+                                {projectLabel}
                             </span>
                         )}
                     </button>
                     {view.group === "turn" && (
                         <small
-                            className="usage-visible-id"
-                            data-testid="usage-turn-id"
+                            className="usage-subtitle"
+                            data-testid="usage-turn-name"
+                            title={r.identity.turn_id ?? undefined}
                         >
                             {r.identity.turn_id
-                                ? `轮次 ${shortId(r.identity.turn_id)}`
+                                ? `轮次 · ${timeLabel(r.first, timezone, true)}`
                                 : "未关联轮次"}
                         </small>
                     )}
@@ -362,9 +368,7 @@ function Rows({
                         <div>
                             <span>
                                 项目{" "}
-                                <code>
-                                    {r.projects.join(" / ") || "未记录"}
-                                </code>
+                                <b title={r.projects.join("\n")} data-testid="detail-project-name">{projectLabel}</b>
                             </span>
                             {Object.entries(r.identity)
                                 .filter(([, v]) => v != null)
@@ -381,7 +385,13 @@ function Rows({
                                                 } as Record<string, string>
                                             )[k]
                                         }{" "}
-                                        <code>{v}</code>
+                                        <b title={v ?? undefined} data-testid={`detail-${k}`}>
+                                            {k === "session_id" ? name
+                                                : k === "harness" ? harnessLabel(v || "")
+                                                : k === "turn_id" ? "已关联轮次"
+                                                : k === "event_key" ? timeLabel(r.last, timezone, true)
+                                                : v}
+                                        </b>
                                     </span>
                                 ))}
                         </div>

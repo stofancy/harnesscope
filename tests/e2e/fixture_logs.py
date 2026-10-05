@@ -5,6 +5,7 @@ Hand-counted default window: 00:00:00 <= time < 00:01:30 UTC.
 All four harnesses participate. Public-equivalent cost: $0.005085.
 """
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -132,8 +133,73 @@ def prepare(root):
         'cacheReadCostPerMillion': .5, 'cacheWriteCostPerMillion': 3, 'outputCostPerMillion': 8}}))
     prepare_daily_cases(root)
     prepare_activity_cases(root)
+    prepare_names(root)
     (root / 'codex/config.toml').write_text('service_tier = "default"\n')
     return root
+
+
+def prepare_names(root):
+    """Native titles contain no prompt-derived or personal content."""
+    with sqlite3.connect(root / 'codex/state_5.sqlite') as conn:
+        conn.execute('CREATE TABLE threads (id TEXT PRIMARY KEY,title TEXT)')
+        conn.executemany('INSERT INTO threads VALUES (?,?)', [
+            (CODEX_SID, '费用看板联动'),
+            ('44444444-1111-4111-8111-111111111111', '历史会话继续工作'),
+            ('66666666-6666-4666-8666-666666666666', '主目录费用复核'),
+            ('77777777-7777-4777-8777-777777777777', '工作树速率复核'),
+        ])
+    with (root / 'claude/projects/synthetic/claude-session.jsonl').open('a') as stream:
+        stream.write(line({'type': 'ai-title', 'sessionId': 'claude-session', 'aiTitle': '自动缓存分析'}))
+        stream.write(line({'type': 'custom-title', 'sessionId': 'claude-session', 'customTitle': '缓存报表核对'}))
+    path = root / 'omp/omp-session.jsonl'
+    records = [json.loads(v) for v in path.read_text().splitlines()]
+    records[0]['title'] = '响应速度分析'
+    write(path, records)
+    with (root / 'dsh/sessions/dsh-session/session.v4.jsonl').open('a') as stream:
+        stream.write(line({'type': 'session/title', 'seq': 4, 'time': 1790812890000,
+                           'data': {'title': '工具耗时整理'}}))
+    day = '2026-09-29T00:00:00Z'
+    for sid, project, gross in [
+        ('66666666-6666-4666-8666-666666666666', '/synthetic/main/reporting', 20),
+        ('77777777-7777-4777-8777-777777777777', '/synthetic/.codex/worktrees/ab12/reporting', 30),
+    ]:
+        call = codex_call(f'name-response-{gross}', None, 10, gross, 0, 10)
+        call['timestamp'] = '2026-09-29T00:00:10Z'
+        call['payload'].update(thread_id=sid, session_id=sid)
+        write(root / 'codex/sessions/2026/09/29' / f'rollout-2026-09-29T00-00-00-{sid}.jsonl', [
+            {'timestamp': day, 'type': 'session_meta', 'payload': {'id': sid, 'cwd': project, 'timestamp': day}},
+            {'timestamp': day, 'type': 'turn_context', 'payload': {'model': MODEL, 'cwd': project}},
+            call,
+        ])
+    write(root / 'claude/projects/synthetic/shared-session.jsonl', [
+        {'type': 'custom-title', 'sessionId': '66666666-6666-4666-8666-666666666666',
+         'customTitle': 'Claude 共享身份名称'},
+        {'type': 'user', 'uuid': 'names-user', 'sessionId': '66666666-6666-4666-8666-666666666666',
+         'timestamp': day, 'cwd': '/synthetic/main/reporting',
+         'message': {'role': 'user', 'content': 'Synthetic request'}},
+        {'type': 'assistant', 'uuid': 'names-assistant', 'parentUuid': 'names-user',
+         'sessionId': '66666666-6666-4666-8666-666666666666', 'timestamp': '2026-09-29T00:00:10Z',
+         'cwd': '/synthetic/main/reporting', 'requestId': 'names-claude-request',
+         'message': {'id': 'names-claude-response', 'role': 'assistant', 'model': MODEL,
+             'stop_reason': 'end_turn', 'content': [], 'usage': {'input_tokens': 8,
+                 'cache_read_input_tokens': 0, 'cache_creation_input_tokens': 0, 'output_tokens': 2}}},
+    ])
+
+
+def rename_sessions(root):
+    """Update only the disposable native names; usage totals remain unchanged."""
+    root = Path(root)
+    with sqlite3.connect(root / 'codex/state_5.sqlite') as conn:
+        conn.execute('UPDATE threads SET title=? WHERE id=?', ('费用看板新名称', CODEX_SID))
+    with (root / 'claude/projects/synthetic/claude-session.jsonl').open('a') as stream:
+        stream.write(line({'type': 'custom-title', 'sessionId': 'claude-session', 'customTitle': '缓存报表新名称'}))
+    omp_path = root / 'omp/omp-session.jsonl'
+    records = [json.loads(v) for v in omp_path.read_text().splitlines()]
+    records[0]['title'] = '响应速度新名称'
+    write(omp_path, records)
+    with (root / 'dsh/sessions/dsh-session/session.v4.jsonl').open('a') as stream:
+        stream.write(line({'type': 'session/title', 'seq': 5, 'time': 1790812920000,
+                           'data': {'title': '工具耗时新名称'}}))
 
 
 def prepare_daily_cases(root):
@@ -264,10 +330,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--append', type=Path, required=True)
     parser.add_argument('--recent-call', type=int)
+    parser.add_argument('--rename-sessions', action='store_true')
     args = parser.parse_args()
     if not args.append.name.startswith('harnesscope-browser-'):
         parser.error('append target must be the dedicated temporary browser fixture')
-    if args.recent_call is None:
+    if args.rename_sessions:
+        rename_sessions(args.append)
+    elif args.recent_call is None:
         append_completion(args.append)
     else:
         append_recent(args.append, args.recent_call)

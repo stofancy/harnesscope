@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain import ParseBatch, SourceFile, TimingSample, UsageEvent, timestamp_us
+from ..names import SessionTitle
 from .common import count, finite, header, lines
 from .conversation import ConversationLedger
 
@@ -38,6 +39,7 @@ def usage_identity(record):
 
 class OmpAdapter:
     harness = "omp"
+    version = "2"
 
     def __init__(self, root: str | Path | None = None):
         default = Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / ".omp/agent")
@@ -107,6 +109,17 @@ class OmpAdapter:
         sid = str(info.get("id") or Path(path).stem)
         root_sid, inherited, parent = self._lineage(path)
         batch = ParseBatch(state=current)
+        if "title" in info:
+            batch.session_titles.append(SessionTitle(
+                self.harness, sid, info.get("title"), "header", 50,
+                timestamp_us(info.get("timestamp")) or 0))
+        # The mutable first-line slot is authoritative, including explicit clearing.
+        prefix_batch = ParseBatch()
+        first_record: dict[str, Any] = next(lines(path, 0, prefix_batch), (0, {}))[1]
+        if first_record.get("type") == "title":
+            batch.session_titles.append(SessionTitle(
+                self.harness, sid, first_record.get("title"), "slot", 100,
+                timestamp_us(first_record.get("updatedAt")) or 0))
         ledger = ConversationLedger(self.harness, path, current.get("conversation"))
         project = info.get("cwd")
         tier = current.get("tier")
@@ -124,6 +137,10 @@ class OmpAdapter:
             inherited_entry = entry_identity(record)
             if inherited_entry and inherited_entry in inherited_entries:
                 continue
+            if record.get("type") == "title_change":
+                batch.session_titles.append(SessionTitle(
+                    self.harness, sid, record.get("title"), "title_change", 10,
+                    timestamp_us(record.get("timestamp")) or 0))
             message = (record.get("message") or {} if record.get("type") == "message" else record)
             when = timestamp_us(message.get("timestamp")) or timestamp_us(record.get("timestamp"))
             role = message.get("role") if record.get("type") == "message" else None

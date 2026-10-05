@@ -5,6 +5,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
 
+from .names import labelled
 from .query import UTC, _iso, _summary
 
 GROUPS = ('request', 'session', 'turn', 'model', 'harness')
@@ -129,11 +130,11 @@ class UsageQuery:
                              'response_tps': _speed(timing, 'model'), 'turn_tps': _speed(timing, 'end_to_end')})
             summary = _summary(events, (end-start).total_seconds())
             summary['tps'] = _timing_totals(admitted)
-            return {'snapshot': query._snapshot(conn), 'query': {**query._query(request, start, end), 'turn_ids': list(turn_ids)},
+            return labelled(conn, {'snapshot': query._snapshot(conn), 'query': {**query._query(request, start, end), 'turn_ids': list(turn_ids)},
                     'group': group, 'sort': sort, 'order': order, 'summary': summary,
                     'coverage': {'usage_quality': dict(Counter(event['quality'] for event in events)),
                                  'unassigned_calls': sum(event['turn_id'] is None for event in events),
                                  'priced_calls': summary['priced_calls'], 'unpriced_calls': summary['unpriced_calls'],
                                  'timing_scope': 'complete_attributable_samples'},
                     'facets': query._facets(conn, start, end, request.filters, turn_ids=turn_ids),
-                    'rows': rows, 'total': len(keys), 'offset': offset, 'limit': limit}
+                    'rows': rows, 'total': len(keys), 'offset': offset, 'limit': limit})

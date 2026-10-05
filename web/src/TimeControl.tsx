@@ -24,9 +24,12 @@ export function TimeControl({
         [error, setError] = useState("");
     useEffect(() => {
         setStart(display(spec.start));
+    }, [spec.start, global.timezone]);
+    useEffect(() => {
         setEnd(display(spec.end));
+    }, [spec.end, global.timezone]);
+    useEffect(() => {
         setError("");
-        onEditing(false);
     }, [spec.start, spec.end, global.timezone]);
     const normalize = (v: string) => {
         v = v.trim();
@@ -48,9 +51,14 @@ export function TimeControl({
             return dateInput(fallback, global.timezone);
         }
     }
-    function apply() {
+    function apply(override: Partial<{ start: string; end: string }> = {}) {
         try {
-            const next = { start: normalize(start), end: normalize(end) };
+            const next = {
+                start: override.start == null && start === display(spec.start)
+                    ? spec.start : normalize(override.start ?? start),
+                end: override.end == null && end === display(spec.end)
+                    ? spec.end : normalize(override.end ?? end),
+            };
             onChange(next, resolveTime(next));
             setStart(display(next.start));
             setEnd(display(next.end));
@@ -66,16 +74,18 @@ export function TimeControl({
                 id="start" label="从" name="开始" value={start}
                 timezone={global.timezone}
                 calendarValue={pickerValue(start, global.since)}
-                onChange={setStart} onEditing={onEditing} onApply={apply}
+                onChange={setStart} onEditing={onEditing}
+                onApply={(value) => apply(value == null ? {} : { start: value })}
             />
             <span className="time-arrow">→</span>
             <TimeField
                 id="end" label="到" name="结束" value={end}
                 timezone={global.timezone}
                 calendarValue={pickerValue(end, global.until)}
-                onChange={setEnd} onEditing={onEditing} onApply={apply}
+                onChange={setEnd} onEditing={onEditing}
+                onApply={(value) => apply(value == null ? {} : { end: value })}
             />
-            <button data-testid="time-apply" onClick={apply}>
+            <button data-testid="time-apply" onClick={() => apply()}>
                 应用
             </button>
             <div className="time-presets">
@@ -117,7 +127,7 @@ function TimeField({
     timezone: string;
     onChange: (value: string) => void;
     onEditing: (value: boolean) => void;
-    onApply: () => void;
+    onApply: (value?: string) => void;
 }) {
     const calendar = useRef<HTMLInputElement>(null);
     return (
@@ -129,7 +139,11 @@ function TimeField({
                     aria-label={`${name}时间`} value={value}
                     placeholder="-1h、现在或具体时间"
                     onFocus={() => onEditing(true)}
-                    onChange={(e) => onChange(e.target.value)}
+                    onChange={(e) => {
+                        onEditing(true);
+                        onChange(e.target.value);
+                    }}
+                    onBlur={() => onApply()}
                     onKeyDown={(e) => { if (e.key === "Enter") onApply(); }}
                 />
                 <input
@@ -139,8 +153,9 @@ function TimeField({
                     max={dateInput(new Date().toISOString(), timezone)}
                     onChange={(e) => {
                         if (e.target.value) {
-                            onChange(e.target.value.replace("T", " "));
-                            onEditing(true);
+                            const selected = e.target.value.replace("T", " ");
+                            onChange(selected);
+                            onApply(selected);
                         }
                     }}
                 />

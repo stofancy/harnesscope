@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable, Protocol
 
+from .names import SessionTitle
+
 
 @dataclass(frozen=True)
 class UsageEvent:
@@ -98,6 +100,7 @@ class ParseBatch:
     records_read: int = 0
     turns: list[TurnRecord] = field(default_factory=list)
     tool_calls: list[ToolCall] = field(default_factory=list)
+    session_titles: list[SessionTitle] = field(default_factory=list)
 
 
 class UsageAdapter(Protocol):

@@ -180,10 +180,12 @@ test('window activity: historical open metadata, same-prefix sessions, unassocia
     await expect(byId(b,'usage-table')).not.toContainText('55555555');
   }
   await group(b,'session');
-  await expect(byId(b,'usage-session-id')).toHaveText(['44444444…222222','44444444…111111']);
+  await expect(row(b,'44444444-2222','[data-testid="usage-session-name"]')).toContainText('未命名会话');
+  await expect(row(b,'44444444-1111','[data-testid="usage-session-name"]')).toHaveText('历史会话继续工作');
+  await expect(byId(b,'usage-session-id')).toHaveCount(0);
   await b.setViewport({width:1024,height:1100}); await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r()))));
-  expect(await b.evaluate(()=>[...document.querySelectorAll('[data-testid="usage-session-id"]')].every(n=>{const r=n.getBoundingClientRect(),p=n.parentElement!.getBoundingClientRect();return n.clientWidth>=n.scrollWidth&&r.left>=p.left&&r.right<=p.right&&r.width>0;}))).toBe(true);
-  await app.screenshot('long-project-colliding-session-ids-1024');
+  expect(await b.evaluate(()=>[...document.querySelectorAll('[data-testid="usage-session-name"]')].every(n=>{const r=n.getBoundingClientRect(),p=n.parentElement!.getBoundingClientRect();return r.left>=p.left&&r.right<=p.right&&r.width>0;}))).toBe(true);
+  await app.screenshot('long-project-session-names-1024');
   await group(b,'turn'); await expect(row(b,'222222222222')).toContainText('未关联轮次');
   await row(b,'222222222222','[data-testid="usage-row-open"]').click(); await ready(b);
   await expect(byId(b,'usage-row')).toHaveCount(1); await expect(byId(b,'usage-total-tokens')).toHaveText('170');
@@ -307,7 +309,7 @@ test('unified time: expressions on both ends, calendar selection, mixed bounds a
     const native = local.replace(' ', 'T').replace(/:00$/, '');
     await byId(b, `time-${id}-calendar`).fill(native);
     await byId(b, `time-${id}-calendar`).press('Escape');
-    await expect(byId(b, `time-${id}`)).toHaveValue(native.replace('T', ' '));
+    await expect(byId(b, `time-${id}`)).toHaveValue(local);
   }
   await apply(); await expect(b.locator('[role="alert"]')).toHaveCount(0);
   await expect(byId(b, 'summary-calls')).toHaveText('6');
@@ -353,6 +355,72 @@ test('comparison: adjacent equal window and explicit current/previous unpriced r
   await range(b,'2026-10-03T00:00:00Z','2026-10-04T00:00:00Z');
   await expect(byId(b,'summary-change-cost')).toHaveText('本期 1 次无法估价');
   await expect(byId(b,'summary')).toContainText('已知小计 · 1 次无法估价');
+});
+
+test('names: native session titles, project names, tooltips, joint identities and refresh', async ({ browser: b, app }) => {
+  await open(b);
+  await byId(b,'more-filters').click();
+  await b.locator('[data-testid="filter-session"] .facet-trigger').click();
+  for (const name of ['费用看板联动','缓存报表核对','响应速度分析','工具耗时整理'])
+    await expect(b.locator('[data-testid="filter-session"] .facet-list')).toContainText(name);
+  await expect(b.locator('[data-testid="filter-session"] .facet-list')).not.toContainText('11111111');
+  await b.locator('[data-testid="filter-session"] .facet-popover > input').fill('缓存报表');
+  await expect(b.locator('[data-testid="filter-session"] .facet-list label')).toHaveCount(1);
+  await byId(b,'filter-session').getByLabel('缓存报表核对 · Claude Code').check();
+  await b.locator('[data-testid="filter-session"] .dismiss').click(); await ready(b);
+  await expect(byId(b,'summary-tokens')).toHaveText('400');
+  await byId(b,'clear-filters').click(); await ready(b);
+  await b.locator('[data-testid="filter-project"] .facet-trigger').click();
+  await expect(b.locator('[data-testid="filter-project"] .facet-list span')).toHaveText('workbench');
+  await expect(b.locator('[data-testid="filter-project"] .facet-list label')).toHaveAttribute('title','workbench\n/synthetic/workbench');
+  await b.locator('[data-testid="filter-project"] .dismiss').click();
+  await page(b,'usage');
+  await row(b,'response-codex-1','[data-testid="usage-row-open"]').click();
+  await expect(byId(b,'detail-session_id')).toHaveText('费用看板联动');
+  await expect(byId(b,'detail-session_id')).toHaveAttribute('title','11111111-1111-4111-8111-111111111111');
+  await expect(byId(b,'detail-project-name')).toHaveText('workbench');
+  await expect(byId(b,'detail-project-name')).toHaveAttribute('title','/synthetic/workbench');
+  await expect(byId(b,'detail-turn_id')).toHaveText('已关联轮次');
+  await expect(byId(b,'detail-turn_id')).toHaveAttribute('title','codex-turn-1');
+  await expect(byId(b,'detail-event_key')).toHaveAttribute('title',/response-codex-1/);
+  for (const hidden of ['11111111','/synthetic/','response-codex-1','codex-turn-1'])
+    await expect(byId(b,'usage-request-detail')).not.toContainText(hidden);
+  await group(b,'session');
+  await expect(byId(b,'usage-row')).toHaveCount(4);
+  for (const name of ['费用看板联动','缓存报表核对','响应速度分析','工具耗时整理'])
+    await expect(byId(b,'usage-table')).toContainText(name);
+  await expect(byId(b,'usage-session-id')).toHaveCount(0);
+  await range(b,'2026-09-29T00:00:00Z','2026-09-29T00:01:00Z');
+  await expect(byId(b,'usage-total-tokens')).toHaveText('80');
+  await expect(byId(b,'usage-row')).toHaveCount(3);
+  for (const name of ['主目录费用复核','工作树速率复核','Claude 共享身份名称'])
+    await expect(byId(b,'usage-table')).toContainText(name);
+  await b.locator('[data-testid="filter-project"] .facet-trigger').click();
+  await expect(b.locator('[data-testid="filter-project"] .facet-list span')).toHaveText(['reporting','reporting']);
+  await b.locator('[data-testid="filter-project"] label[title*="worktrees"] input').check();
+  await b.locator('[data-testid="filter-project"] .dismiss').click(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(1);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('40');
+  await expect(byId(b,'usage-session-name')).toHaveText('工作树速率复核');
+  await byId(b,'clear-filters').click(); await ready(b);
+  await range(b,'2026-10-04T00:00:00Z','2026-10-04T00:01:00Z');
+  await expect(row(b,'44444444-2222','[data-testid="usage-session-name"]')).toContainText('activity');
+  await expect(row(b,'44444444-2222','[data-testid="usage-session-name"]')).toContainText('未命名会话');
+  await expect(byId(b,'usage-table')).not.toContainText('44444444');
+  await range(b);
+  const state = JSON.parse(readFileSync(new URL('../../.e2e/fixture-state.json', import.meta.url), 'utf8'));
+  execFileSync('python3',[new URL('./fixture_logs.py', import.meta.url).pathname,'--append',state.root,'--rename-sessions']);
+  await refresh(b);
+  for (const name of ['费用看板新名称','缓存报表新名称','响应速度新名称','工具耗时新名称'])
+    await expect(byId(b,'usage-table')).toContainText(name);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('1,300');
+  await b.reload(); await ready(b);
+  await expect(byId(b,'usage-table')).toContainText('费用看板新名称');
+  for (const theme of ['light','dark']) {
+    await byId(b,`theme-${theme}`).click();
+    await b.setViewport({width:1024,height:1100});
+    await app.screenshot(`session-project-names-${theme}-1024`);
+  }
 });
 
 test('refresh: incremental dedup, completed metadata, unknown and empty windows, live zoom restoration', async ({ browser: b, app }) => {
@@ -437,4 +505,42 @@ test('historical refresh: fixed and past-relative ends pause scans and returning
   await expect(byId(b,'auto-refresh-note')).toHaveCount(0);
   await byId(b,'auto-refresh-toggle').uncheck();
   await app.screenshot('historical-refresh-pause-and-resume');
+});
+
+test('current time: input blur, Enter, refresh and browser reload resolve the actual clock', async ({ browser: b, app }) => {
+  const requests: URL[] = [];
+  await b.route(/\/api\//, async r => { requests.push(new URL(r.request.url)); await r.continue(); });
+  await open(b);
+  const latest = () => requests.filter(r => r.pathname === '/api/analytics').at(-1)!;
+  await byId(b,'time-start').fill('-3h');
+  await byId(b,'time-end').fill('现在');
+  await refresh(b);
+  let q = latest();
+  expect(Date.parse(q.searchParams.get('end')!) - Date.parse(q.searchParams.get('start')!)).toBe(3*3600000);
+  expect(Math.abs(Date.parse(q.searchParams.get('end')!)-Date.now())<5000).toBe(true);
+  const before = q.searchParams.get('end')!;
+  await wait(100); await b.reload(); await ready(b);
+  q = latest();
+  expect(Date.parse(q.searchParams.get('end')!) > Date.parse(before)).toBe(true);
+  expect(Math.abs(Date.parse(q.searchParams.get('end')!)-Date.now())<5000).toBe(true);
+  await byId(b,'time-start').fill('-1h'); await byId(b,'time-start').press('Enter'); await ready(b);
+  q = latest();
+  expect(Date.parse(q.searchParams.get('end')!) - Date.parse(q.searchParams.get('start')!)).toBe(3600000);
+  const calls = Number(await byId(b,'summary-calls').textContent());
+  append(501);
+  await byId(b,'time-start').fill('-2h');
+  await refresh(b);
+  q = latest();
+  expect(Date.parse(q.searchParams.get('end')!) - Date.parse(q.searchParams.get('start')!)).toBe(2*3600000);
+  expect(Math.abs(Date.parse(q.searchParams.get('end')!)-Date.now())<5000).toBe(true);
+  await expect(byId(b,'summary-calls')).toHaveText(String(calls+1));
+  const applied = q.searchParams.get('end')!;
+  await byId(b,'time-start').fill('2100-01-01T00:00:00Z');
+  const posts = requests.filter(r=>r.pathname==='/api/refresh').length;
+  await byId(b,'scan-data').click();
+  await expect(b.locator('[role="alert"]')).toHaveText('开始时间不能晚于现在');
+  expect(requests.filter(r=>r.pathname==='/api/refresh').length).toBe(posts);
+  expect(latest().searchParams.get('end')).toBe(applied);
+  await byId(b,'time-start').fill('-2h'); await byId(b,'time-start').press('Enter'); await ready(b);
+  await app.screenshot('current-clock-without-apply');
 });

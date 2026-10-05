@@ -9,6 +9,7 @@ from typing import Any
 import zstandard
 
 from ..domain import ParseBatch, SourceFile, TimingSample, UsageEvent, timestamp_us
+from ..names import SessionTitle
 from .common import count, lines
 from .conversation import ConversationLedger
 
@@ -44,6 +45,7 @@ def decode_zstd(path):
 
 class DshAdapter:
     harness = "dsh"
+    version = "2"
     supports_incremental = False
 
     def __init__(self, root: str | Path | None = None):
@@ -93,6 +95,11 @@ class DshAdapter:
             batch.warnings.append("Unsupported DSH generation or header/filename mismatch")
             return batch
         sid = str(info.get("id") or Path(path).parent.name)
+        title = next((r for r in reversed(records) if r.get("type") == "session/title"), None)
+        if title is not None:
+            batch.session_titles.append(SessionTitle(
+                self.harness, sid, (title.get("data") or {}).get("title"),
+                "session/title", 100, timestamp_us(title.get("time")) or 0))
         inherited = -1
         if version <= 1:
             if info.get("parentSession"):

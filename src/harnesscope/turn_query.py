@@ -3,6 +3,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 import bisect
 
+from .names import labelled
 from .query import (UTC, COLUMN, QueryRequest, _us, _iso, _summary,
                     _bucket_edges, _bucket_seconds)
 
@@ -222,10 +223,10 @@ class TurnQuery:
                         'usage_quality': dict(Counter(event['quality'] for event in events)),
                         'unassigned_calls': unassigned, 'usage_scope': _scope(request.filters)}
             rows = _sort_turns(rows, sort, order)
-            return {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end), 'sort': sort, 'order': order,
+            return labelled(conn, {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end), 'sort': sort, 'order': order,
                     'summary': self._summary(rows, events, tools, (end-start).total_seconds()),
                     'trend': {'buckets': trend}, 'tools': self._tools(rows, tools), 'rows': rows[offset:offset+limit] if include_rows else [],
-                    'total': len(rows), 'offset': offset, 'limit': limit, 'coverage': coverage}
+                    'total': len(rows), 'offset': offset, 'limit': limit, 'coverage': coverage})
 
     def turn_detail(self, harness, sid, turn_id, request=None):
         request = request or QueryRequest()
@@ -274,8 +275,8 @@ class TurnQuery:
             recorded['usage_quality'] = dict(Counter(event['quality'] for event in calls))
             overlap_seconds = _bucket_seconds(start, end, datetime.fromtimestamp(turn['start_us']/1e6, UTC),
                                                datetime.fromtimestamp(turn['end_us']/1e6, UTC) if turn['end_us'] is not None else end)
-            return {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end), 'turn': turn,
+            return labelled(conn, {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end), 'turn': turn,
                     'calls': [_public_event(event, start_us, end_us) for event in calls],
                     'tools': [_public_tool(tool, start_us, end_us) for tool in tools],
                     'window_metrics': _summary(window_calls, overlap_seconds), 'recorded_metrics': recorded,
-                    'usage_scope': _scope(request.filters), 'related_turns': related}
+                    'usage_scope': _scope(request.filters), 'related_turns': related})

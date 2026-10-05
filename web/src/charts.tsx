@@ -658,7 +658,7 @@ export function AnalyticPanel({
                                                         })
                                                     }
                                                 />
-                                                <span title={m.label}>
+                                                <span title={m.tooltip ?? m.label}>
                                                     {m.label}
                                                 </span>
                                             </label>

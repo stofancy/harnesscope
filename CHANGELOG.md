@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Session filters, rankings, usage rows and details show native titles and project names,
+  with IDs and full paths in tooltips. Same-name projects and cross-harness session IDs
+  retain separate identities; source refresh updates title metadata in the local index.
+- Time edits apply on blur, Enter or calendar selection. Refresh, browser reload and
+  range return resolve expressions against the actual clock; fixed ranges retain precision.
 - Renamed the repository, Python package, CLI, browser UI and tool environment variables
   to Harnesscope / `harnesscope` / `HARNESCOPE_*`. The default cache is now
   `~/.cache/harnesscope`; native harness source variables keep their names.
@@ -44,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Snapshot-consistent `labels` on analytics, usage, turns, session lists and session/turn
+  details, sourced from explicit native title fields and existing project metadata.
 - Source installer with optional systemd user service, plus the same `start`, `stop`,
   `restart` and `status` commands for service and ordinary background modes.
 - Rolling time expressions such as `-18h` and `-2days`, fixed-start-until-now ranges,

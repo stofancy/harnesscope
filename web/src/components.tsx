@@ -136,7 +136,7 @@ function Facet({
     onChange,
 }: {
     name: FilterKey;
-    options: { key: string; label: string }[];
+    options: { key: string; label: string; tooltip?: string }[];
     selected: string[];
     onChange: (values: string[]) => void;
 }) {
@@ -146,7 +146,7 @@ function Facet({
         ...options,
         ...selected
             .filter((k) => !options.some((v) => v.key === k))
-            .map((key) => ({ key, label: key || "未知归属" })),
+            .map((key) => ({ key, label: name === "session" ? "未命名会话" : name === "project" ? "未记录项目名称" : key || "未知归属", tooltip: key })),
     ];
     return (
         <div className="facet" data-testid={`filter-${name}`}>
@@ -178,12 +178,11 @@ function Facet({
                         <div className="facet-list">
                             {candidates
                                 .filter((v) =>
-                                    v.label
-                                        .toLowerCase()
+                                    `${v.label}\n${v.key}`.toLowerCase()
                                         .includes(search.toLowerCase()),
                                 )
                                 .map((v) => (
-                                    <label key={v.key}>
+                                    <label key={v.key} title={`${v.label}\n${v.tooltip ?? v.key}`}>
                                         <input
                                             type="checkbox"
                                             checked={selected.includes(v.key)}
@@ -198,7 +197,7 @@ function Facet({
                                                 )
                                             }
                                         />
-                                        <span title={v.label}>{v.label}</span>
+                                        <span title={`${v.label}\n${v.tooltip ?? v.key}`}>{v.label}</span>
                                     </label>
                                 ))}
                             {!candidates.length && <p>当前范围没有候选值</p>}
@@ -375,7 +374,7 @@ function Comparison({
                         title={`筛选${m.label}并查看其请求`}
                         onClick={() => onDetail(m)}
                     >
-                        <span title={m.label}>{m.label}</span>
+                        <span title={m.tooltip ?? m.label}>{m.label}</span>
                         <b className={delta! > 0 ? "increase" : "decrease"}>
                             {delta! > 0 ? "+" : "−"}
                             {formatMetric(Math.abs(delta!), metric)}
@@ -492,7 +491,7 @@ function Ledger({
                                     <td>
                                         <button
                                             className="row-name"
-                                            title={m.label}
+                                            title={m.tooltip ?? m.label}
                                             onClick={() => onDetail(m)}
                                         >
                                             <span className="row-index">

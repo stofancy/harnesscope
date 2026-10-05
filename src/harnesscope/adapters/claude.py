@@ -4,12 +4,14 @@ import os
 from pathlib import Path
 
 from ..domain import ParseBatch, SourceFile, UsageEvent, timestamp_us
+from ..names import SessionTitle
 from .common import count, lines
 from .conversation import ConversationLedger
 
 
 class ClaudeAdapter:
     harness = "claude"
+    version = "2"
 
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root or os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
@@ -28,6 +30,11 @@ class ClaudeAdapter:
             message = record.get("message") or {}
             when = timestamp_us(record.get("timestamp"))
             sid = str(record.get("sessionId") or Path(path).stem)
+            if record.get("type") in {"custom-title", "ai-title"}:
+                custom = record["type"] == "custom-title"
+                batch.session_titles.append(SessionTitle(
+                    self.harness, sid, record.get("customTitle" if custom else "aiTitle"),
+                    record["type"], 100 if custom else 50, when or 0))
             agent = record.get("agentId")
             session = f"{sid}/{agent}" if agent else sid
             parent = sid if agent else None

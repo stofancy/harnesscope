@@ -14,14 +14,14 @@ its own statistics index and listens on loopback.
 
 | Aspect | Behaviour |
 |---|---|
-| Source data | Codex, Claude, OMP and DSH local usage logs; existing terminal reports continue to use Codex rollout files |
+| Source data | Codex, Claude, OMP and DSH local usage logs and native session-title metadata, including Codex's state database; existing terminal reports continue to use Codex rollout files |
 | Source overrides | Web: `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OMP_SESSIONS_DIR` / `PI_CODING_AGENT_DIR`, `DSH_HOME`; legacy Codex report paths retain `HARNESCOPE_SESSIONS_DIR` / `HARNESCOPE_ARCHIVE_DIR` |
 | Index path | `~/.cache/harnesscope/usage.sqlite3` (`HARNESCOPE_CACHE_DIR` overrides the directory) |
 | Pricing reads | Bundled public prices, the tool's pricing cache and optional user overrides |
 | External network | No external access for ordinary analysis; public prices are downloaded only by explicit `--update-pricing` |
 | Local HTTP | `--web` starts a loopback server serving bundled assets and statistical JSON |
 | Writes | Rebuildable SQLite index, explicit price cache, browser preferences, and the tool's own lifecycle configuration/state/logs. Optional service installation writes this user's Harnesscope systemd unit. Source logs, harness settings and user pricing overrides are never modified |
-| Stored/output fields | Usage metadata, token counts, price basis, source identities and recorded session relationships; tool statistics are limited to name, identity, status and timestamps. The statistics index and API exclude conversation bodies, prompts, tool arguments, tool result bodies and credentials |
+| Stored/output fields | Usage metadata, token counts, price basis, source identities, native session titles, project names and recorded session relationships; tool statistics are limited to name, identity, status and timestamps. The statistics index and API exclude conversation bodies, prompts, tool arguments, tool result bodies and credentials |
 | Charts | Legacy terminal charts are rendered in memory and sent to the terminal |
 | Telemetry | None; no analytics, crash reporting or remote usage upload |
 | Lifetime | `start` runs a managed background instance; `stop` releases its port. An optional systemd user service starts on login. `--web` runs in the foreground until Ctrl-C. Closing a tab leaves the process running |
@@ -39,12 +39,19 @@ permissions prevent them from reading the original source files. This does not p
 between users sharing a host. Keep the service local; publishing it through a proxy or
 port forward changes the trust boundary and is outside the supported deployment.
 
-API output includes usage identities and project metadata, which can reveal local work
-patterns. Tool names and execution identities can also reveal workflow metadata. It
+API output includes usage identities, native session titles and project metadata, which can reveal local work
+patterns and task subjects. Tool names and execution identities can also reveal workflow metadata. It
 excludes raw conversation content, tool parameters, result bodies and secrets. Turn
 boundaries inferred from source iteration records must retain their inferred status;
 they do not establish undocumented causal relationships. Source-root configuration is
 local to startup; the API does not offer arbitrary filesystem reads or writes.
+
+Session titles are read only from explicit native title fields; the tool does not derive
+them from conversation text. Codex title reads use SQLite `mode=ro` and `query_only`,
+including current WAL records. Database and WAL contents remain unchanged; SQLite may
+update reader-coordination marks in the existing `-shm` file during a read. Ordinary
+log parsing and harness configuration remain read-only. Title projections live in the
+rebuildable statistics index and change on a source refresh.
 
 ### Explicit external download: `--update-pricing`
 

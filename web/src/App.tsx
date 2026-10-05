@@ -211,7 +211,7 @@ export default function App() {
         const h = history.at(-1);
         if (!h) return;
         setTimeSpec(h.timeSpec);
-        setGlobal((g) => ({ ...g, since: h.since, until: h.until }));
+        setGlobal((g) => advanceTime({ ...g, since: h.since, until: h.until }, h.timeSpec));
         setHistory((v) => v.slice(0, -1));
     }
     function memberUsage(m: Member, dimension: Dimension) {
@@ -230,7 +230,7 @@ export default function App() {
         setPage("usage");
     }
     async function scan() {
-        if (refreshLock.current || refs.current.scanStatus?.scanning) return;
+        if (refreshLock.current || refs.current.scanStatus?.scanning || refs.current.editing) return;
         refreshLock.current = true;
         setRefreshing(true);
         setError("");

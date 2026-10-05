@@ -150,7 +150,7 @@ automated evidence. Artifacts contain synthetic source data only.
 
 October 4 00:00–00:01 UTC, project `/synthetic/company/platform/products/usage-workbench/feature-branches/extremely-long-project-path/activity`, has two real requests:
 
-| Visible session ID | Window activity | Net input | Cache read | Cache write | Output | Tokens | Cost USD |
+| Fixture session ID | Window activity | Net input | Cache read | Cache write | Output | Tokens | Cost USD |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 44444444…111111 | New request in a September 30 open turn; one new completed tool | 80 | 20 | 0 | 30 | 130 | 0.000410 |
 | 44444444…222222 | New request with no associated turn | 70 | 30 | 20 | 50 | 170 | 0.000615 |
@@ -168,5 +168,24 @@ bounds to the browser's actual system-local time; the app's query zone must matc
 `Intl.DateTimeFormat().resolvedOptions().timeZone`. No timezone selector is used.
 
 The two active sessions deliberately share their first eight ID characters
-(`44444444`). Their visible labels must include distinguishable suffixes
-(`111111` and `222222`) without a native title index.
+(`44444444`). The first shows its native title, while the second uses a project/time
+unnamed-session label. IDs remain available in tooltips. Neither ID is visible in row text.
+
+## Native names and actual-clock acceptance
+
+The names scenario reads explicit native title fields from all four synthetic roots:
+Codex's `threads` SQLite table, Claude custom/AI title records, OMP header title and
+DSH session title. It exercises session/project facets, request details, session rows,
+missing-title fallback, source rename/refresh and light/dark 1024-pixel screenshots.
+September 29 adds 80 tokens in three sessions: 30 and 40 in distinct Codex project
+paths both named `reporting`, and 10 in Claude using the first Codex session's ID.
+Filtering the worktree path retains only 40 tokens; cross-harness identities stay separate.
+`--rename-sessions` changes only guarded temporary `harnesscope-browser-` fixtures.
+These title-only updates preserve the October 1 baseline of 1300 tokens.
+
+The current-time scenario observes real requests without API mocks. Blur, Enter,
+manual refresh and browser reload resolve relative ranges against the actual clock;
+a newly appended 501-token recent request appears on refresh. Future input retains
+the current result and prevents a scan until corrected. Related inline-time and
+historical-refresh scenarios cover editing pause, no overlapping scans and saved
+automatic-refresh preferences when returning to now.

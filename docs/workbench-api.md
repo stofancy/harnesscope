@@ -4,6 +4,18 @@
 
 ## 查询参数
 
+### 名称与身份
+
+`/api/analytics`、`/api/usage`、`/api/turns`、`/api/sessions` 及会话、轮次详情均附带同一快照内的 `labels`：
+
+```json
+{"sessions":[{"harness":"codex","session_id":"native-id","title":"费用看板联动","project":"/synthetic/reporting","first":"2026-10-01T00:00:00Z"}],"projects":[{"path":"/synthetic/reporting","name":"reporting"}]}
+```
+
+会话按 `(harness,session_id)` 查名称，项目按完整路径查名称；`title`、`project`、`first` 可为 null。`first` 为全索引首次请求时间。筛选值、成员 key、明细 identity 与已有数值口径保持原值，同名项目和跨来源同 ID 会话分别统计。界面名称缺失时使用项目、首次请求时间与“未命名会话”，ID 与完整路径放在 tooltip。
+
+名称仅取原生明确字段，刷新写入统计索引后查询；GET 查询读取索引。Codex 读取原生状态库，Claude 读取 custom/AI title，OMP 读取原生 slot/header title 及适用的 title change，DSH 读取 session title。名称可能包含任务描述；源数据库及日志正文边界见 [SECURITY.md](../SECURITY.md)。
+
 `GET /api/analytics` 接收以下参数；`GET /api/sessions` 复用时间与筛选参数。
 
 | 参数 | 默认 | 含义 |

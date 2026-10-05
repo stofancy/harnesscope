@@ -15,6 +15,8 @@ from .domain import (
     ParseBatch, SourceFile, TimingSample, ToolCall, TurnRecord, UsageAdapter, UsageEvent,
 )
 
+from .names import native_title
+
 SCHEMA_VERSION = "3"
 EVENT_COLUMNS = tuple(f.name for f in fields(UsageEvent))
 TIMING_COLUMNS = tuple(f.name for f in fields(TimingSample))
@@ -29,6 +31,13 @@ RECORD_TABLES = (
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session_titles (
+    harness TEXT NOT NULL, session_id TEXT NOT NULL, source_file TEXT NOT NULL,
+    kind TEXT NOT NULL, title TEXT, priority INTEGER NOT NULL,
+    updated_us INTEGER NOT NULL, mtime_ns INTEGER NOT NULL,
+    PRIMARY KEY(harness,session_id,source_file,kind)
+);
+CREATE INDEX IF NOT EXISTS titles_session ON session_titles(harness,session_id);
 CREATE TABLE IF NOT EXISTS files (
     path TEXT PRIMARY KEY, harness TEXT NOT NULL, source_kind TEXT NOT NULL,
     size INTEGER NOT NULL DEFAULT 0, mtime_ns INTEGER NOT NULL DEFAULT 0,
@@ -192,6 +201,7 @@ class SQLiteIndex:
 
     @staticmethod
     def _clear_file(conn: sqlite3.Connection, path: str) -> None:
+        conn.execute("DELETE FROM session_titles WHERE source_file=?", (path,))
         for table, owners, _columns in RECORD_TABLES:
             conn.execute(f"DELETE FROM {owners} WHERE source_file=?", (path,))
             conn.execute(f"DELETE FROM {table} WHERE source_file=? AND NOT EXISTS "
@@ -212,6 +222,42 @@ class SQLiteIndex:
         conn.executemany(f"INSERT INTO {table} ({names}) VALUES ({placeholders}) "
                          f"ON CONFLICT(harness,key) DO UPDATE SET {updates}",
                          [tuple(row[c] for c in columns) for row in rows])
+
+    @staticmethod
+    def _store_titles(conn, source_file, mtime_ns, titles):
+        for candidate in titles:
+            title = native_title(candidate.title)
+            # Claude's native display is customTitle || aiTitle; an empty custom
+            # value removes that override. OMP's empty slot instead clears title.
+            if title is None and candidate.kind in {"custom-title", "ai-title"}:
+                conn.execute("DELETE FROM session_titles WHERE harness=? AND session_id=? "
+                             "AND source_file=? AND kind=?",
+                             (candidate.harness, candidate.session_id, source_file, candidate.kind))
+                continue
+            conn.execute("INSERT INTO session_titles VALUES (?,?,?,?,?,?,?,?) "
+                         "ON CONFLICT(harness,session_id,source_file,kind) DO UPDATE SET "
+                         "title=excluded.title,priority=excluded.priority,"
+                         "updated_us=excluded.updated_us,mtime_ns=excluded.mtime_ns",
+                         (candidate.harness, candidate.session_id, source_file, candidate.kind,
+                          title, candidate.priority, candidate.updated_us, mtime_ns))
+
+    def _refresh_native_titles(self, adapter):
+        reader = getattr(adapter, "read_session_titles", None)
+        if reader is None:
+            return
+        path, titles = reader()
+        mtime_ns = os.stat(path).st_mtime_ns if os.path.isfile(path) else 0
+        with self._write_lock, self._transaction() as conn:
+            before = [tuple(row) for row in conn.execute(
+                "SELECT * FROM session_titles WHERE harness=? AND kind='state' ORDER BY session_id,kind",
+                (adapter.harness,))]
+            conn.execute("DELETE FROM session_titles WHERE harness=? AND kind='state'", (adapter.harness,))
+            self._store_titles(conn, path, mtime_ns, titles)
+            after = [tuple(row) for row in conn.execute(
+                "SELECT * FROM session_titles WHERE harness=? AND kind='state' ORDER BY session_id,kind",
+                (adapter.harness,))]
+            if before != after:
+                self._bump(conn)
 
     def _store(self, source: SourceFile, stat: os.stat_result, batch: ParseBatch,
                rebuild: bool, adapter_version: str) -> int:
@@ -258,6 +304,7 @@ class SQLiteIndex:
                 conn.executemany(
                     f"INSERT OR IGNORE INTO {owners}(harness,key,source_file) VALUES (?,?,?)",
                     [(row["harness"], row["key"], source.path) for row in rows])
+            self._store_titles(conn, source.path, stat.st_mtime_ns, batch.session_titles)
             count = conn.execute("SELECT count(*) FROM event_sources WHERE source_file=?",
                                  (source.path,)).fetchone()[0]
             previous = conn.execute("SELECT warning_count FROM files WHERE path=?",
@@ -368,6 +415,13 @@ class SQLiteIndex:
                             self._clear_file(conn, row[0])
                             conn.execute("DELETE FROM files WHERE path=?", (row[0],))
                             self._bump(conn)
+        if not cancelled:
+            for adapter in adapters:
+                try:
+                    self._refresh_native_titles(adapter)
+                except Exception as exc:
+                    # Label availability is independent of metering completeness.
+                    source_status[adapter.harness]["label_error"] = type(exc).__name__
         with self._write_lock, self._transaction() as conn:
             previous = json.loads(conn.execute("SELECT value FROM metadata WHERE key='sources'").fetchone()[0])
             previous.update(source_status)

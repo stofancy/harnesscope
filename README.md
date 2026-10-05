@@ -91,9 +91,11 @@ remembers the selection.
 Inline time fields support relative expressions such as `-18h` and `-2days`, a fixed
 start **until now**, and fixed historical start/end times. Each field accepts an
 expression or a concrete time and has a calendar picker with second precision;
-mix them freely, then apply the range. Display and bucketing use
+mix them freely. Blur or Enter applies a text edit, calendar selection applies directly,
+and the Apply button is optional. Display and bucketing use
 the local timezone; future bounds are rejected. Segmented buttons select the chart interval directly. Rolling
-ranges resolve again after refresh; fixed historical ranges and chart zooms remain fixed.
+ranges resolve against the actual clock on refresh, browser reload and range return;
+fixed historical ranges and chart zooms remain fixed.
 An explicit automatic-refresh switch and interval control scan source changes before
 updating the view. Refresh is off by default, does not overlap, and pauses in background
 tabs or while editing the time range. It runs only when the end expression is **now**;
@@ -118,8 +120,12 @@ The separate **用量明细** view lists individual requests or groups them by s
 turn, model or harness. It shows uncached input, cache hits, output, cache writes,
 estimated cost and reliable timing. Response and turn TPS remain separate; missing
 timing stays unknown. Request timestamps determine membership before grouping;
-sorting applies to all matching rows before pagination. Harness, project and visible
-short IDs distinguish sessions, and drilldown preserves the filter context. Missing
+sorting applies to all matching rows before pagination. Session filters, rankings, records
+and details show native session titles. Missing titles use the project name, first request
+time and an unnamed-session label. Projects display directory names; identical names retain
+separate full-path filter keys. Full paths and IDs are available in tooltips. Source refresh
+updates names while preserving identity and accounting. Titles can contain task descriptions
+and are local work metadata; see [SECURITY.md](SECURITY.md). Drilldown preserves the filter context. Missing
 end records remain unknown; historical open turns require evidence of activity within
 the selected window. Missing prices and components retain their indicators.
 

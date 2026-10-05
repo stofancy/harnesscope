@@ -121,7 +121,9 @@ extras and Python version; it is not the acceptance measure for the new function
     lifecycle configuration/state/logs. Optional service installation writes only its
     current-user systemd unit.
   - Statistical storage and API output exclude conversation bodies, prompts, tool
-    arguments and credentials. Missing fields, prices and timing remain unknown.
+    arguments and credentials. Explicit native session-title metadata and derived project
+    names are allowed, while source identities remain unchanged. See SECURITY.md for
+    the SQLite reader-coordination boundary. Missing fields, prices and timing remain unknown.
   - Charts are rendered in memory and sent straight to the terminal - never written to disk.
   - Data goes to stdout only; diagnostics and errors go to stderr.
   - `--json` and `--schema` are public contracts; note compatibility impact for changes.

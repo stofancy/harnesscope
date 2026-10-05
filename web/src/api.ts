@@ -19,7 +19,9 @@ import type {
     UsageView,
     UsageDrill,
     UsageRow,
+    DisplayLabels,
 } from "./types";
+import { displayNames } from "./names";
 export const demo =
     import.meta.env?.DEV &&
     new URLSearchParams(location.search).get("demo") === "1";
@@ -161,6 +163,7 @@ export type Status = {
     snapshot_id: string;
 };
 export type RawAnalysis = {
+    labels?: DisplayLabels;
     snapshot: { id: string };
     query?: { bucket_resolved?: Query["bucket"] };
     summary: RawMetrics;
@@ -256,7 +259,15 @@ function source(s: RawSource): Source {
 }
 export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
     const previous = new Map(raw.comparison.members.map((m) => [m.key, m]));
+    const names = displayNames(raw.labels, q.timezone);
+    const memberLabel = (m: { label: string; dimensions?: Record<string, string> }) =>
+        q.dimension === "project"
+            ? names.project(m.dimensions?.project ?? m.label)
+            : q.dimension === "session"
+              ? names.session(m.dimensions?.harness ?? harnessContext(q) ?? "", m.dimensions?.session ?? m.label)
+              : label(m.label, q.dimension, m.dimensions?.harness ?? harnessContext(q));
     return {
+        labels: raw.labels,
         snapshot_id: String(raw.snapshot.id),
         bucket_resolved: raw.query?.bucket_resolved ?? q.bucket,
         timing_members: raw.trend.timing_members ?? [],
@@ -272,11 +283,10 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
             const cmp = previous.get(m.key);
             return {
                 key: m.key,
-                label: label(
-                    m.label,
-                    q.dimension,
-                    m.dimensions?.harness ?? harnessContext(q),
-                ),
+                label: memberLabel(m),
+                tooltip: q.dimension === "session"
+                    ? names.sessionTooltip(m.dimensions.harness ?? "", m.dimensions.session ?? m.label)
+                    : q.dimension === "project" ? m.dimensions.project ?? m.key : m.label,
                 values: normalizeMetrics(m.metrics),
                 previous: normalizeMetrics(cmp?.previous ?? m.metrics),
                 delta: cmp?.delta.cost_usd?.absolute ?? null,
@@ -293,12 +303,7 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
         }),
         series: raw.trend.members.map((m) => ({
             key: m.key,
-            label: label(
-                m.label,
-                q.dimension,
-                raw.breakdown.find((b) => b.key === m.key)?.dimensions
-                    .harness ?? harnessContext(q),
-            ),
+            label: memberLabel({ ...m, dimensions: raw.breakdown.find((b) => b.key === m.key)?.dimensions }),
         })),
         trend: raw.trend.buckets.map((p) => ({
             start: p.start,
@@ -316,9 +321,12 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
         facets: Object.fromEntries(
             Object.entries(raw.facets).map(([k, values]) => [
                 k,
-                values.map((v) => ({
+                [...new Set([...values, ...(q.filters[k as FilterKey] ?? [])])].map((v) => ({
                     key: v,
-                    label: label(v, k, harnessContext(q)),
+                    label: k === "project" ? names.project(v)
+                        : k === "session" ? names.facetSession(v, harnessContext(q))
+                        : label(v, k, harnessContext(q)),
+                    tooltip: v,
                 })),
             ]),
         ) as Analysis["facets"],
@@ -405,6 +413,7 @@ export async function sessionDetail(
     q: Query,
 ): Promise<SessionDetail> {
     type Raw = {
+        labels?: DisplayLabels;
         snapshot: { id: string };
         session: { harness: string; session_id: string; children: string[] };
         summary: RawMetrics;
@@ -433,6 +442,7 @@ export async function sessionDetail(
     );
     return {
         harness,
+        labels: raw.labels,
         session_id: id,
         project: raw.events[0]?.project ?? null,
         parent_session_id: raw.events[0]?.parent_session_id ?? null,
@@ -478,6 +488,7 @@ function globalParams(q: GlobalQuery) {
     return p;
 }
 type RawTurns = {
+    labels?: DisplayLabels;
     snapshot: { id: string };
     query: { bucket_resolved: Query["bucket"] };
     summary: Omit<TurnsAnalysis["summary"], "metrics"> & {
@@ -592,6 +603,7 @@ export async function turns(
     if (!includeRows) p.set("include_rows", "false");
     const raw = await request<RawTurns>(`/api/turns?${p}`, { signal });
     return {
+        labels: raw.labels,
         snapshot_id: String(raw.snapshot.id),
         query: q,
         bucket_resolved: raw.query.bucket_resolved,
@@ -700,6 +712,7 @@ export async function usage(
         facets: Record<FilterKey, string[]>;
     };
     const r = await request<Raw>(`/api/usage?${p}`, { signal });
+    const names = displayNames(r.labels, q.timezone);
     return {
         ...r,
         query: q,
@@ -712,9 +725,12 @@ export async function usage(
         facets: Object.fromEntries(
             Object.entries(r.facets).map(([k, vs]) => [
                 k,
-                vs.map((v) => ({
+                [...new Set([...vs, ...(q.filters[k as FilterKey] ?? [])])].map((v) => ({
                     key: v,
-                    label: label(v, k, harnessContext(q)),
+                    label: k === "project" ? names.project(v)
+                        : k === "session" ? names.facetSession(v, harnessContext(q))
+                        : label(v, k, harnessContext(q)),
+                    tooltip: v,
                     count: 0,
                 })),
             ]),

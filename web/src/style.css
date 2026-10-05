@@ -446,6 +446,7 @@ code {
     background: var(--surface-hover);
 }
 .facet-list span {
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -1204,10 +1205,11 @@ td:first-child {
     margin-top: 7px;
     font-size: 11px;
 }
-.usage-request-detail code {
+.usage-request-detail b {
     margin-left: 8px;
-    font-size: 10px;
-    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
 }
 .source-health {
     margin-top: 20px;
@@ -1420,9 +1422,11 @@ td:first-child {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.usage-visible-id {
+.usage-subtitle {
     display: block;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     flex-shrink: 0;
     font-size: 11px;
     color: var(--muted);

@@ -51,11 +51,11 @@ export function AbsoluteRanking({
                         key={m.key}
                         className="rank-row"
                         data-testid="rank-row"
-                        title={`筛选${m.label}并查看其请求`}
+                        title={`筛选${m.label}并查看其请求\n${m.tooltip ?? m.label}`}
                         onClick={() => onSelect(m)}
                     >
                         <span className="rank-position">{i + 1}</span>
-                        <span className="rank-name" title={m.label}>
+                        <span className="rank-name" title={m.tooltip ?? m.label}>
                             {m.label}
                         </span>
                         <b>

@@ -70,6 +70,7 @@ export type Values = {
     unpriced: number;
 };
 export type Member = {
+    tooltip?: string;
     key: string;
     label: string;
     values: Values;
@@ -118,6 +119,16 @@ export type FilterKey =
     | "service_tier"
     | "session";
 export type Filters = Partial<Record<FilterKey, string[]>>;
+export type DisplayLabels = {
+    sessions: {
+        harness: string;
+        session_id: string;
+        title: string | null;
+        project?: string | null;
+        first?: string | null;
+    }[];
+    projects: { path: string; name: string }[];
+};
 export type Query = {
     since: string;
     until: string;
@@ -129,6 +140,7 @@ export type Query = {
     members?: string[];
 };
 export type Analysis = {
+    labels?: DisplayLabels;
     snapshot_id: string;
     bucket_resolved?: Bucket;
     timing_members?: {
@@ -146,7 +158,7 @@ export type Analysis = {
     changes?: Partial<Record<Metric, Delta>>;
     knownCostChange?: Delta;
     trend: Point[];
-    facets: Record<FilterKey, { key: string; label: string }[]>;
+    facets: Record<FilterKey, { key: string; label: string; tooltip?: string }[]>;
     coverage: {
         sources: Source[];
         warnings: string[];
@@ -155,6 +167,7 @@ export type Analysis = {
     pricing: { label: string };
 };
 export type SessionDetail = {
+    labels?: DisplayLabels;
     harness: string;
     session_id: string;
     project: string | null;
@@ -213,6 +226,7 @@ export type TurnTool = {
     duration_samples: number;
 };
 export type TurnsAnalysis = {
+    labels?: DisplayLabels;
     snapshot_id: string;
     query: GlobalQuery;
     bucket_resolved: Bucket;
@@ -276,6 +290,7 @@ export type TurnsAnalysis = {
     };
 };
 export type TurnDetail = {
+    labels?: DisplayLabels;
     snapshot_id: string;
     turn: TurnRow;
     window_metrics: Values;
@@ -348,6 +363,7 @@ export type UsageRow = {
     timing: Timing[];
 };
 export type UsageAnalysis = {
+    labels?: DisplayLabels;
     snapshot_id: string;
     query: GlobalQuery;
     group: UsageGroup;

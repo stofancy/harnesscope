@@ -269,12 +269,7 @@ export function readPreferences(): Preferences {
         )
             return fallback;
         const resolved = resolveTime(p.timeSpec);
-        if (
-            p.timeSpec.end === "now" ||
-            p.timeSpec.start.startsWith("-") ||
-            p.timeSpec.end.startsWith("-")
-        )
-            p.global = { ...p.global, ...resolved };
+        p.global = { ...p.global, ...resolved };
         return {
             page: p.page,
             theme: p.theme,

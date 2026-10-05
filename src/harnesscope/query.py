@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone as utc_timezone
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .names import labelled
 from .pricing import _lookup_hit, load_pricing, model_cost_detail
 
 UTC = utc_timezone.utc
@@ -450,7 +451,7 @@ class AnalyticsQuery:
                         'priced_ratio': summary['priced_calls'] / len(current) if current else None,
                         'missing_price_models': sorted({e['model'] for e in current if e['_cost'] is None}),
                         'quality': dict(Counter(e['quality'] for e in current)), 'sources': self._sources(conn)}
-            return {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end), 'summary': summary,
+            return labelled(conn, {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end), 'summary': summary,
                     'trend': {'members': members, 'timing_members': timing_members, 'buckets': trend}, 'breakdown': breakdown, 'coverage': coverage,
                     'facets': self._facets(conn, start, end, request.filters),
                     'comparison': {'start': _iso(previous_start), 'end': _iso(start), 'summary': previous_summary,
@@ -458,7 +459,7 @@ class AnalyticsQuery:
                                    'cost_coverage_changed': (summary['cost_complete'] != previous_summary['cost_complete']
                                                              or summary['unpriced_calls'] != previous_summary['unpriced_calls']
                                                              or (summary['priced_calls'] / summary['calls'] if summary['calls'] else None)
-                                                             != (previous_summary['priced_calls'] / previous_summary['calls'] if previous_summary['calls'] else None))}}
+                                                             != (previous_summary['priced_calls'] / previous_summary['calls'] if previous_summary['calls'] else None))}})
 
     def sessions(self, request, offset=0, limit=50):
         if offset < 0 or not 1 <= limit <= 200:
@@ -478,8 +479,8 @@ class AnalyticsQuery:
                 for dimension in DIMENSIONS[1:-1]:
                     row[dimension] = sorted({str(e[COLUMN[dimension]] or '') for e in events})
                 result.append(row)
-            return {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end), 'total': total,
-                    'offset': offset, 'limit': limit, 'sessions': result}
+            return labelled(conn, {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end), 'total': total,
+                    'offset': offset, 'limit': limit, 'sessions': result})
 
     def session_detail(self, harness, sid, request=None):
         request = request or QueryRequest()
@@ -495,6 +496,6 @@ class AnalyticsQuery:
             for event in events:
                 event['cost_usd'] = event.pop('_cost')
                 event['cost_detail'] = event.pop('_cost_detail')
-            return {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end),
+            return labelled(conn, {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end),
                     'session': {'harness': harness, 'session_id': sid, 'children': children},
-                    'summary': summary, 'events': events}
+                    'summary': summary, 'events': events})
