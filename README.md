@@ -60,35 +60,31 @@ Open the local address printed by the command (default `http://127.0.0.1:8765`).
 
 The web entry uses a shared multi-source event query layer and its own statistics index. The existing report flags below continue to read Codex sessions. The CLI reports have not been migrated to a four-source output contract.
 
-Use the page navigation for a continuous investigation:
+The Dashboard starts with estimated cost, tokens, model calls and turns. The main
+consumption trend sits beside a model/project/harness ranking; rate, cache, timing and
+tool panels provide the next level of detail. Panel menus hold metric, grouping,
+area/line/bar and member choices. Click a chart point or select a range to narrow the
+global window, then use the range-return control to restore the previous view.
 
-1. **Overview (概览):** read the period's estimated cost, tokens, calls and missing-price coverage. Expand calculation/coverage explanations when needed.
-2. **Trends (趋势):** find a change, click a point or select a chart range to narrow the global time window. “看什么”, “按谁对比” and “图形” select the local metric, comparison dimension and chart style.
-3. **Objects (对象):** switch between model, harness or project contributions. Select a contributing object to apply its global filter and move to turns.
-4. **Turns and details (轮次 / 明细):** inspect recorded model calls, tool names/status/duration and window versus full-turn recorded subtotals. The tool ranking starts with six entries and can be expanded.
-5. **Return with context:** “返回轮次列表” closes details and preserves the current analysis; the persistent range-return control restores the preceding range and its relative/fixed mode. The current selection remains visible.
+The global time picker supports relative expressions such as `-18h` and `-2days`,
+a fixed start **until now**, and fixed historical start/end times. Rolling ranges
+resolve again after refresh; historical ranges and chart zooms remain fixed.
+Optional automatic refresh scans new source records before updating the Dashboard.
+Refresh is off by default, does not overlap, and pauses in background tabs or while
+editing the time range. Time mode, refresh interval, filters and panel choices survive
+page reloads in this browser.
 
-The recent 24-hour / 7-day / 30-day presets move forward to the current time after a scan.
-Custom ranges and chart zooms are fixed historical periods and remain unchanged on refresh.
-Returning from a zoom restores the original range mode.
+All panels and details share the range, timezone, slice and global filters. Combine
+harness/model/project/provider/purpose filters; additional conditions cover agent type,
+service tier and session. Local chart changes and turn pagination reload their own data.
 
-The PC Dashboard has one global time range, timezone and time slice. All panels,
-session/turn ledgers and details share them. Set a precise range (down to seconds), select
-an automatic or explicit slice, and combine harness/model/project/provider/purpose
-filters. Agent type, service tier and session filters are under the additional conditions.
-
-Consumption, request intensity, cache efficiency and timed output speed appear together,
-with turn/tool analysis below. Each panel has its own metric, grouping, chart type and
-members; these choices affect that panel's observation. Select area, line or bar charts,
-compare members, and use consumption shares. Ratios and rates are not stacked. Timed TPS
-keeps source and timing kind separate, with sample coverage.
-
-Click a point or finish dragging a chart brush to narrow the global window; return to the
-previous range through the global control. Expanded slice values show the recorded
-numbers and actual covered seconds and support single-slice drilldown. Member selection
-leads to related sessions; turn details show model/tool identities, status and recorded
-costs. Overview and details update together. Unknown values stay `—`, partial coverage stays
-visible, and scanning progress remains available.
+Switch between summary and turn ledgers. Turn rows show date, project and harness;
+sorting by cost, tokens, duration, calls or tools applies to all matching turns before
+pagination. Open a turn to inspect recorded model calls and tool status/duration, with
+window and whole-turn subtotals. Closing details preserves the analysis context.
+Recorded tool counts and per-turn subtotals remain useful with partial coverage; missing
+prices and samples retain their indicators. Detailed metric definitions are available
+from the header's **指标说明** action.
 
 ### Source discovery and coverage
 
@@ -153,7 +149,9 @@ rules are documented in [the workbench API](docs/workbench-api.md).
 
 The local API exposes GET `/api/status`, `/api/analytics`, `/api/sessions`,
 `/api/sessions/{harness}/{sid}`, and `/api/turns`. A turn is located through
-`/api/turns/detail?harness=...&session_id=...&turn_id=...`; URL-encode each parameter value. Session and turn lists accept `offset` and `limit` (1–200).
+`/api/turns/detail?harness=...&session_id=...&turn_id=...`; URL-encode each parameter value. Session and turn lists accept `offset` and `limit` (1–200). Turn lists also accept
+`sort=start|cost_usd|tokens|duration|calls|tool_calls` and `order=asc|desc`;
+missing values sort last, and sorting happens before pagination.
 POST `/api/refresh` with `Content-Type: application/json` starts an explicit background
 scan. Query responses identify their snapshot; reading them does not rescan source files.
 
@@ -177,8 +175,9 @@ Turn lists distinguish sessions, turns, model calls and tool calls. A turn may c
 multiple models and tools. Window metrics retain the matching events within the selected
 range. Closed turns fully inside the window with recorded calls provide full-turn recorded
 subtotals and per-turn averages. Iteration-derived boundaries remain marked `inferred` and
-retain their data, with exact/inferred sample counts shown. Missing token components or
-prices leave the corresponding per-turn value unknown. Running, failed, interrupted and
+retain their data, with exact/inferred sample counts shown. Known-subtotal averages use these same eligible turns as their denominator and expose
+component/price coverage; complete-value averages remain unknown when components or
+prices are missing. An entirely unpriced cost remains unknown. Running, failed, interrupted and
 truncated turns retain their recorded identity and window subtotal. Full-turn recorded
 metrics remain within the active model-call filters and cannot establish that omitted
 provider calls or charges were fully captured.

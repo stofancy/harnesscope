@@ -20,7 +20,7 @@ its own statistics index and listens on loopback.
 | Pricing reads | Bundled public prices, the tool's pricing cache and optional user overrides |
 | External network | No external access for ordinary analysis; public prices are downloaded only by explicit `--update-pricing` |
 | Local HTTP | `--web` starts a loopback server serving bundled assets and statistical JSON |
-| Writes | The web entry writes a rebuildable SQLite index; explicit pricing refresh writes the tool's price cache. Source logs, harness settings and user pricing overrides are never modified |
+| Writes | The web entry writes a rebuildable SQLite index and saves view/filter preferences in browser local storage; explicit pricing refresh writes the tool's price cache. Source logs, harness settings and user pricing overrides are never modified |
 | Stored/output fields | Usage metadata, token counts, price basis, source identities and recorded session relationships; tool statistics are limited to name, identity, status and timestamps. The statistics index and API exclude conversation bodies, prompts, tool arguments, tool result bodies and credentials |
 | Charts | Legacy terminal charts are rendered in memory and sent to the terminal |
 | Telemetry | None; no analytics, crash reporting or remote usage upload |

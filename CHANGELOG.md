@@ -20,10 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Condensed the daily-use Dashboard around first-screen totals, a consumption trend and
+  absolute contributor ranking. Panel settings open on demand; summary and turn ledgers
+  share a tabbed area with date/project/harness labels and full-result sorting.
+- Saved time/filter/panel preferences in browser local storage. Local panel changes and
+  pagination query only their affected data; serialized statistical reads avoid SQLite
+  row-conversion contention while refresh/status remain independently available.
+- Show recorded tool counts and known per-turn subtotals with their coverage. Strict
+  complete-value fields keep their existing meaning; entirely unpriced values stay unknown.
 - Simplified the dashboard surface: removed repeated methodology notes and walkthrough prose; metric definitions open from one header action, with concise data-quality indicators beside relevant values.
 
 ### Added
 
+- Rolling time expressions such as `-18h` and `-2days`, fixed-start-until-now ranges,
+  calendar selection and optional automatic refresh. Refresh scans source changes before
+  updating the view, advances rolling ranges and preserves fixed historical ranges.
 - Unified PC Dashboard with a single global range/timezone/slice control, parallel
   consumption/rate/cache/timing panels, per-panel area/line/bar views and turn/tool
   drilldown. Chart clicks and brush selection update the whole page's window with
