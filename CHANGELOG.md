@@ -23,9 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic refresh scans immediately on enable, keeps running when the page loses
   visibility, and checks again on foreground return. The controls show active/paused
   state and the latest successful refresh time.
-- Source health shows categorized parsing reasons, affected files, statistical impact
-  and suggested actions. The rebuildable index preserves diagnostic codes and bounded
-  byte locations while excluding arbitrary parser messages.
+- Source diagnostics remain in the API and index; the Dashboard no longer presents
+  diagnostic source cards, implementation explanations or repetitive coverage notes.
 - Session filters, rankings, usage rows and details show native titles and project names,
   with IDs and full paths in tooltips. Same-name projects and cross-harness session IDs
   retain separate identities; source refresh updates title metadata in the local index.
@@ -36,8 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `~/.cache/harnesscope`; native harness source variables keep their names.
 - Automatic refresh runs only for ranges ending now, with saved preferences restored
   on returning to now. Historical ranges retain manual refresh; future bounds are rejected.
-- Overview comparisons show the preceding equal-length window and explain which
-  period has unpriced calls. Known cost subtotals remain distinct from complete changes.
+- Overview headings show the selected query window. Comparison dates belong to each
+  change's tooltip; unavailable comparisons are omitted and partial amounts use a compact
+  marker. New time/filter selections no longer display the previous result beneath them.
 - Unified time inputs accept expressions or concrete times independently, with a
   calendar picker on each field. Mixed bounds and second-precision fixed ranges
   persist across reload and page changes; refresh resolves relative expressions again.
@@ -47,10 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Saved time/filter/panel preferences in browser local storage. Local panel changes and
   pagination query only their affected data; serialized statistical reads avoid SQLite
   row-conversion contention while refresh/status remain independently available.
-- Show recorded tool counts and known per-turn subtotals with their coverage. Strict
-  complete-value fields keep their existing meaning; entirely unpriced values stay unknown.
-- Inline time inputs, direct interval buttons, an explicit automatic-refresh switch and
-  independent collapsible source health simplify frequent operations. Display and bucketing
+- Show tool counts and per-turn usage with compact values. The API retains coverage
+  details and complete-value semantics; entirely unpriced values stay unknown.
+- Inline time inputs, direct interval buttons and an explicit automatic-refresh switch
+  simplify frequent operations. Display and bucketing
   use the local timezone; Codex modes display Standard, Fast and Not recorded.
 
 ### Added

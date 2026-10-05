@@ -34,7 +34,6 @@ import {
     timeLabel,
     metricLabels,
     dateInput,
-    intervalLabel,
     timingLabel,
     harnessLabel,
 } from "./format";
@@ -200,7 +199,6 @@ export function TimeChart({
                                         ))}
                                         {row?.seconds != null && (
                                             <small>
-                                                实际时段{" "}
                                                 {row.seconds.toLocaleString(
                                                     "en-US",
                                                 )}{" "}
@@ -209,10 +207,7 @@ export function TimeChart({
                                         )}
                                         {metric === "cost" &&
                                             !!row?.unpriced && (
-                                                <small>
-                                                    已知估算小计 ·{" "}
-                                                    {row.unpriced} 次调用缺价
-                                                </small>
+                                                <small title="部分费用">*</small>
                                             )}
                                     </div>
                                 );
@@ -294,7 +289,7 @@ export function TimeChart({
                 ))}
             </div>
             {!series.length && (
-                <div className="chart-no-series">当前条件没有可用计时样本</div>
+                <div className="chart-no-series">暂无计时数据</div>
             )}
             {rows.length > 0 && (
                 <details className="slice-details" data-testid={`slices-${id}`}>
@@ -455,11 +450,10 @@ export function AnalyticPanel({
                 <div>
                     <h2>{desc.title}</h2>
                 </div>
-                <strong className="panel-value" data-testid={`value-${id}`}>
-                    {timed
-                        ? "按来源计时"
-                        : formatMetric(selectedValue, chartMetric)}
-                </strong>
+                {!timed && <strong className="panel-value" data-testid={`value-${id}`}
+                    title={chartMetric === "cost" && data.summary.unpriced > 0 ? "部分费用" : undefined}>
+                    {formatMetric(selectedValue, chartMetric)}{chartMetric === "cost" && data.summary.unpriced > 0 && selectedValue != null ? "*" : ""}
+                </strong>}
             </header>
             <div className="panel-toolbar">
                 <div className="quick-metrics">
@@ -691,45 +685,7 @@ export function AnalyticPanel({
                 global={global}
                 onZoom={onZoom}
             />
-            <footer className="panel-foot">
-                <span>
-                    {timed
-                        ? "按来源与计时类型"
-                        : config.share
-                          ? config.metric === "cost"
-                              ? "费用占比"
-                              : "构成占比"
-                          : data.query.members?.length
-                            ? "所选成员与其他"
-                            : "前 5 名＋其他"}{" "}
-                    · {timed ? "计时输出" : dimensions[data.query.dimension]} ·{" "}
-                    {intervalLabel(data.bucket_resolved ?? global.bucket)}
-                </span>
-            </footer>
-            {timed && data.summary.tps?.length ? (
-                <details className="timing-explanation">
-                    <summary>查看计时方式与样本</summary>
-                    <div className="timing-ledger">
-                        {data.summary.tps.map((t) => (
-                            <div key={`${t.harness}:${t.kind}`}>
-                                <span>
-                                    {harnessLabel(t.harness)} ·{" "}
-                                    {timingLabel(t.kind)}
-                                </span>
-                                <b>
-                                    {t.tps == null
-                                        ? "—"
-                                        : `${t.tps.toFixed(1)} TPS`}
-                                </b>
-                                <small>
-                                    {t.samples} 个完整样本 ·{" "}
-                                    {t.seconds.toFixed(1)}s
-                                </small>
-                            </div>
-                        ))}
-                    </div>
-                </details>
-            ) : null}
+
         </section>
     );
 }

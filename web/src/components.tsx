@@ -50,32 +50,25 @@ function displayedChange(
     change: Delta | undefined,
     now: number | null,
     before: number | null,
+    metric: Metric = "cost",
 ) {
+    if (now != null && before === 0 && now !== 0)
+        return `${now > 0 ? "+" : "−"}${formatMetric(Math.abs(now), metric)}`;
     return change
         ? change.relative != null
             ? `${change.relative > 0 ? "+" : ""}${(change.relative * 100).toFixed(1)}%`
             : change.absolute == null
-              ? "比较未知"
+              ? "—"
               : change.absolute === 0
                 ? "0.0%"
-                : "上期为 0"
-        : (deltaPercent(now, before) ?? "比较未知");
+                : "—"
+        : (deltaPercent(now, before) ?? "—");
 }
-function comparisonReason(data: Analysis, metric: Metric) {
-    if (["cost", "cost_per_call", "cost_per_million"].includes(metric)) {
-        const missing = [
-            data.summary.unpriced ? `本期 ${formatNumber(data.summary.unpriced)} 次无法估价` : "",
-            data.previous_summary.unpriced
-                ? `上期 ${formatNumber(data.previous_summary.unpriced)} 次无法估价` : "",
-        ].filter(Boolean);
-        if (missing.length) return missing.join("；");
-    }
-    if (data.changes?.[metric]?.absolute === null) {
-        if (value(data.previous_summary, metric) === null) return "上期无可用样本";
-        if (value(data.summary, metric) === null) return "本期无可用样本";
-        return "缺少可比较数据";
-    }
-    return null;
+function hasComparison(data: Analysis, metric: Metric) {
+    return !(["cost", "cost_per_call", "cost_per_million"].includes(metric) &&
+        (data.summary.unpriced > 0 || data.previous_summary.unpriced > 0)) &&
+        value(data.summary, metric) != null && value(data.previous_summary, metric) != null &&
+        data.changes?.[metric]?.absolute !== null;
 }
 function comparisonPeriod(data: Analysis) {
     const range = data.comparison_range;
@@ -243,7 +236,7 @@ function SummarySparkline({ data, metric }: { data: Analysis; metric: "cost" | "
         connected = true;
     }
     const period = `${dateInput(data.query.since, data.query.timezone).replace("T", " ")} — ${dateInput(data.query.until, data.query.timezone).replace("T", " ")}`;
-    const label = `${metricLabels[metric]}，当前范围逐桶合计；${period}（${data.query.timezone}）。${known.length}/${points.length} 桶有可用数值。`;
+    const label = `${metricLabels[metric]}趋势 · ${period}`;
     return (
         <div className={`summary-microtrend summary-microtrend-${metric}`}
             data-testid={`summary-sparkline-${metric}`} data-state={costUnknown ? "unknown" : known.length ? "available" : "empty"}>
@@ -258,12 +251,8 @@ function SummarySparkline({ data, metric }: { data: Analysis; metric: "cost" | "
                     <title>{`${dateInput(point.start, data.query.timezone).replace("T", " ")} — ${dateInput(point.end, data.query.timezone).replace("T", " ")}（${data.query.timezone}）\n${metricLabels[metric]} ${metric === "cost" ? "$" : ""}${exactNumber(point.value!)}${point.partial ? ` · 已知估算小计，${exactNumber(point.unpriced)} 次无法估价` : ""}`}</title>
                 </circle>)}
             </svg> : <div className="sparkline-empty" role="img" aria-label={label}>
-                {points.length ? "当前范围费用未知" : "当前范围暂无趋势记录"}
+                —
             </div>}
-            <div className="sparkline-caption" title={label}>
-                <span>当前范围 · 逐桶合计</span>
-                <span>{points.some((point) => point.partial) ? known.length ? "费用含已知小计" : "缺少可估价数据" : `${points.length} 个时间桶`}</span>
-            </div>
         </div>
     );
 }
@@ -277,46 +266,49 @@ function MetricStrip({
 }) {
     return (
         <>
-        <div className="comparison-context" data-testid="comparison-period"
-            title="两期使用相同筛选条件；前期紧邻当前范围，时长相同。">
-            <span>环比上一等长时段</span>
-            <span>{comparisonPeriod(data)}</span>
-        </div>
+        <header className="summary-heading">
+            <h2>用量概览</h2>
+            <span data-testid="resolved-range" title={data.query.timezone}>
+                <span data-testid="summary-period">{dateInput(data.query.since, data.query.timezone).replace("T", " ")} — {dateInput(data.query.until, data.query.timezone).replace("T", " ")}</span>
+            </span>
+        </header>
         <section className="metric-strip" data-testid="summary">
             {(["cost", "tokens", "calls"] as const).map((m) => (
                 <article key={m}>
                     <div className="metric-label">
                         {m === "calls" ? "模型调用" : metricLabels[m]}
                     </div>
-                    <div className="metric-value" data-testid={`summary-${m}`}
+                    <div className="metric-value">
+                        <span data-testid={`summary-${m}`}
                         title={`${metricLabels[m]} ${m === "cost" && data.summary.cost != null ? "$" : ""}${value(data.summary, m) == null ? "未知" : exactNumber(value(data.summary, m)!)}`}>
-                        {formatMetric(value(data.summary, m), m)}
+                            {formatMetric(value(data.summary, m), m)}
+                        </span>
+                        {m === "cost" && data.summary.cost != null && data.summary.unpriced > 0 &&
+                            <sup data-testid="summary-note-cost" title={`${formatNumber(data.summary.unpriced)} 次调用未计价`}>*</sup>}
+                        {m === "tokens" && data.summary.input_complete === false &&
+                            <sup data-testid="summary-note-tokens" title="部分请求未记录缓存写入">*</sup>}
                     </div>
                     <SummarySparkline data={data} metric={m} />
                     <div className="metric-foot">
                         <span>
                             {m === "cost"
-                                ? data.summary.unpriced
-                                    ? `${data.summary.cost == null ? "" : "已知小计 · "}${formatNumber(data.summary.unpriced)} 次无法估价`
-                                    : "USD"
+                                ? "USD"
                                 : m === "tokens"
-                                  ? `${data.summary.input_complete === false ? "已记录 · " : ""}输入 ${formatNumber(data.summary.input)} / 输出 ${formatNumber(data.summary.output)}`
+                                  ? `输入 ${formatNumber(data.summary.input)} / 输出 ${formatNumber(data.summary.output)}`
                                   : `${formatNumber(data.summary.sessions)} 个会话`}
                         </span>
-                        <span
-                            className={`change ${comparisonReason(data, m) ? "unavailable" : ""}`}
+                        {hasComparison(data, m) && <span
+                            className="change"
                             data-testid={`summary-change-${m}`}
-                            title={comparisonReason(data, m)
-                                ? `${comparisonReason(data, m)}，无法完整比较。${comparisonPeriod(data)}`
-                                : comparisonPeriod(data)}
+                            title={comparisonPeriod(data)}
                         >
-                            {comparisonReason(data, m) ?? displayedChange(
+                            <small>环比 </small>{displayedChange(
                                 data.changes?.[m],
                                 value(data.summary, m),
                                 value(data.previous_summary, m),
+                                m,
                             )}
-                            {!comparisonReason(data, m) && <small> 较上一时段</small>}
-                        </span>
+                        </span>}
                     </div>
                 </article>
             ))}
@@ -324,9 +316,6 @@ function MetricStrip({
                 <div className="metric-label">轮次</div>
                 <div className="metric-value" data-testid="turn-count">
                     {turnCount == null ? "—" : formatNumber(turnCount)}
-                </div>
-                <div className="metric-foot">
-                    <span>与当前范围相交</span>
                 </div>
             </article>
         </section>
@@ -383,66 +372,32 @@ function Comparison({
 }) {
     const current = value(data.summary, metric),
         previous = value(data.previous_summary, metric);
-    const knownMode =
-        metric === "cost" &&
-        (data.summary.unpriced > 0 || data.previous_summary.unpriced > 0);
     const changes = [...data.members]
         .map((m) => ({
             m,
-            delta:
-                (knownMode
-                    ? m.knownCostChange?.absolute
-                    : m.changes?.[metric]?.absolute) ??
-                (m.changes
-                    ? null
-                    : value(m.values, metric) == null ||
-                        value(m.previous, metric) == null
-                      ? null
-                      : value(m.values, metric)! - value(m.previous, metric)!),
+            delta: m.changes?.[metric]?.absolute ?? (m.changes ||
+                value(m.values, metric) == null || value(m.previous, metric) == null
+                ? null : value(m.values, metric)! - value(m.previous, metric)!),
         }))
         .filter((r) => r.delta != null)
         .sort((a, b) => Math.abs(b.delta!) - Math.abs(a.delta!))
         .slice(0, 4);
     return (
         <section className="comparison">
-            <div className="comparison-heading">
-                <span className="eyebrow">较上一等长窗口</span>
-                <strong className={comparisonReason(data, metric) ? "muted" : ""}>
-                    {comparisonReason(data, metric) ?? displayedChange(data.changes?.[metric], current, previous)}
-                </strong>
-                <span className="muted">
-                    {knownMode && "已知估算小计 "}{formatMetric(previous, metric)} →{" "}
-                    {formatMetric(current, metric)}
-                </span>
-                {knownMode && (
-                    <small title="部分调用缺少价格或用量组成，已知小计变化不代表完整费用变化。">
-                        完整费用变化不可比
-                    </small>
-                )}
+            <div className="comparison-heading" title={comparisonPeriod(data)}>
+                <strong>{displayedChange(data.changes?.[metric], current, previous, metric)}</strong>
+                <span className="muted">{formatMetric(previous, metric)} → {formatMetric(current, metric)}</span>
             </div>
             <div className="contributions">
                 {changes.map(({ m, delta }) => (
-                    <button
-                        key={m.key}
-                        title={`筛选${m.label}并查看其请求`}
-                        onClick={() => onDetail(m)}
-                    >
-                        <span title={m.tooltip ?? m.label}>{m.label}</span>
+                    <button key={m.key} title={m.tooltip ?? m.label} onClick={() => onDetail(m)}>
+                        <span>{m.label}</span>
                         <b className={delta! > 0 ? "increase" : "decrease"}>
-                            {delta! > 0 ? "+" : "−"}
-                            {formatMetric(Math.abs(delta!), metric)}
+                            {delta! > 0 ? "+" : "−"}{formatMetric(Math.abs(delta!), metric)}
                         </b>
-                        <small>{knownMode ? "已知小计差额 · " : ""}查看请求 ↗</small>
+                        <small>↗</small>
                     </button>
                 ))}
-                {!changes.length && (
-                    <span className="muted">
-                        {metric === "cost" &&
-                        data.knownCostChange?.absolute != null
-                            ? `已知小计变化 ${data.knownCostChange.absolute >= 0 ? "+" : "−"}${formatMetric(Math.abs(data.knownCostChange.absolute), "cost")}`
-                            : "没有可比较的已知数据"}
-                    </span>
-                )}
             </div>
         </section>
     );
@@ -490,10 +445,6 @@ function Ledger({
                     <h2>
                         用量汇总 <span>{rows.length} 项</span>
                     </h2>
-                    <p className="muted tiny">
-                        按{dimensions[q.dimension]}比较 ·
-                        点击名称进入逐次请求，筛选可联动所有面板
-                    </p>
                 </div>
                 <input
                     className="table-search"
@@ -637,6 +588,7 @@ export {
     MetricStrip,
     BucketZoom,
     Comparison,
+    hasComparison,
     Ledger,
     dimensions,
     memberColor,

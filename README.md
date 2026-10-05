@@ -10,13 +10,13 @@ Local personal usage analytics for **Codex, Claude, OMP (oh my pi), and DSH (dee
 
 Charts default to **native images**: [matplotlib](https://matplotlib.org/) renders a PNG and [textual-image](https://github.com/lnqs/textual-image) puts it into the terminal. Terminals with a graphics protocol (kitty / Sixel) show the image itself, others show colored half-blocks; this needs the optional image dependencies and a terminal on stdout. Without the extra, when stdout is redirected to a pipe, or with `--ascii`, charts fall back to ASCII art ([plotext](https://github.com/piccolomo/plotext) + [termcharts](https://github.com/zvovcahovo/termcharts)).
 
-Source files remain read-only. The web workbench maintains its own rebuildable SQLite statistics index and serves bundled assets on loopback; ordinary queries need no external network access. `harnesscope --update-pricing` explicitly downloads public prices. Cost estimates use the built-in table, local price cache, and `HARNESCOPE_PRICING_FILE` overrides — see [Pricing](#pricing). The web workbench displays known estimated cost and unpriced coverage separately. Actual bills are unavailable. Legacy Codex reports retain their `$0*` display convention for unpriced models; that marker means unknown cost.
+Source files remain read-only. The web workbench maintains its own rebuildable SQLite statistics index and serves bundled assets on loopback; ordinary queries need no external network access. `harnesscope --update-pricing` explicitly downloads public prices. Cost estimates use the built-in table, local price cache, and `HARNESCOPE_PRICING_FILE` overrides — see [Pricing](#pricing). The web workbench marks partial amounts with an asterisk and shows unavailable values as a dash. Actual bills are unavailable. Legacy Codex reports retain their `$0*` display convention for unpriced models; that marker means unknown cost.
 
 > The human-readable CLI output (table headers, chart titles, `--help`, `--doctor`) is currently Chinese; the screenshots below are real output. The machine-readable surface (`--json`, `--schema`, `--doctor --json`) has a language-neutral, documented contract.
 
 ## Why harnesscope
 
-- **One local web workbench for four harnesses.** Compare sources, models, projects, sessions, purposes, and other recorded dimensions; source coverage exposes missing or malformed data.
+- **One local web workbench for four harnesses.** Compare sources, models, projects, sessions, purposes, and other recorded dimensions; inspect usage with shared time and account filters.
 - **Dashboard and usage records.** Explore aggregated consumption, rates, cache, timing and contributors; open a separate ledger for requests, sessions, turns, models or harnesses. Both share the time/filter context and support light and dark themes.
 - **Cost and efficiency with explicit limits.** Known estimated cost, missing prices, cache rates, cost per call, and cost per million tokens carry their accounting scope. Logged usage provides no evidence of output quality or model value for money.
 - **Existing Codex CLI retained.** Session/subagent/family reports, filters, charts, TPS, and JSON continue to serve command-line workflows. `--schema` describes the command contract and `--doctor` diagnoses its environment, including four-source path discovery. Path existence alone does not establish parsing coverage.
@@ -93,7 +93,7 @@ cost and model-call views. Opening the current year sets the shared range to Jan
 through now and uses daily buckets; previous years use complete calendar years.
 Click a day to inspect its trend and contributors, then return to restore the calendar
 and filters. Future dates are disabled. Empty dates mean no recorded usage, and partial
-or unknown costs keep explicit coverage labels. The cost, token and call cards include
+or unknown costs retain distinct cells and compact value markers. The cost, token and call cards include
 sparklines for the same window. A composition bar shows uncached input, cache hits,
 output and cache writes, preserving unknown write coverage.
 
@@ -132,15 +132,13 @@ to now. Manual refresh remains available for late historical records. Scans chec
 metadata and skip unchanged files; appendable logs resume at the saved offset, while
 changed DSH files and replaced/truncated logs are reread. The resulting index is queried
 again for the selected window. Time expressions, refresh interval, filters and panel
-choices survive reloads. Source health expands in its own section at the bottom,
-with categorized reasons, counts, affected files, statistical impact and suggested
-actions. Full file paths are available in tooltips. Missing native usage for title/search
-auxiliary calls leaves their historical overhead unknown; recorded main-model usage remains.
+choices survive reloads. Source diagnostics remain available through the status API.
 
-Overview changes compare the immediately preceding **equal-length window** with the
-same filters; the comparison dates are shown above the totals. A 48-hour range ending
-now compares against the previous 48 hours. Missing estimates in either window are
-shown with their request counts; known subtotals do not imply a complete cost change.
+Overview totals and sparklines belong to the selected range, displayed beside the
+“用量概览” heading. Comparable changes appear beside their metrics; hover a change
+for its preceding equal-length comparison window. Unavailable comparisons are omitted.
+Changing the range or filters replaces the old results after loading completes.
+
 
 All panels and usage records share the range, chart interval and global filters.
 Combine harness/model/project/provider/purpose filters; additional conditions cover
@@ -183,8 +181,8 @@ The bundled Python `zstandard` dependency reads compressed DSH sources; no separ
 system decompression package is required. An unsupported latest generation appears as
 a source read failure; an older generation is not silently substituted.
 
-Coverage shows scan state, parsing warnings/errors, and missing prices. Partial coverage
-keeps usable statistics available and identifies the excluded records. DSH interrupted or
+The status and analytics APIs expose scan state, parsing warnings/errors, and missing
+prices. Partial coverage keeps usable statistics available. DSH interrupted or
 error turns retain recorded tokens while being excluded from complete-turn TPS; Claude
 local all-zero `<synthetic>` messages are excluded from API-call counts. Usage cost recorded
 by a source is an estimate; it is not a provider invoice. Parent relationships and copied
@@ -249,8 +247,7 @@ Turn lists distinguish sessions, turns, model calls and tool calls. A turn may c
 multiple models and tools. Window metrics retain the matching events within the selected
 range. Closed turns fully inside the window with recorded calls provide full-turn recorded
 subtotals and per-turn averages. Iteration-derived boundaries remain marked `inferred` and
-retain their data, with exact/inferred sample counts shown. Known-subtotal averages use these same eligible turns as their denominator and expose
-component/price coverage; complete-value averages remain unknown when components or
+retain their data and boundary quality in the API. Known-subtotal averages use these same eligible turns as their denominator; complete-value averages remain unknown when components or
 prices are missing. An entirely unpriced cost remains unknown. Running, failed, interrupted and
 truncated turns retain their recorded identity and window subtotal. Full-turn recorded
 metrics remain within the active model-call filters and cannot establish that omitted

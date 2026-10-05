@@ -148,10 +148,6 @@ export function UsageTable({
                         </button>
                     ))}
                 </div>
-                <span className="muted">
-                    {data.total} {view.group === "request" ? "次请求" : "项"} ·
-                    全结果排序
-                </span>
             </header>
             {drill && (
                 <div
@@ -166,16 +162,16 @@ export function UsageTable({
             )}
             <div className="usage-totals">
                 <span>
-                    已记录 Tokens{" "}
-                    <b data-testid="usage-total-tokens">
-                        {number(data.summary.tokens)}
+                    Tokens{" "}
+                    <b data-testid="usage-total-tokens" title={data.summary.input_complete === false ? "部分数据" : undefined}>
+                        {number(data.summary.tokens)}{data.summary.input_complete === false ? "*" : ""}
                     </b>
                 </span>
                 <span>
                     估算费用{" "}
-                    <b data-testid="usage-total-cost">
+                    <b data-testid="usage-total-cost" title={data.summary.unpriced > 0 ? "部分费用" : undefined}>
                         {formatMetric(data.summary.cost, "cost")}
-                        {data.summary.unpriced > 0 ? " · 部分" : ""}
+                        {data.summary.unpriced > 0 && data.summary.cost != null ? "*" : ""}
                     </b>
                 </span>
                 <span>
@@ -253,13 +249,13 @@ export function UsageTable({
                 </table>
                 {!data.rows.length && (
                     <p className="empty">
-                        {data.total ? "此页没有记录" : "此范围没有已记录请求"}
+                        {data.total ? "此页没有记录" : "没有请求"}
                     </p>
                 )}
             </div>
             <footer className="table-bottom">
                 <span>
-                    每页 {view.limit} 项 · 第{" "}
+                    共 {data.total} 项 · 每页 {view.limit} 项 · 第{" "}
                     {Math.floor(view.offset / view.limit) + 1} /{" "}
                     {Math.max(1, Math.ceil(data.total / view.limit))} 页
                 </span>
@@ -365,9 +361,7 @@ function Rows({
                 <td data-testid="usage-turn-tps">{tpsNumber(r.turn_tps)}</td>
                 <td>
                     {formatMetric(r.metrics.cost, "cost")}
-                    {r.metrics.unpriced > 0 && (
-                        <small className="partial-label">部分价格</small>
-                    )}
+                    {r.metrics.unpriced > 0 && r.metrics.cost != null && <span title="部分费用">*</span>}
                 </td>
             </tr>
             {expanded && (
@@ -414,22 +408,11 @@ function Rows({
                                 <p key={`${t.harness}:${t.kind}`}>
                                     {harnessLabel(t.harness)} ·{" "}
                                     {timingLabel(t.kind)} {tpsNumber(t.tps)} TPS
-                                    · {t.samples} 个样本 / {number(t.seconds)}{" "}
-                                    秒
+                                    · {number(t.seconds)} 秒
                                 </p>
                             ))
-                        ) : (
-                            <p className="muted">无可用的请求计时</p>
-                        )}
-                        {r.metrics.input_complete === false && (
-                            <p>输入组成有缺失，Tokens 为已记录分量小计。</p>
-                        )}
-                        {r.metrics.unpriced > 0 && (
-                            <p>
-                                {r.metrics.unpriced}{" "}
-                                次调用缺价，费用为已知估算小计。
-                            </p>
-                        )}
+                        ) : null}
+
                     </td>
                 </tr>
             )}

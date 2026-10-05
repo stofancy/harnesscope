@@ -7,7 +7,7 @@ import "./calendar.css";
 
 const DAY = 86400000;
 const labels: Record<CalendarMetric, string> = {
-    tokens: "Tokens", cost: "估算费用", calls: "已记录调用",
+    tokens: "Tokens", cost: "估算费用", calls: "调用",
 };
 const exact = (n: number) => new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 12,
@@ -90,7 +90,6 @@ export function UsageCalendar({ data, global, metric, onMetric, onYear, onDay }:
                 <h3 data-testid="calendar-year">{year} 年用量</h3>
                 <button data-testid="calendar-next-year" aria-label="下一年" disabled={year >= currentYear} onClick={() => onYear(year + 1)}>›</button>
                 {year !== currentYear && <button className="text-button" data-testid="calendar-this-year" onClick={() => onYear(currentYear)}>今年</button>}
-                <span className="calendar-scope">{year === currentYear ? "今年截至现在" : "完整自然年"} · 本机自然日</span>
             </div>
             <div className="segmented calendar-metrics">
                 {(["tokens", "cost", "calls"] as CalendarMetric[]).map(m => <button key={m}
@@ -105,27 +104,23 @@ export function UsageCalendar({ data, global, metric, onMetric, onYear, onDay }:
                 <div className="calendar-grid">
                     {calendar.days.map(day => <button key={day.date} data-date={day.date} data-state={day.state} data-level={day.level}
                         className="calendar-day" disabled={["future", "outside", "padding", "unavailable"].includes(day.state)}
-                        aria-label={`${day.date} ${labels[metric]} ${valueLabel(day.value, metric)}${day.state === "partial" ? "，部分已记录小计" : day.state === "unknown" ? "，费用未知" : day.state === "empty" ? "，无已记录调用" : ""}`}
+                        aria-label={`${day.date} ${labels[metric]} ${valueLabel(day.value, metric)}${day.state === "partial" ? "，部分数据" : day.state === "unknown" ? "，费用未知" : day.state === "empty" ? "，无调用" : ""}`}
                         onMouseEnter={e => showDay(day, e.currentTarget)} onFocus={e => showDay(day, e.currentTarget)}
                         onBlur={() => setHover(null)} onClick={() => onDay(day.since, day.until)} />)}
                 </div>
                 {selected && <div className="calendar-tooltip" role="tooltip" data-testid="calendar-tooltip" style={{ left: hover?.x, top: hover?.y }}>
                     <strong>{selected.date}</strong>
                     {selected.point ? <>
-                        <dl><div><dt>Tokens</dt><dd>{exact(selected.point.total.tokens)}{selected.point.total.input_complete === false ? " · 已记录小计" : ""}</dd></div>
-                            <div><dt>估算费用</dt><dd>{valueLabel(selected.point.total.cost, "cost")}</dd></div>
-                            <div><dt>已记录调用</dt><dd>{exact(selected.point.total.calls)}</dd></div></dl>
-                        <p>{selected.point.total.calls === 0 ? "无已记录调用" : selected.point.total.cost == null ? "全部调用无法估价，费用未知" : selected.point.total.unpriced > 0 || selected.point.total.cost_complete === false ? `已知费用小计 · ${selected.point.total.unpriced} 次调用无法估价` : "按已记录调用估算费用"}</p>
-                        {selected.point.total.input_complete === false && <p>输入组成有缺口，Tokens 为已记录小计</p>}
-                        {(selected.point.window_start && selected.point.window_start !== selected.point.start || selected.point.window_end && selected.point.window_end !== selected.point.end) && <p>仅包含全局范围内的当日用量</p>}
+                        <dl><div><dt>Tokens</dt><dd title={selected.point.total.input_complete === false ? "部分数据" : undefined}>{exact(selected.point.total.tokens)}{selected.point.total.input_complete === false ? "*" : ""}</dd></div>
+                            <div><dt>估算费用</dt><dd title={selected.point.total.cost == null ? "费用未知" : selected.point.total.unpriced > 0 || selected.point.total.cost_complete === false ? "部分费用" : undefined}>{valueLabel(selected.point.total.cost, "cost")}{selected.point.total.cost != null && (selected.point.total.unpriced > 0 || selected.point.total.cost_complete === false) ? "*" : ""}</dd></div>
+                            <div><dt>调用</dt><dd>{exact(selected.point.total.calls)}</dd></div></dl>
                     </> : <p>{selected.state === "future" ? "未来日期" : selected.state === "outside" ? "不在当前时间范围内" : "无可用逐日数据"}</p>}
                 </div>}
             </div>
             <footer className="calendar-footer">
-                <span>{metric === "cost" ? "按已知估算费用着色" : `按每日${labels[metric]}着色`}</span>
                 <div className="calendar-legend"><span>0</span>{[0, 1, 2, 3, 4].map(level => <i key={level} data-level={level} title={level === 0 ? "0" : `≤ ${valueLabel(calendar.maximum * level / 4, metric)}`} />)}
                     <span>{metric === "cost" ? valueLabel(calendar.maximum, metric) : formatNumber(calendar.maximum)}</span>
-                    <i data-state="partial" /><span>部分覆盖</span><i data-state="unknown" /><span>未知</span><i data-state="future" /><span>未来</span></div>
+                    <i data-state="partial" /><span>部分</span><i data-state="unknown" /><span>未知</span><i data-state="future" /><span>未来</span></div>
             </footer>
         </>}
     </section>;

@@ -36,13 +36,13 @@ export function TurnWorkbench({
     const [toolsExpanded, setToolsExpanded] = useState(false);
     const metricLabels: Record<string, string> = {
         turns: "轮次开始数",
-        tokens: "窗内 Tokens",
-        cost: "窗内估算费用",
-        calls: "已记录模型调用",
+        tokens: "Tokens",
+        cost: "估算费用",
+        calls: "模型调用",
         tool_calls: "工具调用",
-        tool_calls_known: "已记录工具小计",
-        duration_p50: "完整轮次 P50 耗时",
-        duration_p95: "完整轮次 P95 耗时",
+        tool_calls_known: "工具调用",
+        duration_p50: "耗时 P50",
+        duration_p95: "耗时 P95",
     };
     const rows: PlotRow[] = data.trend.map((p) => ({
         time: p.start,
@@ -82,60 +82,38 @@ export function TurnWorkbench({
             </header>
             <div className="turn-summary">
                 <article>
-                    <span>已记录 Tokens / 轮</span>
-                    <b data-testid="tokens-per-turn">
+                    <span>Tokens / 轮</span>
+                    <b data-testid="tokens-per-turn" title={data.summary.per_turn.tokens_complete_samples !== data.summary.per_turn.samples ? "部分数据" : undefined}>
                         {data.summary.per_turn?.tokens_known_mean == null
                             ? "—"
                             : formatNumber(
                                   data.summary.per_turn.tokens_known_mean,
                               )}
+                        {data.summary.per_turn.tokens_known_mean != null && data.summary.per_turn.tokens_complete_samples !== data.summary.per_turn.samples ? "*" : ""}
                     </b>
-                    <small>
-                        {data.summary.per_turn.samples} 轮样本
-                        {data.summary.per_turn.tokens_complete_samples !==
-                        data.summary.per_turn.samples
-                            ? " · 输入部分记录"
-                            : ""}
-                    </small>
                 </article>
                 <article>
-                    <span>已记录费用 / 轮</span>
-                    <b data-testid="cost-per-turn">
+                    <span>估算费用 / 轮</span>
+                    <b data-testid="cost-per-turn" title={data.summary.per_turn.cost_complete_samples !== data.summary.per_turn.samples ? "部分费用" : undefined}>
                         {formatMetric(
                             data.summary.per_turn?.cost_usd_known_mean,
                             "cost",
                         )}
+                        {data.summary.per_turn.cost_usd_known_mean != null && data.summary.per_turn.cost_complete_samples !== data.summary.per_turn.samples ? "*" : ""}
                     </b>
-                    <small>
-                        {data.summary.per_turn.cost_complete_samples !==
-                        data.summary.per_turn.samples
-                            ? `部分价格覆盖 · ${data.summary.per_turn.cost_priced_samples ?? 0}/${data.summary.per_turn.samples} 轮有价格`
-                            : `${data.summary.per_turn.samples} 轮样本`}
-                    </small>
                 </article>
                 <article>
-                    <span>已记录工具调用</span>
-                    <b data-testid="tool-call-total">
-                        {formatNumber(data.summary.tool_calls_known)}
+                    <span>工具调用</span>
+                    <b data-testid="tool-call-total" title={data.summary.tool_calls == null ? "部分数据" : undefined}>
+                        {formatNumber(data.summary.tool_calls_known)}{data.summary.tool_calls == null ? "*" : ""}
                     </b>
-                    <small>
-                        {data.summary.tool_calls == null
-                            ? "部分记录"
-                            : "记录完整"}
-                    </small>
                 </article>
                 <article>
-                    <span>轮次耗时 P50 / P95</span>
+                    <span>耗时 P50 / P95</span>
                     <b className="duration-value">
                         {sec(data.summary.duration_p50)} /{" "}
                         {sec(data.summary.duration_p95)}
                     </b>
-                    <small>
-                        {data.summary.duration_samples} 个样本
-                        {data.summary.duration_boundary_quality?.inferred
-                            ? ` · ${data.summary.duration_boundary_quality.inferred} 个推定边界`
-                            : ""}
-                    </small>
                 </article>
             </div>
             <div className="turn-plot-layout">
@@ -231,16 +209,8 @@ export function TurnWorkbench({
                 </div>
                 <aside className="tools-panel" data-testid="tools-summary">
                     <div className="member-title">
-                        工具类型与状态<span>{data.tools.rows.length} 类</span>
+                        工具类型与状态<span title={data.tools.coverage !== "complete" ? "部分数据" : undefined}>{data.tools.rows.length} 类{data.tools.coverage !== "complete" ? "*" : ""}</span>
                     </div>
-                    {data.tools.coverage !== "complete" && (
-                        <span
-                            className="muted tiny"
-                            title="部分轮次的工具记录缺失，以下显示已读取的调用。"
-                        >
-                            部分记录
-                        </span>
-                    )}
                     <div className="tool-status-total">
                         {Object.entries(data.tools.status_counts).map(
                             ([s, n]) => (
@@ -281,7 +251,7 @@ export function TurnWorkbench({
                         </button>
                     )}
                     {!data.tools.rows.length && (
-                        <p className="muted tiny">当前窗没有已记录工具调用</p>
+                        <p className="muted tiny">没有工具调用</p>
                     )}
                 </aside>
             </div>

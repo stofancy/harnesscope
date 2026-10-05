@@ -29,7 +29,6 @@ export function AbsoluteRanking({
         >
             <header>
                 <h2>{metricLabels[metric]}排行</h2>
-                <span>当前时段</span>
             </header>
             <div className="rank-dimensions">
                 {(["model", "harness", "project", "account"] as Dimension[]).map((d) => (
@@ -58,9 +57,9 @@ export function AbsoluteRanking({
                         <span className="rank-name" title={m.tooltip ?? m.label}>
                             {m.label}
                         </span>
-                        <b>
+                        <b title={metric === "cost" && m.values.unpriced > 0 && m.values.cost != null ? "部分费用" : undefined}>
                             {formatMetric(value(m.values, metric), metric)}
-                            {metric === "cost" && m.values.unpriced > 0
+                            {metric === "cost" && m.values.unpriced > 0 && m.values.cost != null
                                 ? " *"
                                 : ""}
                         </b>
@@ -72,8 +71,7 @@ export function AbsoluteRanking({
                     </button>
                 ))}
             </div>
-            {!rows.length && <p className="empty">当前范围没有已记录用量</p>}
-            <footer>{rows.length} 个主要对象 · 点击查看请求</footer>
+            {!rows.length && <p className="empty">没有用量</p>}
         </aside>
     );
 }

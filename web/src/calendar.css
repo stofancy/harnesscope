@@ -25,7 +25,6 @@
 .calendar-year-controls { gap:10px; }
 .calendar-year-controls h3 { font-size:16px; font-weight:650; margin:0; white-space:nowrap; }
 .calendar-year-controls > button:not(.text-button) { width:28px; height:28px; padding:0; font-size:22px; line-height:1; }
-.calendar-scope { color:var(--muted); font-size:11px; }
 .calendar-metrics button { padding:5px 12px; white-space:nowrap; }
 .calendar-body { position:relative; display:grid; grid-template-columns:25px minmax(0,1fr); column-gap:10px; row-gap:8px; }
 .calendar-months { grid-column:2; display:grid; grid-template-columns:repeat(var(--calendar-weeks),minmax(0,1fr)); gap:4px; font-size:11px; color:var(--muted); }
@@ -45,7 +44,7 @@
 .calendar-day[data-state="partial"]:after { content:""; position:absolute; top:1px; right:1px; width:4px; height:4px; border-radius:50%; background:var(--data-amber); box-shadow:0 0 0 1px var(--surface); }
 .calendar-day[data-state="unknown"],.calendar-day[data-state="unavailable"],.calendar-legend i[data-state="unknown"] { background:repeating-linear-gradient(135deg,var(--surface-soft) 0 3px,var(--data-amber) 3px 4px); }
 .calendar-day[data-state="future"],.calendar-legend i[data-state="future"] { background:transparent; border:1px dashed var(--border); }
-.calendar-footer { justify-content:space-between; gap:15px; margin-top:13px; color:var(--muted); font-size:11px; flex-wrap:wrap; }
+.calendar-footer { justify-content:flex-end; gap:15px; margin-top:13px; color:var(--muted); font-size:11px; flex-wrap:wrap; }
 .calendar-legend { gap:5px; }
 .calendar-legend i { display:inline-block; width:12px; height:12px; border-radius:2px; border:1px solid color-mix(in srgb,var(--text) 9%,transparent); }
 .calendar-legend i[data-state="partial"] { background:var(--calendar-zero); border:2px solid var(--data-amber); margin-left:10px; }
@@ -60,7 +59,6 @@
 .calendar-loading { padding:50px 0; color:var(--muted); text-align:center; }
 @media (max-width:1100px) {
     .usage-calendar { padding:14px; }
-    .calendar-scope { font-size:10px; }
     .calendar-year-controls { gap:6px; }
     .calendar-heading { gap:10px; }
     .calendar-mode .rank-rows { gap:10px; }

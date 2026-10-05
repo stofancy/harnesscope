@@ -106,9 +106,9 @@ test('dashboard journey: shared time, rates, cache, speeds, plots, ranking and r
   await open(b);
   await expect(byId(b, 'global-query')).toHaveCount(1);
   for (const removed of ['timezone','metric-help','open-metric-help','turn-row','usage-table']) await expect(byId(b, removed)).toHaveCount(0);
-  expect(await byId(b, 'source-health').getAttribute('open')).toBe(null);
+  await expect(byId(b, 'source-health')).toHaveCount(0);
   const zone = await b.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
-  await expect(byId(b, 'resolved-range')).toContainText(`本机时区 · ${zone}`);
+  await expect(byId(b, 'resolved-range')).toHaveAttribute('title',zone);
   expect(await b.evaluate(()=>[...document.querySelectorAll('.dashboard-chart .recharts-surface')].length===5&&[...document.querySelectorAll('.dashboard-chart .recharts-surface')].every(n=>n.getBoundingClientRect().width>0))).toBe(true);
   await expect(byId(b, 'summary-calls')).toHaveText('6');
   await expect(byId(b, 'value-consumption')).toHaveText(`$${initial.cost.toFixed(6)}`);
@@ -119,9 +119,11 @@ test('dashboard journey: shared time, rates, cache, speeds, plots, ranking and r
   await reveal(b, 'slices-cache');
   await expect(b.locator('[data-testid="slices-cache"] tbody tr >> nth=0 >> td >> nth=2')).toHaveText('26.7%');
   await expect(b.locator('[data-testid="slices-cache"] tbody tr >> nth=1 >> td >> nth=2')).toHaveText('20.0%');
-  if (await b.locator('[data-testid="panel-speed"] .timing-explanation').getAttribute('open') === null)
-    await b.locator('[data-testid="panel-speed"] .timing-explanation summary').click();
-  await expect(b.locator('[data-testid="panel-speed"] .timing-ledger b')).toHaveText(['5.0 TPS','10.0 TPS','10.0 TPS']);
+  await reveal(b,'slices-speed');
+  const timedValues=await b.evaluate(()=>[...document.querySelectorAll('[data-testid="slices-speed"] tbody tr')]
+    .flatMap(row=>[...row.children].slice(2,-1).map(cell=>cell.textContent?.trim()))
+    .filter(text=>text&&text!=='—').map(Number).sort((a,b)=>a-b));
+  expect(timedValues).toEqual([5,10,10]);
   await settings(b, 'rate'); await byId(b, 'group-rate').selectOption({ value: 'model' }); await ready(b);
   await reveal(b, 'slices-rate');
   const cell = (r: number, c: number) => b.locator(`[data-testid="slices-rate"] tbody tr >> nth=${r} >> td >> nth=${c}`);
@@ -163,7 +165,7 @@ test('dashboard journey: shared time, rates, cache, speeds, plots, ranking and r
   });
   await b.mouse.move(brush.x,brush.y); await b.mouse.down(); await b.mouse.move(brush.to,brush.y); await b.mouse.up(); await ready(b);
   await expect(byId(b, 'summary-tokens')).toHaveText('500'); await byId(b, 'zoom-back').click(); await ready(b);
-  await expect(byId(b, 'summary-tokens')).toHaveText('1.3K'); await app.screenshot('dashboard-journey');
+  await expect(byId(b, 'summary-tokens')).toHaveText('1.3K');
 });
 
 test('usage page: all five groups preserve four components, reliable TPS, joint drill and return', async ({ browser: b, app }) => {
@@ -179,7 +181,7 @@ test('usage page: all five groups preserve four components, reliable TPS, joint 
   await omp('[data-testid="usage-row-open"]').click(); await expect(byId(b,'usage-request-detail')).toContainText('10 TPS');
   await expect(byId(b,'usage-request-detail')).toContainText('10 秒');
   await row(b,'response-codex-1','[data-testid="usage-row-open"]').click();
-  await expect(byId(b,'usage-request-detail')).toContainText('无可用的请求计时');
+  await expect(row(b,'response-codex-1','[data-testid="usage-response-tps"]')).toHaveText('—');
   await group(b,'turn'); await expect(row(b,'codex-turn-1','[data-testid="usage-turn-tps"]')).toHaveText('5');
   await row(b,'codex-turn-1','[data-testid="usage-row-open"]').click();
   await expect(byId(b,'usage-row')).toHaveCount(2); await expect(byId(b,'usage-total-tokens')).toHaveText('400');
@@ -229,13 +231,13 @@ test('window activity: historical open metadata, same-prefix sessions, unassocia
   await page(b,'dashboard'); await expect(byId(b,'turn-count')).toHaveText('0'); await expect(byId(b,'tool-call-total')).toHaveText('0');
   await range(b,'2026-10-03T00:00:00Z','2026-10-03T00:01:00Z');
   await expect(byId(b,'summary-tokens')).toHaveText('130'); await expect(byId(b,'summary-cost')).toHaveText('$0.000500');
-  await expect(byId(b,'summary')).toContainText('已知小计 · 1 次无法估价'); await expect(byId(b,'tokens-per-turn')).toHaveText('65');
-  await expect(byId(b,'cost-per-turn')).toHaveText('$0.000250'); await expect(byId(b,'panel-turns')).toContainText('部分价格覆盖');
+  await expect(byId(b,'tokens-per-turn')).toHaveText(/65\s*\*/);
+  await expect(byId(b,'cost-per-turn')).toHaveText(/\$0\.000250\s*\*/);
   await page(b,'usage'); await group(b,'request');
-  await expect(byId(b,'usage-total-cost')).toHaveText('$0.000500 · 部分');
+  await expect(byId(b,'usage-total-cost')).toHaveText('$0.000500*');
   const missing=(child: string)=>b.locator(`tr[data-testid="usage-row"]:has-text("e2e-unpriced") ${child}`);
   await expect(missing('td >> nth=7')).toHaveText('—'); await missing('[data-testid="usage-row-open"]').click();
-  await expect(byId(b,'usage-request-detail')).toContainText('输入组成有缺失'); await expect(byId(b,'usage-request-detail')).toContainText('次调用缺价');
+  await expect(missing('[data-testid="usage-response-tps"]')).toHaveText('—');
 });
 
 test('daily use: persisted settings, isolated requests, global sorting and light/dark desktop layouts', async ({ browser: b, app }) => {
@@ -372,22 +374,58 @@ test('unified time: expressions on both ends, calendar selection, mixed bounds a
   await expect(byId(b, 'time-end')).toHaveValue('-1h');
 });
 
-test('comparison: adjacent equal window and explicit current/previous unpriced reasons', async ({ browser: b, app }) => {
+test('comparison: current period matches KPI values and quiet cost coverage', async ({ browser: b, app }) => {
   await open(b);
-  await range(b,'2026-10-04T00:00:00Z','2026-10-05T00:00:00Z');
-  await expect(byId(b,'summary-cost')).toHaveText('$0.001025');
-  await expect(byId(b,'summary-change-cost')).toHaveText('上期 1 次无法估价');
-  await expect(byId(b,'summary-change-cost')).toHaveAttribute('class','change unavailable');
-  const local = await b.evaluate(() => ['2026-10-03T00:00:00Z','2026-10-04T00:00:00Z'].map(v => {
-    const d = new Date(v), p = (n: number) => String(n).padStart(2,'0');
+  const localPeriod=async(start:string,end:string)=>b.evaluate(values=>values.map(v=>{
+    const d=new Date(v),p=(n:number)=>String(n).padStart(2,'0');
     return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-  }));
-  await expect(byId(b,'comparison-period')).toContainText(`${local[0]} — ${local[1]}`);
-  await expect(byId(b,'comparison-period')).toContainText('环比上一等长时段');
-  await app.screenshot('comparison-previous-unpriced');
+  }).join(' — '),[start,end]);
+  const assertPeriod=async(start:string,end:string)=>{
+    await expect(byId(b,'summary-period')).toHaveText(await localPeriod(start,end));
+    await expect(byId(b,'comparison-period')).toHaveCount(0);
+  };
+  await expect(b.locator('.summary-heading h2')).toHaveText('用量概览');
+  await assertPeriod('2026-10-01T00:00:00Z','2026-10-01T00:01:30Z');
+  // Previous zero is an absolute change, not an explanatory paragraph.
+  await expect(byId(b,'summary-change-calls')).toContainText('+6');
+  await expect(byId(b,'summary-change-calls')).not.toContainText('上期为');
+  await range(b,'2026-10-01T00:01:00Z','2026-10-01T00:01:30Z');
+  await assertPeriod('2026-10-01T00:01:00Z','2026-10-01T00:01:30Z');
+  await expect(byId(b,'summary-tokens')).toHaveText('500');
+  await expect(byId(b,'summary-calls')).toHaveText('3');
+  await expect(byId(b,'summary-cost')).toHaveText('$0.002425');
+  await expect(byId(b,'summary-change-tokens')).toHaveText('环比 +25.0%');
+  await expect(byId(b,'summary-change-calls')).toHaveText('环比 +200.0%');
+  await expect(byId(b,'summary-change-cost')).toHaveText('环比 +79.6%');
+  const previous=await localPeriod('2026-10-01T00:00:30Z','2026-10-01T00:01:00Z');
+  await expect(byId(b,'summary-change-cost')).toHaveAttribute('title',previous);
+  expect(await b.evaluate(period=>document.body.innerText.includes(period),previous)).toBe(false);
+  await range(b,'2026-10-04T00:00:00Z','2026-10-05T00:00:00Z');
+  await assertPeriod('2026-10-04T00:00:00Z','2026-10-05T00:00:00Z');
+  await expect(byId(b,'summary-tokens')).toHaveText('300');
+  await expect(byId(b,'summary-cost')).toHaveText('$0.001025');
+  await expect(byId(b,'summary-change-cost')).toHaveCount(0);
+  await expect(byId(b,'summary-note-cost')).toHaveCount(0);
   await range(b,'2026-10-03T00:00:00Z','2026-10-04T00:00:00Z');
-  await expect(byId(b,'summary-change-cost')).toHaveText('本期 1 次无法估价');
-  await expect(byId(b,'summary')).toContainText('已知小计 · 1 次无法估价');
+  await assertPeriod('2026-10-03T00:00:00Z','2026-10-04T00:00:00Z');
+  await expect(byId(b,'summary-tokens')).toHaveText('130');
+  await expect(byId(b,'summary-cost')).toHaveText('$0.000500');
+  await expect(byId(b,'summary-note-cost')).toHaveText('*');
+  await expect(byId(b,'summary-note-cost')).toHaveAttribute('title','1 次调用未计价');
+  await expect(byId(b,'summary-change-cost')).toHaveCount(0);
+  for(const id of ['source-health','account-attribution','auto-refresh-note']) await expect(byId(b,id)).toHaveCount(0);
+  const visible=await b.evaluate(()=>document.body.innerText);
+  for(const noise of ['环比上一等长时段','上期为 0','与当前范围相交','当前范围 · 逐桶合计','推理 Tokens 已包含在输出中',
+    '四分量相加为 Tokens 小计','仅比较可估价','历史范围不自动刷新','全结果排序']) expect(visible.includes(noise)).toBe(false);
+  await byId(b,'theme-dark').click(); await b.setViewport({width:1024,height:1100});
+  await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>{scrollTo(0,0);r();}))));
+  expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await app.screenshot('summary-current-period-dark-1024');
+  await range(b,'2026-10-01T00:01:30Z','2026-10-01T00:02:00Z');
+  await assertPeriod('2026-10-01T00:01:30Z','2026-10-01T00:02:00Z');
+  await expect(byId(b,'summary-cost')).toHaveText('—');
+  await expect(byId(b,'summary-note-cost')).toHaveCount(0);
+  await expect(byId(b,'summary-change-cost')).toHaveCount(0);
 });
 
 test('names: native session titles, project names, tooltips, joint identities and refresh', async ({ browser: b, app }) => {
@@ -509,22 +547,18 @@ test('calendar dashboard: real KPI microtrends and four token components retain 
   }
   expect(await b.evaluate(()=>[...document.querySelectorAll('[data-testid="token-component-bar"] [data-part]')]
     .reduce((sum,n)=>sum+Number(n.getAttribute('data-value')),0))).toBe(1300);
-  await expect(byId(b,'token-composition')).toContainText('推理 Tokens 已包含在输出中');
   await app.screenshot('calendar-kpi-and-composition-baseline');
   await range(b,'2026-10-03T00:00:00Z','2026-10-03T00:01:00Z');
   for(const [part,value] of [['input',70],['cache_read',0],['output',60],['cache_write',0]] as const)
     await expect(byId(b,`token-part-${part}`)).toHaveAttribute('data-value',String(value));
   await expect(byId(b,'token-part-cache_write')).toHaveAttribute('data-unknown','true');
-  await expect(byId(b,'token-part-cache_write')).toContainText('未知');
-  await expect(byId(b,'token-composition')).toContainText('已记录小计');
   await expect(byId(b,'summary-tokens')).toHaveText('130');
   await range(b,'2026-10-01T00:01:30Z','2026-10-01T00:02:00Z');
   await expect(byId(b,'summary-sparkline-cost')).toHaveAttribute('data-state','unknown');
-  await expect(byId(b,'summary-sparkline-cost')).toContainText('费用未知');
   await expect(b.locator('[data-testid="summary-sparkline-cost"] svg')).toHaveCount(0);
   await range(b,'2026-10-01T00:02:00Z','2026-10-01T00:03:00Z');
   await expect(byId(b,'summary-calls')).toHaveText('0');
-  await expect(byId(b,'token-composition')).toContainText('没有已记录调用');
+  await expect(byId(b,'token-component-bar')).toHaveAttribute('class',/empty/);
 });
 
 test('calendar dashboard: year bounds, metric states, filtering, day drill and live context restore', async ({browser:b,app}) => {
@@ -543,11 +577,11 @@ test('calendar dashboard: year bounds, metric states, filtering, day drill and l
   await byId(b,'calendar-metric-cost').click(); await ready(b);
   await expect(calendarCell(b,`${year}-01-03`)).toHaveAttribute('data-state','unknown');
   await hoverCalendarDay(b,`${year}-01-03`);
-  await expect(byId(b,'calendar-tooltip')).toContainText('费用未知');
+  await expect(b.locator('[data-testid="calendar-tooltip"] dd[title="部分费用"]')).toHaveText('—');
   await expect(calendarCell(b,`${year}-01-04`)).toHaveAttribute('data-state','partial');
   await hoverCalendarDay(b,`${year}-01-04`);
   await expect(byId(b,'calendar-tooltip')).toContainText('$0.00028');
-  await expect(byId(b,'calendar-tooltip')).toContainText('1 次调用无法估价');
+  await expect(b.locator('[data-testid="calendar-tooltip"] dd[title="部分费用"]')).toHaveText('$0.00028*');
   await byId(b,'calendar-metric-calls').click(); await ready(b);
   await expect(calendarCell(b,`${year}-01-04`)).toHaveAttribute('aria-label',/已记录调用 2/);
   await byId(b,'calendar-prev-year').click(); await ready(b);
@@ -616,8 +650,6 @@ test('account periods: native directory, refresh and fixed current-period cutoff
   const requests:URL[]=[];
   await b.route(/\/api\//,async r=>{requests.push(new URL(r.request.url));await r.continue();});
   const directory=await openAccountWindow(b);
-  await expect(byId(b,'account-attribution')).toContainText('已知 6 次调用');
-  await expect(byId(b,'account-attribution')).toContainText('未知 1 次调用');
   await chooseAccountPeriod(b,directory,'fixture-a@example.invalid','Fixture ended 5 Hour');
   await expect(byId(b,'account-info')).toContainText('订阅');
   await expect(byId(b,'account-info')).toContainText('周期已结束');
@@ -632,7 +664,7 @@ test('account periods: native directory, refresh and fixed current-period cutoff
     await expect(byId(b,'account-info')).toContainText(kind==='api_key'?'API':'网关');
   }
   await chooseAccountPeriod(b,directory,'fixture-b@example.invalid','Fixture stale active 5 Hour');
-  await expect(byId(b,'account-period-boundaries')).toContainText('已失效');
+  await expect(byId(b,'account-info')).toContainText('已过期');
   await expect(byId(b,'account-info')).not.toContainText('周期已结束');
   await chooseAccountPeriod(b,directory,'fixture-a@example.invalid','Fixture ended 5 Hour');
   execFileSync('python3',[new URL('./fixture_logs.py',import.meta.url).pathname,'--append',fixtureRoot(),'--update-account-metadata']);
@@ -783,7 +815,7 @@ test('inline time: relative/since/fixed, auto refresh persisted, editing pause a
   await refresh(b); await expect(byId(b,'resolved-range')).toHaveText(fixed!); await b.reload(); await ready(b);
   await expect(byId(b,'resolved-range')).toHaveText(fixed!); await expect(byId(b,'auto-refresh-toggle')).not.toBeChecked();
   await expect(byId(b,'auto-refresh-toggle')).toBeDisabled();
-  await expect(byId(b,'auto-refresh-note')).toHaveText('历史范围不自动刷新');
+  await expect(byId(b,'auto-refresh-note')).toHaveCount(0);
   await app.screenshot('inline-time-and-auto-refresh');
 });
 
@@ -808,33 +840,6 @@ test('historical refresh: fixed and past-relative ends pause scans and returning
   await expect(byId(b,'auto-refresh-note')).toHaveCount(0);
   await byId(b,'auto-refresh-toggle').uncheck();
   await app.screenshot('historical-refresh-pause-and-resume');
-});
-
-test('source health: DSH reasons explain counts, impact, action and source files', async ({ browser: b, app }) => {
-  await open(b); await reveal(b, 'source-health');
-  const source = byId(b, 'source-DSH');
-  await expect(source).toContainText('部分数据');
-  await expect(source).toContainText('3 条解析提示');
-  for (const [code, label] of [
-    ['aux_title_usage_missing', '标题生成辅助调用未记录用量'],
-    ['aux_search_usage_missing', '搜索辅助调用未记录用量'],
-    ['model_usage_missing', '部分模型尝试未记录用量'],
-  ]) {
-    const issue = byId(b, `source-issue-${code}`);
-    await expect(issue).toContainText(label);
-    await expect(issue).toContainText('1 条提示 · 1 个文件');
-    await b.locator(`[data-testid="source-issue-${code}"] summary`).click();
-    await expect(issue).toContainText('无法');
-    await expect(issue).toContainText('刷新');
-    await expect(b.locator(`[data-testid="source-issue-${code}"] li > span`)).toHaveAttribute('title', /warning-session\/session.v4.jsonl$/);
-    await expect(issue).not.toContainText('Auxiliary');
-  }
-  await source.scrollIntoView(); await app.screenshot('source-health-reasons-light');
-  await byId(b, 'theme-dark').click(); await b.setViewport({ width:1024, height:1100 });
-  await source.scrollIntoView();
-  expect(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await app.screenshot('source-health-reasons-dark-1024');
-  await expect(byId(b, 'summary-tokens')).toHaveText('1.3K');
 });
 
 test('automatic refresh: enabling scans immediately and each period receives appended data', async ({ browser: b, app }) => {

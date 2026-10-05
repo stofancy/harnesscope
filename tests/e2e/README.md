@@ -111,10 +111,11 @@ actual timezone, aggregate-only Dashboard panels and the separate usage page:
    persist through page changes, reload and refresh. Invalid bounds keep the current
    data; future bounds are rejected and calendars have a current-time maximum.
    Both desktop widths and themes remain usable.
-8. An October 4 daily window compares with October 3 using the same filters. The
-   current $0.001025 is complete; the previous $0.000500 has one unpriced call.
-   The page shows the previous dates and missing-estimate reason. Moving to October 3
-   instead shows current-period missing coverage and the known subtotal label.
+8. The current query dates appear beside “用量概览” and correspond to current KPI
+   values. Reliable comparisons show short card-footer deltas with previous dates
+   only in their titles. October 4 has $0.001025; its partly priced October 3
+   predecessor suppresses the cost delta. October 3 shows $0.000500 with a separate
+   asterisk/title, and an entirely unpriced window shows a dash.
 9. Fixed ends and past-relative ends issue no automatic scans across a full interval;
    returning to now restores the saved switch.
 
@@ -193,7 +194,7 @@ the current result and prevents a scan until corrected. Related inline-time and
 historical-refresh scenarios cover editing pause, no overlapping scans and saved
 automatic-refresh preferences when returning to now.
 
-## Refresh and source-health acceptance
+## Refresh acceptance
 
 The automatic-refresh scenario appends one synthetic recent request before enabling
 the switch and another before the next interval. Both must appear through the real
@@ -205,8 +206,8 @@ failed with the stuck label, and the repaired run passes.
 An additional DSH source has one title auxiliary metadata record, one search auxiliary
 metadata record and one assistant attempt without usage. It contributes three
 categorized source warnings and zero usage, preserving the 1300-token ledger.
-The source-health scenario verifies each reason, count, impact, suggested action and
-file-path tooltip, including light/dark 1024-pixel screenshots.
+The SourceHealth UI entry and its old browser-display scenario have been removed.
+Backend warning classification remains outside this UI batch.
 
 ## Calendar, microtrends and token-composition acceptance
 
@@ -338,3 +339,36 @@ wait initially ran before opening the browser page; after correcting that order,
 only the two new paths were rerun. No application fix or larger suite was needed.
 The official new-path report, traces and one inspected 1024-pixel screenshot are
 retained in `.e2e/evidence/account-periods/`; its README records both run IDs.
+
+
+## Quiet overview and correct KPI dates
+
+The existing comparison case now checks actual current dates/amounts together:
+500 Tokens / 3 calls / $0.002425 in October 1 00:01:00–00:01:30 UTC, compared with
+400 / 1 / $0.001350 in the preceding 30 seconds. Footer deltas are +25.0%, +200.0%
+and +79.6%; previous dates exist only in their titles. A zero predecessor shows an
+absolute change. October 4 current values (300 / $0.001025) and October 3 partial
+values (130 / $0.000500) each retain their own overview dates. Partly priced cost
+has a separate asterisk with a short title and no unreliable comparison; wholly
+unpriced cost is a dash.
+
+Assertions tied to removed explanations, source-health UI, account-attribution
+banner and historical refresh note are adapted in existing cases. Numeric token
+components, unknown flags, timer behavior and drill identity checks remain. This
+batch runs only the updated comparison case and the old Dashboard journey, with
+one dark 1024-pixel viewport screenshot (not a full-page image):
+
+```bash
+npm --prefix web run typecheck
+npm --prefix web run build
+npm --prefix web run test:e2e -- --grep 'comparison:|dashboard journey'
+```
+
+No new source fixture, test framework, unit/component test or expanded visual
+matrix is added for this presentation change.
+
+The two selected paths passed (Dashboard journey 5.80 seconds, comparison 8.79
+seconds). The comparison selector initially used an unsupported browser-facade
+method; after correcting the selector, only that case was rerun. Production
+typecheck/build passed. Official reports, two traces and the one inspected dark
+1024×1100 screenshot are saved in `.e2e/evidence/quiet-overview/`.

@@ -27,12 +27,9 @@
 .account-quota dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0; }
 .account-quota dt { font-size:11px; }
 .account-quota dd { margin:5px 0 0; font-size:13px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
-.account-quota p { color:var(--muted); font-size:11px; line-height:1.5; }
 .account-period-actions { display:flex; align-items:center; gap:10px; margin-top:15px; padding-top:12px; border-top:1px solid var(--border); }
-.account-period-actions span { color:var(--muted); font-size:11px; margin-left:4px; }
 .account-directory-error { color:var(--danger); margin:5px 0 12px; }
 .account-directory-error button { margin-left:12px; }
-.account-attribution { color:var(--muted); font-size:11px; margin:0 0 10px; text-align:right; }
 @media (max-width:1100px) {
     .account-directory-controls { gap:14px; }
     .account-period-body { grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:16px; }

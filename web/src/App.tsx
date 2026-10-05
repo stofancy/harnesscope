@@ -13,6 +13,7 @@ import type {
 import { demo, refresh, status, type Status } from "./api";
 import {
     Comparison,
+    hasComparison,
     Facet,
     Icon,
     Ledger,
@@ -23,7 +24,6 @@ import { AnalyticPanel } from "./charts";
 import { TurnWorkbench } from "./turns";
 import { AbsoluteRanking } from "./ranking";
 import { TimeControl } from "./TimeControl";
-import { SourceHealth } from "./SourceHealth";
 import { UsageCalendar, calendarYearRange } from "./UsageCalendar";
 import { AccountPeriods } from "./AccountPeriods";
 import { TokenComposition } from "./TokenComposition";
@@ -477,11 +477,6 @@ export default function App() {
                         />
                         自动刷新
                     </label>
-                    {!liveRange && (
-                        <span className="auto-refresh-note" data-testid="auto-refresh-note">
-                            历史范围不自动刷新
-                        </span>
-                    )}
                     <div className="segmented auto-period">
                         {[
                             [15, "15 秒"],
@@ -560,13 +555,12 @@ export default function App() {
                         </button>
                     )}
                 </div>
-                <div className="resolved-range" data-testid="resolved-range">
+                {page === "usage" && <div className="resolved-range" data-testid="resolved-range">
                     {dateInput(global.since, global.timezone).replace("T", " ")}{" "}
                     —{" "}
                     {dateInput(global.until, global.timezone).replace("T", " ")}
-                    <span>本机时区 · {global.timezone}</span>
-                    {editing && <span>编辑期间暂停自动刷新</span>}
-                </div>
+                    <span>{global.timezone}</span>
+                </div>}
             </section>
             {(error || fetchError) && (
                 <div className="error-banner">
@@ -583,31 +577,18 @@ export default function App() {
                     </button>
                 </div>
             )}
-            {scanning && (
-                <div className="notice" data-testid="scan-progress">
-                    正在读取本机日志 {scanStatus?.progress.files_done ?? 0} /{" "}
-                    {scanStatus?.progress.files_total ?? "…"}
-                    ，本期用量尚在更新。
-                </div>
-            )}
             {updating && (
                 <div className="updating-banner" data-testid="query-updating">
-                    {(page === "dashboard" ? current : u.data)
-                        ? "正在查询当前范围，下方暂时保留上次查询结果…"
-                        : "正在加载当前范围…"}
+                    正在加载…
                 </div>
             )}
             {page === "dashboard" && <AccountPeriods snapshot={snapshot} revision={revision}
                 timezone={global.timezone} onApply={applyAccount} />}
-            {page === "dashboard" && current && counts && (
+            {page === "dashboard" && current && counts && JSON.stringify(current.global) === JSON.stringify(global) && (
                 <div
                     className={`data-region ${d.globalUpdating ? "is-updating" : ""}`}
                     inert={d.globalUpdating || !!d.errors.global}
                 >
-                    {counts.summary.account_known_calls !== undefined && <div className="account-attribution" data-testid="account-attribution">
-                        账号归属 · 已知 {counts.summary.account_known_calls.toLocaleString()} 次调用
-                        {" · "}未知 {(counts.summary.account_unknown_calls ?? 0).toLocaleString()} 次调用
-                    </div>}
                     <MetricStrip
                         data={counts}
                         turnCount={current.turns.summary.turns}
@@ -670,8 +651,8 @@ export default function App() {
                             />
                         </PartState>
                     </div>
-                    <details className="change-details">
-                        <summary>较上一等长时段的变化</summary>
+                    {hasComparison(counts, counts.query.metric) && <details className="change-details">
+                        <summary>环比变化</summary>
                         <Comparison
                             data={counts}
                             metric={counts.query.metric}
@@ -679,7 +660,7 @@ export default function App() {
                                 memberUsage(m, counts.query.dimension)
                             }
                         />
-                    </details>
+                    </details>}
                     <TokenComposition data={counts} />
                     <div className="supporting-analysis">
                         {(["rate", "cache", "speed"] as PanelId[]).map((id) => (
@@ -771,7 +752,6 @@ export default function App() {
                     />
                 </div>
             )}
-            <SourceHealth sources={scanStatus?.sources ?? []} />
         </main>
     );
 }
@@ -793,7 +773,7 @@ function PartState({
         >
             {(pending || error) && (
                 <div className="part-status">
-                    {pending ? "正在更新此面板…" : `未能更新 · ${error}`}
+                    {pending ? "加载中…" : `加载失败 · ${error}`}
                     {error && <button onClick={onRetry}>重试此面板</button>}
                 </div>
             )}
