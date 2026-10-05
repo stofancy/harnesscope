@@ -78,26 +78,31 @@ same append and refresh keeps these counts stable.
 
 ## Acceptance scope
 
-Six browser scenarios cover the single shared time/timezone/slice/filter context,
-all dashboard panels and the ledger, chart type/slice changes and zoom, hand-counted
-rates/cache/turn summaries, tool names/statuses and turn details, missing values,
-and append/replay refresh. A passed old-page smoke test cannot satisfy this suite.
+Six browser scenarios use one shared inline time/filter context, the machine's
+actual timezone, aggregate-only Dashboard panels and the separate usage page:
 
-
-1. A continuous user journey: overview → chart period zoom → contribution
-   source → turn/tool explanation → clear filters and restore the original
-   range. Includes chart types/composition, time intervals/timezone, partial
-   bucket rates, cache ratios and separately labelled timed speeds.
-2. Completed-turn details and a narrower global window: costs, model calls,
-   tool success/error and the distinction between window and recorded calls.
-3. Historical refresh: one new call, same-key replay, existing running turn/tool
-   completion, unchanged totals after repeat, missing source fields/price and
-   empty buckets.
-4. Relative-window refresh: append a synthetic current-time 100-token call
-   after the saved cutoff, scan to advance the preset, zoom to fixed history,
-   append another call and preserve the fixed range, then return and scan to
-   recover the relative mode (200 tokens / 2 calls). These two dynamic calls
-   remain outside the fixed October 1 hand-counted window.
+1. Overview → chart zoom → contribution ranking → requests → restore the range.
+   Checks hand-counted rates with 60/30-second denominators, cache ratio,
+   separately labelled measured TPS, bar/line/area, composition, direct
+   5/10/30-second and 1/15-minute intervals, filtering and chart/brush zoom.
+2. Request/session/turn/model/harness groups preserve all four component totals.
+   Request timing is reliable only where recorded; turn timing stays on its own
+   definition. Joint identity drill and returning restore group context.
+3. Old open metadata contributes only with actual window activity. New requests
+   in old sessions remain; unassociated-turn requests survive all groups/drill.
+   Long-project sessions with the same eight-character prefix have visible,
+   distinct suffixes at 1024 pixels. Missing components/price stay explicit.
+4. Saved filters, panel settings, usage page/group/page and theme survive reload.
+   Browser requests prove local panel changes and usage sorting/paging load only
+   their own data. Twenty-row pagination and full-result sorting use 25 turns.
+   Both pages and chart tooltips are captured in light/dark palettes at 1600 and
+   1024 pixels; document overflow is checked after chart resize.
+5. Synthetic append adds one call; same-key replay stays stable. Completion
+   updates recorded turn means and timing. Missing/empty windows and relative
+   refresh → fixed zoom → restore live range are exercised through the UI.
+6. Inline `-18h`, `-2days`, fixed-start-to-now and fixed history produce correct
+   bounds. Explicit auto-refresh switch/period persist; editing pauses it and
+   a refresh held across another interval never overlaps a second refresh.
 
 ## Daily-dashboard fixtures
 
@@ -107,8 +112,8 @@ Additional dates are separate from the October 1 ledger:
   tokens / 25 calls / $0.020312. The oldest `ranking-turn-00` costs $0.016
   (2000 output tokens); the next `ranking-turn-01` lasts 90 seconds. With
   descending start-time order and a 20-row page, both are on the second page.
-  Sorting by cost or duration must bring them to the first row of the first
-  page, proving that sorting precedes pagination.
+  Sorting by cost brings turn 00 to the first row; descending and ascending
+  turn TPS put turn 00 and turn 01 first, proving sorting precedes pagination.
 - October 3 00:00–00:01 UTC: two completed Claude turns. One records 100 tokens
   and costs $0.000500; the other records 30 tokens with missing price/cache-write.
   The window contains 130 recorded tokens and a $0.000500 known cost subtotal.
@@ -118,22 +123,36 @@ Additional dates are separate from the October 1 ledger:
 Network assertions observe actual browser requests and continue them unchanged.
 No assertion calls an API directly or imports query/parser/adapter functions.
 
-The formal-dashboard scenarios additionally check saved filters, panel settings,
-range and auto-refresh mode after a browser reload; whole-result turn sorting,
-paging, summary/turn tabs and returning from details; and that local configuration
-and turn paging do not re-request unrelated analyses. Desktop screenshots cover
-1600 and 1024 pixels, with a document overflow assertion at 1024.
+Time controls are exercised through the UI using the real 15-second timer
+(the e2e browser facade has no public clock control). One POST is temporarily
+delayed, then continued unchanged to the real service. All assertions inspect
+rendered pages or observe their actual network traffic.
 
-Time controls are exercised through the UI: `-18h`, `-2days`, a fixed start through
-now, and fixed history. The auto-refresh scenario uses the real 15-second timer
-(the e2e browser facade has no public clock control). It temporarily delays one
-POST while passing it unchanged to the real service, checks that another interval
-does not overlap it, then checks editing pauses refresh and settings survive
-reload. Source updates remain synthetic fixture appends.
+A real background-tab visibility change is not emulated by the e2e browser
+facade. Editing pause is browser-verified; background pause remains outside this
+automated evidence. Artifacts contain synthetic source data only.
 
+## Historical-open activity fixture
 
-The formal suite has six scenarios: the four original business journeys plus
-saved daily-dashboard context/local requests/whole-result sorting/partial totals,
-and time-control/auto-refresh semantics. A real background-tab visibility change
-is not emulated by the e2e browser facade. Editing pause is browser-verified;
-background pause is explicitly outside this automated evidence.
+October 4 00:00–00:01 UTC, project `/synthetic/company/platform/products/usage-workbench/feature-branches/extremely-long-project-path/activity`, has two real requests:
+
+| Visible session ID | Window activity | Net input | Cache read | Cache write | Output | Tokens | Cost USD |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 44444444…111111 | New request in a September 30 open turn; one new completed tool | 80 | 20 | 0 | 30 | 130 | 0.000410 |
+| 44444444…222222 | New request with no associated turn | 70 | 30 | 20 | 50 | 170 | 0.000615 |
+| **Total** | **2 calls** | **150** | **50** | **20** | **80** | **300** | **0.001025** |
+
+Session 555555 has only a September 30 open turn/tool and no October 4 activity.
+The old pending tool in 44444444…111111 also has no October 4 activity. Neither stale
+metadata item belongs in October 4 counts. The real new request from the old
+44444444…111111 session must remain visible. Turn grouping must retain the unassociated
+170-token request; all grouping modes preserve the same four component totals.
+Both requests lack reliable completed timing, so TPS remains unknown.
+
+Fixed fixture windows are specified in UTC. Browser interactions convert their
+bounds to the browser's actual system-local time; the app's query zone must match
+`Intl.DateTimeFormat().resolvedOptions().timeZone`. No timezone selector is used.
+
+The two active sessions deliberately share their first eight ID characters
+(`44444444`). Their visible labels must include distinguishable suffixes
+(`111111` and `222222`) without a native title index.

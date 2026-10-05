@@ -1,482 +1,296 @@
 import { test, type Browser } from '../../web/node_modules/@e2e-dev/web/dist/index.js';
-import { expect, type Screen } from '../../web/node_modules/e2e/dist/index.js';
+import { expect } from '../../web/node_modules/e2e/dist/index.js';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { initial, refreshed } from './expected.ts';
 
-const ids = ['consumption', 'rate', 'cache', 'speed', 'turns'];
-const byId = (browser: Browser, id: string) => browser.locator(`[data-testid="${id}"]`);
-const turn = (browser: Browser, id: string) => browser.locator(`[data-testid="turn-row"][title$=" / ${id}"]`);
-const turnRow = (browser: Browser, id: string) => browser.locator(`tr:has([data-testid="turn-row"][title$=" / ${id}"])`);
-
-async function range(browser: Browser, screen: Screen, start = '2026-10-01T00:00:00', end = '2026-10-01T00:01:30') {
-  await browser.locator('[data-testid="time-range"] .range-button').click();
-  await byId(browser, 'time-mode').selectOption({ value: 'fixed' });
-  await byId(browser, 'range-start').fill(start.replace(/:00$/, ''));
-  await byId(browser, 'range-end').fill(end.replace(/:00$/, ''));
-  await screen.getByRole('button', { name: '应用时间范围' }).click();
+const byId = (b: Browser, id: string) => b.locator(`[data-testid="${id}"]`);
+const row = (b: Browser, identity: string, child = '') => b.locator(`tr[data-testid="usage-row"]:has(button[title*="${identity}"]) ${child}`);
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+async function ready(b: Browser) { await expect(byId(b, 'query-updating')).toHaveCount(0); }
+async function range(b: Browser, start = '2026-10-01T00:00:00Z', end = '2026-10-01T00:01:30Z') {
+  const local = await b.evaluate(({ start, end }) => [start, end].map(v => {
+    const d = new Date(v), p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }), { start, end });
+  await byId(b, 'time-start').fill(local[0]); await byId(b, 'time-end').fill(local[1]);
+  await byId(b, 'time-apply').click(); await ready(b);
 }
-async function openDashboard(browser: Browser, screen: Screen) {
-  await browser.goto('/', { waitUntil: 'networkidle' });
-  await expect(byId(browser, 'global-query')).toBeVisible();
-  await byId(browser, 'timezone').selectOption({ value: 'UTC' });
-  await range(browser, screen);
-  await byId(browser, 'time-slice').selectOption({ value: 'minute' });
-  await expect(byId(browser, 'summary-tokens')).toHaveText('1.3K');
-  await expect(byId(browser, 'summary-calls')).toHaveText('6');
-  for (const id of ids) await expect(byId(browser, `panel-${id}`)).toBeVisible();
-  await tab(browser, 'summary');
-  await byId(browser, 'group-ledger').selectOption({ value: 'harness' });
+async function open(b: Browser) {
+  await b.goto('/', { waitUntil: 'networkidle' });
+  await expect(byId(b, 'global-query')).toBeVisible(); await range(b);
+  await byId(b, 'slice-minute').click(); await ready(b);
+  await expect(byId(b, 'summary-tokens')).toHaveText('1.3K');
 }
-async function harness(browser: Browser, name: string) {
-  await browser.locator('[data-testid="filter-harness"] .facet-trigger').click();
-  await byId(browser, 'filter-harness').getByLabel(name === 'codex' ? 'Codex' : name).check();
-  await browser.locator('[data-testid="filter-harness"] .dismiss').click();
+async function page(b: Browser, name: 'dashboard' | 'usage') { await byId(b, `page-${name}`).click(); await ready(b); }
+async function group(b: Browser, name: string) { await byId(b, `usage-group-${name}`).click(); await ready(b); }
+async function reveal(b: Browser, id: string) {
+  if (await byId(b, id).getAttribute('open') === null) await b.locator(`[data-testid="${id}"] summary`).click();
 }
-async function reveal(browser: Browser, selector: string) {
-  if (await browser.locator(selector).getAttribute('open') === null)
-    await browser.locator(`${selector} summary`).click();
+async function settings(b: Browser, id: string, hide = false) {
+  const opened = await byId(b, `settings-${id}`).getAttribute('open') !== null;
+  if (opened === hide) await b.locator(`[data-testid="settings-${id}"] summary`).click();
 }
-async function settings(browser: Browser, id: string) {
-  if (await byId(browser, `settings-${id}`).getAttribute('open') === null)
-    await browser.locator(`[data-testid="settings-${id}"] summary`).click();
+async function harness(b: Browser) {
+  await b.locator('[data-testid="filter-harness"] .facet-trigger').click();
+  await byId(b, 'filter-harness').getByLabel('Codex').check();
+  await b.locator('[data-testid="filter-harness"] .dismiss').click(); await ready(b);
 }
-async function hideSettings(browser: Browser, id: string) {
-  if (await byId(browser, `settings-${id}`).getAttribute('open') !== null)
-    await browser.locator(`[data-testid="settings-${id}"] summary`).click();
+function append(ordinal?: number) {
+  const state = JSON.parse(readFileSync(new URL('../../.e2e/fixture-state.json', import.meta.url), 'utf8'));
+  execFileSync('python3', [new URL('./fixture_logs.py', import.meta.url).pathname, '--append', state.root,
+    ...(ordinal === undefined ? [] : ['--recent-call', String(ordinal)])]);
 }
-async function tab(browser: Browser, name: 'summary' | 'turns') {
-  await byId(browser, `detail-tab-${name}`).click();
+async function refresh(b: Browser) {
+  const response = b.waitForResponse(/\/api\/refresh/); await byId(b, 'scan-data').click(); await response;
+  await expect(byId(b, 'scan-data')).toHaveText('刷新'); await ready(b);
 }
-async function hoverBucket(browser: Browser, id: string, bucket: 0 | 1) {
-  await byId(browser, `chart-${id}`).scrollIntoView();
-  const points = await browser.evaluate(({ id, bucket }) => {
-    const svg = document.querySelector(`[data-testid="chart-${id}"] .recharts-surface`);
-    if (!svg) throw new Error('chart SVG not rendered');
-    const rect = svg.getBoundingClientRect();
-    // Click well inside the plot, on the first/second half of the visible SVG.
-    // Recharts also renders offscreen brush-axis ticks, so those tick boxes are
-    // unsuitable as pointer coordinates.
-    return { x: rect.x + rect.width * (bucket === 0 ? 0.3 : 0.8), y: rect.y + 50 };
-
+async function hover(b: Browser, id: string, bucket = 1) {
+  await byId(b, `chart-${id}`).scrollIntoView();
+  const point = await b.evaluate(({ id, bucket }) => {
+    const rect = document.querySelector(`[data-testid="chart-${id}"] .recharts-surface`)!.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) throw new Error('Chart SVG has no visible layout area');
+    return { x: rect.x + rect.width * (bucket ? .8 : .3), y: rect.y + 50 };
   }, { id, bucket });
-  await browser.mouse.move(points.x, points.y);
+  await b.mouse.move(point.x, point.y);
+}
+async function vector(b: Browser, expected: number[]) {
+  // Sum rendered cells, independently of the application's summary/API output.
+  const actual = await b.evaluate(() => {
+    const rows = [...document.querySelectorAll('tr[data-testid="usage-row"]')];
+    return [3,4,5,7,6].map(index => rows.reduce((sum, r) => {
+      const text = r.children[index].textContent?.replaceAll(',', '').trim();
+      if (!text || text === '—') throw new Error('Unexpected missing fixture component');
+      return sum + Number(text);
+    }, 0));
+  });
+  expect(actual).toEqual(expected);
 }
 
-// Tests drive the rendered UI against source logs and the real HTTP service.
-// No API-only tests, mocked responses, model calls or business function imports.
-test('user journey: overview, trend period, source contribution, turn tools, context restoration', async ({ browser, screen, app }) => {
-  await openDashboard(browser, screen);
-  await expect(byId(browser, 'metric-help')).toHaveCount(0);
-  await expect(browser.locator('.statistics-method')).toHaveCount(0);
-  await byId(browser, 'open-metric-help').click();
-  await expect(byId(browser, 'metric-help')).toBeVisible();
-  await screen.getByRole('button', { name: '关闭指标说明' }).click();
-  await expect(byId(browser, 'metric-help')).toHaveCount(0);
-  await expect(byId(browser, 'global-query')).toHaveCount(1);
-  await expect(byId(browser, 'time-range')).toHaveCount(1);
-  await expect(byId(browser, 'timezone')).toHaveCount(1);
-  await expect(byId(browser, 'time-slice')).toHaveCount(1);
-  await expect(byId(browser, 'summary-calls')).toHaveText('6');
-  await expect(byId(browser, 'value-cache')).toHaveText('24.7%');
-  await expect(byId(browser, 'turn-count')).toHaveText('5');
-  await expect(browser.locator('[data-testid="panel-turns"] .turn-summary article >> nth=0 >> b')).toHaveText('333.3');
-  await expect(browser.locator('[data-testid="panel-turns"] .turn-summary article >> nth=1 >> b')).toHaveText('$0.001220');
-  await expect(browser.locator('[data-testid="ledger"] tbody tr')).toHaveCount(4);
-  await reveal(browser, '[data-testid="panel-speed"] .timing-explanation');
-  await expect(browser.locator('[data-testid="panel-speed"] .timing-ledger b')).toHaveText(['5.0 TPS', '10.0 TPS', '10.0 TPS']);
-  await browser.locator('[data-testid="slices-speed"] summary').click();
-  await expect(browser.locator('[data-testid="slices-speed"] tbody tr >> nth=0 >> td >> nth=2')).toHaveText('5');
-  await expect(browser.locator('[data-testid="slices-speed"] tbody tr >> nth=0 >> td >> nth=3')).toHaveText('—');
-  await expect(browser.locator('[data-testid="slices-speed"] tbody tr >> nth=1 >> td >> nth=2')).toHaveText('—');
-  await expect(browser.locator('[data-testid="slices-speed"] tbody tr >> nth=1 >> td >> nth=3')).toHaveText('10');
-  await browser.locator('[data-testid="slices-speed"] summary').click();
-  await browser.locator('[data-testid="slices-cache"] summary').click();
-  await expect(browser.locator('[data-testid="slices-cache"] tbody tr >> nth=0 >> td >> nth=2')).toHaveText('26.7%');
-  await expect(browser.locator('[data-testid="slices-cache"] tbody tr >> nth=1 >> td >> nth=2')).toHaveText('20.0%');
-  await browser.locator('[data-testid="slices-cache"] summary').click();
-
-  await settings(browser, 'rate');
-  await byId(browser, 'group-rate').selectOption({ value: 'model' });
-  await browser.locator('[data-testid="slices-rate"] summary').click();
-  const rateCell = (row: number, col: number) => browser.locator(`[data-testid="slices-rate"] tbody tr >> nth=${row} >> td >> nth=${col}`);
-  await expect(rateCell(0, 1)).toHaveText('60');
-  await expect(rateCell(1, 1)).toHaveText('30');
-  await expect(rateCell(0, 2)).toHaveText('800');
-  await expect(rateCell(1, 2)).toHaveText('1K');
-  await byId(browser, 'metric-rate').selectOption({ value: 'rpm' });
-  await expect(rateCell(0, 2)).toHaveText('3');
-  await expect(rateCell(1, 2)).toHaveText('6');
-  await byId(browser, 'metric-rate').selectOption({ value: 'throughput_tps' });
-  await expect(rateCell(0, 2)).toHaveText('13.33');
-  await expect(rateCell(1, 2)).toHaveText('16.67');
-  await byId(browser, 'metric-rate').selectOption({ value: 'rps' });
-  await expect(rateCell(0, 2)).toHaveText('0.05');
-  await expect(rateCell(1, 2)).toHaveText('0.1');
-  await browser.locator('[data-testid="slices-rate"] summary').click();
-
-  await settings(browser, 'consumption');
-  for (const kind of ['bar', 'line', 'area']) {
-    await byId(browser, 'chart-type-consumption').selectOption({ value: kind });
-    await expect(browser.locator(`[data-testid="chart-consumption"] .recharts-${kind} >> nth=0`)).toBeAttached();
+// Browser actions and rendered assertions against synthetic source logs and the
+// actual Python service. Network observation passes every response unchanged.
+test('dashboard journey: shared time, rates, cache, speeds, plots, ranking and return', async ({ browser: b, app }) => {
+  await open(b);
+  await expect(byId(b, 'global-query')).toHaveCount(1);
+  for (const removed of ['timezone','metric-help','open-metric-help','turn-row','usage-table']) await expect(byId(b, removed)).toHaveCount(0);
+  expect(await byId(b, 'source-health').getAttribute('open')).toBe(null);
+  const zone = await b.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await expect(byId(b, 'resolved-range')).toContainText(`本机时区 · ${zone}`);
+  expect(await b.evaluate(()=>[...document.querySelectorAll('.dashboard-chart .recharts-surface')].length===5&&[...document.querySelectorAll('.dashboard-chart .recharts-surface')].every(n=>n.getBoundingClientRect().width>0))).toBe(true);
+  await expect(byId(b, 'summary-calls')).toHaveText('6');
+  await expect(byId(b, 'value-consumption')).toHaveText(`$${initial.cost.toFixed(6)}`);
+  await expect(byId(b, 'value-cache')).toHaveText('24.7%');
+  await expect(byId(b, 'turn-count')).toHaveText('5');
+  await expect(byId(b, 'tokens-per-turn')).toHaveText('333.3');
+  await expect(byId(b, 'cost-per-turn')).toHaveText('$0.001220');
+  await reveal(b, 'slices-cache');
+  await expect(b.locator('[data-testid="slices-cache"] tbody tr >> nth=0 >> td >> nth=2')).toHaveText('26.7%');
+  await expect(b.locator('[data-testid="slices-cache"] tbody tr >> nth=1 >> td >> nth=2')).toHaveText('20.0%');
+  if (await b.locator('[data-testid="panel-speed"] .timing-explanation').getAttribute('open') === null)
+    await b.locator('[data-testid="panel-speed"] .timing-explanation summary').click();
+  await expect(b.locator('[data-testid="panel-speed"] .timing-ledger b')).toHaveText(['5.0 TPS','10.0 TPS','10.0 TPS']);
+  await settings(b, 'rate'); await byId(b, 'group-rate').selectOption({ value: 'model' }); await ready(b);
+  await reveal(b, 'slices-rate');
+  const cell = (r: number, c: number) => b.locator(`[data-testid="slices-rate"] tbody tr >> nth=${r} >> td >> nth=${c}`);
+  await expect(cell(0,1)).toHaveText('60'); await expect(cell(1,1)).toHaveText('30');
+  for (const [metric, values] of [['tpm',['800','1K']],['rpm',['3','6']],['throughput_tps',['13.33','16.67']],['rps',['0.05','0.1']]] as const) {
+    await byId(b, 'metric-rate').selectOption({ value: metric }); await ready(b);
+    await expect(cell(0,2)).toHaveText(values[0]); await expect(cell(1,2)).toHaveText(values[1]);
   }
-  await byId(browser, 'share-consumption').click();
-  await browser.locator('[data-testid="slices-consumption"] summary').click();
-  await expect(browser.locator('[data-testid="slices-consumption"] tbody tr >> nth=0 >> td >> nth=2')).toHaveText('100.0%');
-  await expect(browser.locator('[data-testid="slices-consumption"] tbody tr >> nth=1 >> td >> nth=2')).toHaveText('100.0%');
-  await browser.locator('[data-testid="slices-consumption"] summary').click();
-  await byId(browser, 'share-consumption').click();
-  await byId(browser, 'time-slice').selectOption({ value: '10second' });
-  await expect(byId(browser, 'value-consumption')).toHaveText(`$${initial.cost.toFixed(6)}`);
-  for (const id of ['consumption', 'rate', 'cache', 'speed'])
-    await expect(browser.locator(`[data-testid="panel-${id}"] .panel-foot`)).toContainText('每10秒');
-  await byId(browser, 'time-slice').selectOption({ value: 'minute' });
-
-  await byId(browser, 'timezone').selectOption({ value: 'Asia/Singapore' });
-  await expect(browser.locator('[data-testid="time-range"] .range-button')).toContainText('08:00');
-  await expect(byId(browser, 'summary-tokens')).toHaveText('1.3K');
-  await byId(browser, 'timezone').selectOption({ value: 'UTC' });
-  await harness(browser, 'codex');
-  await expect(byId(browser, 'summary-tokens')).toHaveText('500');
-  await expect(byId(browser, 'summary-calls')).toHaveText('3');
-  await expect(byId(browser, 'turn-count')).toHaveText('2');
-  await expect(browser.locator('[data-testid="ledger"] tbody tr')).toHaveCount(1);
-  await expect(byId(browser, 'value-cache')).toHaveText('17.1%');
-  await reveal(browser, '[data-testid="panel-speed"] .timing-explanation');
-  await expect(browser.locator('[data-testid="panel-speed"] .timing-ledger b')).toHaveText('5.0 TPS');
-  await byId(browser, 'clear-filters').click();
-  await expect(byId(browser, 'turn-count')).toHaveText('5');
-
-  await hideSettings(browser, 'rate');
-  await hideSettings(browser, 'consumption');
-  // A direct click in the second bucket zooms every panel and the ledger.
-  await hoverBucket(browser, 'rate', 1);
-  await browser.mouse.down(); await browser.mouse.up();
-  await expect(byId(browser, 'zoom-back')).toBeVisible();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('500');
-  await expect(browser.locator('[data-testid="ledger"] tbody tr')).toHaveCount(4);
-  await expect(browser.locator('[data-testid="ledger"] tbody tr:has-text("Claude Code") td >> nth=2')).toHaveText('0');
-  await settings(browser, 'consumption');
-  await byId(browser, 'group-consumption').selectOption({ value: 'harness' });
-  await browser.locator('[data-testid="absolute-ranking"] button[title="筛选Codex并查看其轮次"]').click();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('100');
-  await expect(byId(browser, 'turn-count')).toHaveText('1');
-  await turn(browser, 'codex-turn-live').click();
-  await expect(byId(browser, 'turn-detail')).toContainText('窗内 Tokens 100');
-  await expect(byId(browser, 'turn-model-call')).toHaveCount(1);
-  await expect(byId(browser, 'turn-tool-call')).toHaveCount(1);
-  await expect(byId(browser, 'turn-tool-call')).toContainText('进行中');
-  await browser.locator('[data-testid="turn-detail"] button[title="关闭轮次详情"]').click();
-  await byId(browser, 'clear-filters').click();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('500');
-  await byId(browser, 'zoom-back').click();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('1.3K');
-  await tab(browser, 'summary');
-  // The chart's visible range selector must apply the same shared zoom.
-  await byId(browser, 'chart-rate').scrollIntoView();
-  const brush = await browser.evaluate(() => {
-    const nodes = [...document.querySelectorAll('[data-testid="chart-rate"] .recharts-brush-traveller')];
-    if (nodes.length !== 2) throw new Error('range selector handles expected');
-    const first = nodes[0].getBoundingClientRect(), last = nodes[1].getBoundingClientRect();
-    return { x: first.x + first.width / 2, y: first.y + first.height / 2,
-      targetX: last.x + last.width / 2 + 2 };
+  await settings(b, 'rate', true); await settings(b, 'consumption');
+  for (const kind of ['bar','line','area']) {
+    await byId(b, 'chart-type-consumption').selectOption({ value: kind });
+    await expect(b.locator(`[data-testid="chart-consumption"] .recharts-${kind} >> nth=0`)).toBeAttached();
+  }
+  await byId(b, 'share-consumption').click(); await reveal(b, 'slices-consumption');
+  await expect(b.locator('[data-testid="slices-consumption"] tbody tr >> nth=0 >> td >> nth=2')).toHaveText('100.0%');
+  await byId(b, 'share-consumption').click(); await settings(b, 'consumption', true);
+  for (const interval of ['5second','10second','30second','minute','15minute']) {
+    await byId(b, `slice-${interval}`).click(); await ready(b);
+    await expect(byId(b, `slice-${interval}`)).toHaveAttribute('class', 'selected');
+    await expect(byId(b, 'summary-tokens')).toHaveText('1.3K');
+  }
+  await byId(b, 'slice-minute').click(); await ready(b); await harness(b);
+  await expect(byId(b, 'summary-tokens')).toHaveText('500'); await expect(byId(b, 'value-cache')).toHaveText('17.1%');
+  await byId(b, 'clear-filters').click(); await ready(b);
+  await hover(b, 'rate');
+  await b.mouse.down(); await b.mouse.up(); await ready(b);
+  await expect(byId(b, 'zoom-back')).toBeVisible(); await expect(byId(b, 'summary-tokens')).toHaveText('500');
+  await byId(b, 'rank-group-harness').click();
+  await b.locator('[data-testid="absolute-ranking"] button[title*="Codex"]').click(); await ready(b);
+  await expect(byId(b, 'usage-table')).toBeVisible(); await expect(byId(b, 'usage-total-tokens')).toHaveText('100');
+  await expect(byId(b, 'panel-consumption')).toHaveCount(0);
+  await byId(b, 'clear-filters').click(); await ready(b); await byId(b, 'zoom-back').click(); await ready(b);
+  await expect(byId(b, 'usage-total-tokens')).toHaveText('1,300'); await page(b, 'dashboard');
+  await byId(b, 'chart-rate').scrollIntoView();
+  const brush = await b.evaluate(() => {
+    const n = [...document.querySelectorAll('[data-testid="chart-rate"] .recharts-brush-traveller')];
+    const a=n[0].getBoundingClientRect(), z=n[1].getBoundingClientRect();
+    return {x:a.x+a.width/2,y:a.y+a.height/2,to:z.x+z.width/2+2};
   });
-  await browser.mouse.move(brush.x, brush.y);
-  await browser.mouse.down();
-  await browser.mouse.move(brush.targetX, brush.y);
-  await browser.mouse.up();
-  await expect(byId(browser, 'zoom-back')).toBeVisible();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('500');
-  await expect(browser.locator('[data-testid="ledger"] tbody tr')).toHaveCount(4);
-  await expect(browser.locator('[data-testid="ledger"] tbody tr:has-text("Claude Code") td >> nth=2')).toHaveText('0');
-  await byId(browser, 'zoom-back').click();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('1.3K');
-  await app.screenshot('dashboard-hand-counted-window');
+  await b.mouse.move(brush.x,brush.y); await b.mouse.down(); await b.mouse.move(brush.to,brush.y); await b.mouse.up(); await ready(b);
+  await expect(byId(b, 'summary-tokens')).toHaveText('500'); await byId(b, 'zoom-back').click(); await ready(b);
+  await expect(byId(b, 'summary-tokens')).toHaveText('1.3K'); await app.screenshot('dashboard-journey');
 });
 
-test('turn ledger: model calls, tools, status and detail follow global filters', async ({ browser, screen, app }) => {
-  await openDashboard(browser, screen);
-  await harness(browser, 'codex');
-  await tab(browser, 'turns');
-  const row = turnRow(browser, 'codex-turn-1');
-  await expect(row).toContainText('400');
-  await expect(row).toContainText('20.0s');
-  await turn(browser, 'codex-turn-1').click();
-  await expect(byId(browser, 'turn-detail')).toContainText('窗内 Tokens 400');
-  await expect(byId(browser, 'turn-detail')).toContainText('窗内估算费用 $0.001310');
-  await expect(byId(browser, 'turn-detail')).toContainText('窗内已记录模型调用 2');
-  await expect(byId(browser, 'turn-model-call')).toHaveCount(2);
-  await expect(byId(browser, 'turn-tool-call')).toHaveCount(2);
-  await expect(byId(browser, 'turn-tool-call')).toContainText(['exec_command', 'exec_command']);
-  await expect(browser.locator('[data-testid="turn-tool-call"] .status-badge')).toHaveText(['完成', '错误']);
-  await app.screenshot('completed-turn-tools');
-  await browser.locator('[data-testid="turn-detail"] button[title="关闭轮次详情"]').click();
-
-  await range(browser, screen, '2026-10-01T00:00:15', '2026-10-01T00:00:23');
-  await expect(byId(browser, 'turn-count')).toHaveText('1');
-  await expect(byId(browser, 'summary-tokens')).toHaveText('270');
-  await turn(browser, 'codex-turn-1').click();
-  await expect(byId(browser, 'turn-detail')).toContainText('窗内 Tokens 270');
-  await expect(byId(browser, 'turn-detail')).toContainText('窗内已记录模型调用 1');
-  await expect(byId(browser, 'turn-model-call')).toHaveCount(2);
-  await expect(byId(browser, 'turn-model-call')).toContainText(['窗外', '窗内']);
+test('usage page: all five groups preserve four components, reliable TPS, joint drill and return', async ({ browser: b, app }) => {
+  await open(b); await page(b,'usage');
+  for (const [name,count] of [['request',6],['session',4],['turn',5],['model',1],['harness',4]] as const) {
+    await group(b,name); await expect(byId(b,'usage-row')).toHaveCount(count);
+    await expect(byId(b,'usage-total-tokens')).toHaveText('1,300'); await expect(byId(b,'usage-total-cost')).toHaveText('$0.005085');
+    await vector(b,[6,540,210,100,450]);
+  }
+  await group(b,'request');
+  const omp = (child: string) => b.locator(`tr[data-testid="usage-row"]:has-text("OMP") ${child}`);
+  await expect(omp('[data-testid="usage-response-tps"]')).toHaveText('10');
+  await omp('[data-testid="usage-row-open"]').click(); await expect(byId(b,'usage-request-detail')).toContainText('10 TPS');
+  await expect(byId(b,'usage-request-detail')).toContainText('10 秒');
+  await row(b,'response-codex-1','[data-testid="usage-row-open"]').click();
+  await expect(byId(b,'usage-request-detail')).toContainText('无可用的请求计时');
+  await group(b,'turn'); await expect(row(b,'codex-turn-1','[data-testid="usage-turn-tps"]')).toHaveText('5');
+  await row(b,'codex-turn-1','[data-testid="usage-row-open"]').click();
+  await expect(byId(b,'usage-row')).toHaveCount(2); await expect(byId(b,'usage-total-tokens')).toHaveText('400');
+  await byId(b,'usage-drill-back').click(); await ready(b); await expect(byId(b,'usage-row')).toHaveCount(5);
+  await expect(byId(b,'usage-group-turn')).toHaveAttribute('class','selected');
+  await group(b,'model'); await expect(byId(b,'usage-response-tps')).toHaveText('10'); await expect(byId(b,'usage-turn-tps')).toHaveText('—');
+  await app.screenshot('usage-four-components-and-timing');
 });
 
-test('refresh: one new call, replay dedup, live tool/turn completion, missing and empty buckets', async ({ browser, screen, app }) => {
-  await openDashboard(browser, screen);
-  const state = JSON.parse(readFileSync(new URL('../../.e2e/fixture-state.json', import.meta.url), 'utf8'));
-  execFileSync('python3', [new URL('./fixture_logs.py', import.meta.url).pathname, '--append', state.root]);
-  await byId(browser, 'scan-data').click();
-  await expect(byId(browser, 'value-consumption')).toHaveText(`$${refreshed.cost.toFixed(6)}`);
-  await expect(byId(browser, 'summary-tokens')).toHaveText('1.4K');
-  await expect(byId(browser, 'summary-calls')).toHaveText('7');
-  await expect(byId(browser, 'turn-count')).toHaveText('5');
-  await tab(browser, 'turns');
-  const live = turnRow(browser, 'codex-turn-live');
-  await expect(live).toContainText('完成');
-  await expect(live).toContainText('200');
-  await turn(browser, 'codex-turn-live').click();
-  await expect(byId(browser, 'turn-model-call')).toHaveCount(2);
-  await expect(byId(browser, 'turn-tool-call')).toHaveCount(1);
-  await expect(byId(browser, 'turn-tool-call')).toContainText('错误');
-  await browser.locator('[data-testid="turn-detail"] button[title="关闭轮次详情"]').click();
-  execFileSync('python3', [new URL('./fixture_logs.py', import.meta.url).pathname, '--append', state.root]);
-  await byId(browser, 'scan-data').click();
-  await expect(byId(browser, 'summary-calls')).toHaveText('7');
-  await expect(byId(browser, 'summary-tokens')).toHaveText('1.4K');
-  await expect(byId(browser, 'turn-count')).toHaveText('5');
-
-  await range(browser, screen, '2026-10-01T00:01:30', '2026-10-01T00:02:00');
-  await expect(byId(browser, 'summary-cost')).toHaveText('—');
-  await expect(byId(browser, 'value-cache')).toHaveText('—');
-  await expect(byId(browser, 'summary')).toContainText('1 次缺价');
-  await expect(byId(browser, 'panel-speed')).toContainText('当前条件没有可用计时样本');
-  await range(browser, screen, '2026-10-01T00:02:00', '2026-10-01T00:03:00');
-  await expect(byId(browser, 'value-rate')).toHaveText('0');
-  await expect(byId(browser, 'summary-tokens')).toHaveText('0');
-  await expect(byId(browser, 'value-cache')).toHaveText('—');
-  await expect(byId(browser, 'panel-speed')).toContainText('当前条件没有可用计时样本');
-  await app.screenshot('missing-fields-and-empty-buckets');
+test('window activity: historical open metadata, same-prefix sessions, unassociated turns and partial values', async ({ browser: b, app }) => {
+  await open(b); await range(b,'2026-10-04T00:00:00Z','2026-10-04T00:01:00Z');
+  await expect(byId(b,'summary-tokens')).toHaveText('300'); await expect(byId(b,'turn-count')).toHaveText('1');
+  await expect(byId(b,'tool-call-total')).toHaveText('1'); await expect(byId(b,'tools-summary')).toContainText('fresh_tool');
+  await expect(byId(b,'tools-summary')).not.toContainText('exec_command');
+  await page(b,'usage');
+  for (const [name,count] of [['request',2],['session',2],['turn',2],['model',1],['harness',1]] as const) {
+    await group(b,name); await expect(byId(b,'usage-row')).toHaveCount(count); await vector(b,[2,150,50,20,80]);
+    await expect(byId(b,'usage-total-tokens')).toHaveText('300'); await expect(byId(b,'usage-total-cost')).toHaveText('$0.001025');
+    await expect(byId(b,'usage-table')).not.toContainText('55555555');
+  }
+  await group(b,'session');
+  await expect(byId(b,'usage-session-id')).toHaveText(['44444444…222222','44444444…111111']);
+  await b.setViewport({width:1024,height:1100}); await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r()))));
+  expect(await b.evaluate(()=>[...document.querySelectorAll('[data-testid="usage-session-id"]')].every(n=>{const r=n.getBoundingClientRect(),p=n.parentElement!.getBoundingClientRect();return n.clientWidth>=n.scrollWidth&&r.left>=p.left&&r.right<=p.right&&r.width>0;}))).toBe(true);
+  await app.screenshot('long-project-colliding-session-ids-1024');
+  await group(b,'turn'); await expect(row(b,'222222222222')).toContainText('未关联轮次');
+  await row(b,'222222222222','[data-testid="usage-row-open"]').click(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(1); await expect(byId(b,'usage-total-tokens')).toHaveText('170');
+  await expect(byId(b,'usage-response-tps')).toHaveText('—'); await expect(byId(b,'usage-turn-tps')).toHaveText('—');
+  await byId(b,'usage-drill-back').click(); await ready(b);
+  await app.screenshot('historical-open-and-unassociated');
+  await range(b,'2026-10-04T00:02:00Z','2026-10-04T00:03:00Z'); await expect(byId(b,'usage-row')).toHaveCount(0);
+  await page(b,'dashboard'); await expect(byId(b,'turn-count')).toHaveText('0'); await expect(byId(b,'tool-call-total')).toHaveText('0');
+  await range(b,'2026-10-03T00:00:00Z','2026-10-03T00:01:00Z');
+  await expect(byId(b,'summary-tokens')).toHaveText('130'); await expect(byId(b,'summary-cost')).toHaveText('$0.000500');
+  await expect(byId(b,'summary')).toContainText('部分价格'); await expect(byId(b,'tokens-per-turn')).toHaveText('65');
+  await expect(byId(b,'cost-per-turn')).toHaveText('$0.000250'); await expect(byId(b,'panel-turns')).toContainText('部分价格覆盖');
+  await page(b,'usage'); await group(b,'request');
+  await expect(byId(b,'usage-total-cost')).toHaveText('$0.000500 · 部分');
+  const missing=(child: string)=>b.locator(`tr[data-testid="usage-row"]:has-text("e2e-unpriced") ${child}`);
+  await expect(missing('td >> nth=7')).toHaveText('—'); await missing('[data-testid="usage-row-open"]').click();
+  await expect(byId(b,'usage-request-detail')).toContainText('输入组成有缺失'); await expect(byId(b,'usage-request-detail')).toContainText('次调用缺价');
 });
 
-
-test('relative window: refresh advances cutoff, zoom stays fixed, return restores live context', async ({ browser, screen, app }) => {
-  await browser.goto('/', { waitUntil: 'networkidle' });
-  await expect(byId(browser, 'global-query')).toBeVisible();
-  await byId(browser, 'timezone').selectOption({ value: 'UTC' });
-  await screen.getByRole('button', { name: '近24小时', exact: true }).click();
-  await byId(browser, 'time-slice').selectOption({ value: 'hour' });
-  await expect(byId(browser, 'summary-tokens')).toHaveText('0');
-  const state = JSON.parse(readFileSync(new URL('../../.e2e/fixture-state.json', import.meta.url), 'utf8'));
-  const append = (ordinal: number) => execFileSync('python3', [
-    new URL('./fixture_logs.py', import.meta.url).pathname, '--append', state.root,
-    '--recent-call', String(ordinal),
-  ]);
-  append(1);
-  await byId(browser, 'scan-data').click();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('100');
-  await expect(byId(browser, 'global-query')).toContainText('至今');
-  await browser.locator('[data-testid="slices-consumption"] summary').click();
-  await browser.locator('[data-testid="slices-consumption"] tbody tr >> nth=-1 >> button').click();
-  await expect(byId(browser, 'zoom-back')).toBeVisible();
-  await expect(byId(browser, 'global-query')).toContainText('固定时段');
-  const fixedRange = await browser.locator('[data-testid="time-range"] .range-button').textContent();
-  append(2);
-  await byId(browser, 'scan-data').click();
-  await expect(browser.locator('[data-testid="time-range"] .range-button')).toHaveText(fixedRange!);
-  await expect(byId(browser, 'summary-tokens')).toHaveText('100');
-  await byId(browser, 'zoom-back').click();
-  await expect(byId(browser, 'global-query')).toContainText('至今');
-  await byId(browser, 'scan-data').click();
-  await expect(byId(browser, 'summary-tokens')).toHaveText('200');
-  await expect(byId(browser, 'summary-calls')).toHaveText('2');
-  await app.screenshot('relative-window-restored');
-});
-
-test('daily dashboard: saved context, local requests, whole-result turn sorting and partial totals', async ({ browser, screen, app }) => {
-  const requests: URL[] = [];
-  await browser.route(/\/api\//, async route => {
-    requests.push(new URL(route.request.url));
-    await route.continue();
-  });
-  await browser.goto('/', { waitUntil: 'networkidle' });
-  await expect(byId(browser, 'global-query')).toBeVisible();
-  await byId(browser, 'timezone').selectOption({ value: 'UTC' });
-  await range(browser, screen, '2026-10-02T00:00:00', '2026-10-02T01:00:00');
-  await byId(browser, 'time-slice').selectOption({ value: 'hour' });
-  await expect(byId(browser, 'summary-tokens')).toHaveText('2.5K');
-  await settings(browser, 'consumption');
-  await byId(browser, 'group-consumption').selectOption({ value: 'harness' });
-  await byId(browser, 'metric-consumption').selectOption({ value: 'tokens' });
-  await byId(browser, 'chart-type-consumption').selectOption({ value: 'bar' });
-  await harness(browser, 'codex');
-  await browser.locator('[data-testid="filter-project"] .facet-trigger').click();
-  await byId(browser, 'filter-project').getByLabel('/synthetic/ranking').check();
-  await browser.locator('[data-testid="filter-project"] .dismiss').click();
-  await expect(byId(browser, 'value-consumption')).toHaveText('2.5K');
-  const fixedRange = await browser.locator('[data-testid="time-range"] .range-button').textContent();
-  await browser.reload();
-  await expect(byId(browser, 'value-consumption')).toHaveText('2.5K');
-  await settings(browser, 'consumption');
-  await expect(byId(browser, 'group-consumption')).toHaveValue('harness');
-  await expect(byId(browser, 'metric-consumption')).toHaveValue('tokens');
-  await expect(byId(browser, 'chart-type-consumption')).toHaveValue('bar');
-  await expect(browser.locator('[data-testid="time-range"] .range-button')).toHaveText(fixedRange!);
-  await browser.locator('[data-testid="filter-harness"] .facet-trigger').click();
-  await expect(byId(browser, 'filter-harness').getByLabel('Codex')).toBeChecked();
-  await browser.locator('[data-testid="filter-harness"] .dismiss').click();
-  requests.length = 0;
-  await byId(browser, 'chart-type-consumption').selectOption({ value: 'line' });
-  await expect(browser.locator('[data-testid="chart-consumption"] .recharts-line >> nth=0')).toBeAttached();
-  await browser.evaluate(() => new Promise<number>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(0)))));
-  expect(requests.filter(r => r.pathname === '/api/analytics' || r.pathname === '/api/turns').length).toBe(0);
-  requests.length = 0;
-  const localResponse = browser.waitForResponse(/\/api\/analytics\?/);
-  await byId(browser, 'group-consumption').selectOption({ value: 'project' });
-  await localResponse;
-  await expect(byId(browser, 'value-consumption')).toHaveText('2.5K');
-  const localAnalyses = requests.filter(r => r.pathname === '/api/analytics');
-  expect(localAnalyses.length).toBe(1);
-  expect(localAnalyses[0].searchParams.get('group_by')).toBe('project');
-  expect(requests.filter(r => r.pathname === '/api/turns').length).toBe(0);
-  await browser.locator('[data-testid="settings-consumption"] summary').click();
-  await byId(browser, 'global-query').scrollIntoView();
-  await app.screenshot('formal-dashboard-1600');
-  await browser.setViewport({ width: 1024, height: 900 });
-  await browser.evaluate(() => new Promise<number>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(0)))));
-  await app.screenshot('formal-dashboard-1024');
-  expect(await browser.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await browser.setViewport({ width: 1600, height: 1100 });
-
-  await range(browser, screen, '2026-10-02T00:00:00', '2026-10-02T01:00:00');
-  await tab(browser, 'turns');
-  await expect(byId(browser, 'turn-count')).toHaveText('25');
-  await expect(byId(browser, 'turn-row')).toHaveCount(20);
-  await expect(turn(browser, 'ranking-turn-00')).toHaveCount(0);
-  await expect(turn(browser, 'ranking-turn-01')).toHaveCount(0);
-  requests.length = 0;
-  await byId(browser, 'turn-sort').selectOption({ value: 'cost_usd' });
-  await expect(browser.locator('[data-testid="turn-row"] >> nth=0')).toHaveAttribute('title', /ranking-turn-00$/);
-  await expect(turnRow(browser, 'ranking-turn-00')).toContainText('$0.0160');
-  expect(requests.filter(r => r.pathname === '/api/analytics').length).toBe(0);
-  expect(requests.filter(r => r.pathname === '/api/turns').length).toBe(1);
-  requests.length = 0;
-  await byId(browser, 'turn-next').click();
-  await expect(byId(browser, 'turn-row')).toHaveCount(5);
-  expect(requests.filter(r => r.pathname === '/api/analytics').length).toBe(0);
-  expect(requests.filter(r => r.pathname === '/api/turns').length).toBe(1);
-  await byId(browser, 'turn-sort').selectOption({ value: 'duration' });
-  await expect(browser.locator('[data-testid="turn-row"] >> nth=0')).toHaveAttribute('title', /ranking-turn-01$/);
-  await expect(byId(browser, 'turn-row')).toHaveCount(20);
-  await browser.locator('[data-testid="turn-row"] >> nth=0').click();
-  await expect(byId(browser, 'turn-detail')).toContainText('90.0s');
-  await browser.locator('[data-testid="turn-detail"] button[title="关闭轮次详情"]').click();
-  await expect(browser.locator('[data-testid="turn-row"] >> nth=0')).toHaveAttribute('title', /ranking-turn-01$/);
-  await tab(browser, 'summary');
-  await expect(byId(browser, 'ledger')).toBeVisible();
-  await tab(browser, 'turns');
-  await expect(byId(browser, 'turn-sort')).toHaveValue('duration');
-  await expect(browser.locator('[data-testid="turn-row"] >> nth=0')).toHaveAttribute('title', /ranking-turn-01$/);
-  await app.screenshot('whole-result-turn-order');
-
-  await byId(browser, 'clear-filters').click();
-  await range(browser, screen, '2026-10-03T00:00:00', '2026-10-03T00:01:00');
-  await expect(byId(browser, 'summary-tokens')).toHaveText('130');
-  await expect(byId(browser, 'summary-cost')).toHaveText('$0.000500');
-  await expect(byId(browser, 'summary')).toContainText('部分价格');
-  await expect(byId(browser, 'summary')).toContainText('已记录');
-  await expect(browser.locator('[data-testid="panel-turns"] .turn-summary article >> nth=0 >> b')).toHaveText('65');
-  await expect(browser.locator('[data-testid="panel-turns"] .turn-summary article >> nth=1 >> b')).toHaveText('$0.000250');
-  await expect(browser.locator('[data-testid="panel-turns"] .turn-summary article >> nth=1')).toContainText('部分价格覆盖');
-  await app.screenshot('recorded-partial-totals');
-});
-
-test('time controls: until now, persisted auto refresh, editing pause and no overlap', async ({ browser, screen, app }) => {
-  const requests: URL[] = [];
-  let refreshPosts = 0;
-  let releaseRefresh: (() => void) | undefined;
-  let holdRefresh = false;
-  await browser.route(/\/api\//, async route => {
-    requests.push(new URL(route.request.url));
-    if (route.request.method === 'POST' && new URL(route.request.url).pathname === '/api/refresh') {
-      refreshPosts++;
-      if (holdRefresh) {
-        holdRefresh = false;
-        await new Promise<void>(resolve => { releaseRefresh = resolve; });
+test('daily use: persisted settings, isolated requests, global sorting and light/dark desktop layouts', async ({ browser: b, app }) => {
+  const requests: URL[]=[]; await b.route(/\/api\//,async r=>{requests.push(new URL(r.request.url));await r.continue();});
+  await open(b); await harness(b); await settings(b,'consumption');
+  requests.length=0; await byId(b,'group-consumption').selectOption({value:'harness'}); await ready(b);
+  expect(requests.map(r=>r.pathname)).toEqual(['/api/analytics']);
+  requests.length=0; await byId(b,'chart-type-consumption').selectOption({value:'area'}); await byId(b,'share-consumption').click(); await wait(100);
+  expect(requests.length).toBe(0); await b.reload(); await ready(b); await settings(b,'consumption');
+  await expect(byId(b,'group-consumption')).toHaveValue('harness'); await expect(byId(b,'chart-type-consumption')).toHaveValue('area');
+  await expect(byId(b,'summary-tokens')).toHaveText('500'); await settings(b,'consumption',true);
+  await byId(b,'clear-filters').click(); await ready(b); await range(b,'2026-10-02T00:00:00Z','2026-10-02T01:00:00Z');
+  requests.length=0; await page(b,'usage'); expect(requests.map(r=>r.pathname)).toEqual(['/api/usage']);
+  requests.length=0; await group(b,'turn'); expect(requests.map(r=>r.pathname)).toEqual(['/api/usage']); await expect(byId(b,'usage-row')).toHaveCount(20);
+  await expect(row(b,'ranking-turn-00')).toHaveCount(0); requests.length=0;
+  await byId(b,'usage-next').click(); await ready(b); await expect(byId(b,'usage-row')).toHaveCount(5);
+  expect(requests.map(r=>r.pathname)).toEqual(['/api/usage']); await expect(row(b,'ranking-turn-00')).toBeVisible();
+  requests.length=0; await byId(b,'usage-sort-cost_usd').click(); await ready(b);
+  expect(requests.map(r=>r.pathname)).toEqual(['/api/usage']); await expect(byId(b,'usage-row-open').first()).toHaveAttribute('title', /ranking-turn-00/);
+  await expect(row(b,'ranking-turn-00','td >> nth=10')).toHaveText('$0.0160');
+  await byId(b,'usage-sort-turn_tps').click(); await ready(b); await expect(byId(b,'usage-row-open').first()).toHaveAttribute('title', /ranking-turn-00/);
+  await byId(b,'usage-sort-turn_tps').click(); await ready(b); await expect(byId(b,'usage-row-open').first()).toHaveAttribute('title', /ranking-turn-01/);
+  await byId(b,'usage-sort-time').click(); await ready(b); await byId(b,'usage-next').click(); await ready(b);
+  await row(b,'ranking-turn-00','[data-testid="usage-row-open"]').click(); await ready(b);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('2,000'); await byId(b,'usage-drill-back').click(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(5); await b.reload(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(5); await expect(byId(b,'usage-group-turn')).toHaveAttribute('class','selected');
+  await range(b); await group(b,'request');
+  for (const theme of ['light','dark']) {
+    await byId(b,`theme-${theme}`).click(); await expect(byId(b,'workbench')).toHaveAttribute('data-theme',theme);
+    for (const width of [1600,1024]) {
+      await b.setViewport({width,height:1100}); await b.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+      for (const name of ['usage','dashboard'] as const) {
+        await page(b,name); expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+        if(name==='dashboard') await expect(b.locator('[data-testid="chart-speed"] .chart-isolated-point')).toHaveCount(3);
+        const height=await b.evaluate(()=>{scrollTo(0,0);return Math.max(1100,document.documentElement.scrollHeight);});
+        await b.setViewport({width,height}); await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r()))));
+        await app.screenshot(`${name}-${theme}-${width}`); await b.setViewport({width,height:1100});
       }
     }
-    await route.continue();
+    await b.setViewport({width:1600,height:1100}); await hover(b,'consumption',0);
+    await expect(b.locator('[data-testid="chart-consumption"] .chart-tooltip')).toBeVisible();
+    await app.screenshot(`tooltip-${theme}`); await b.reload(); await ready(b);
+    await expect(byId(b,'workbench')).toHaveAttribute('data-theme',theme);
+  }
+});
+
+test('refresh: incremental dedup, completed metadata, unknown and empty windows, live zoom restoration', async ({ browser: b, app }) => {
+  await open(b); append(); await refresh(b);
+  await expect(byId(b,'summary-tokens')).toHaveText('1.4K'); await expect(byId(b,'summary-calls')).toHaveText('7');
+  await expect(byId(b,'value-consumption')).toHaveText(`$${refreshed.cost.toFixed(6)}`); await expect(byId(b,'turn-count')).toHaveText('5');
+  await expect(b.locator('[data-testid="tools-summary"] article:has-text("exec_command")')).toContainText('错误 2');
+  await expect(b.locator('[data-testid="tools-summary"] article:has-text("exec_command")')).not.toContainText('进行中');
+  await expect(byId(b,'tokens-per-turn')).toHaveText('300'); await expect(byId(b,'cost-per-turn')).toHaveText('$0.001165');
+  await page(b,'usage'); await group(b,'turn'); await expect(row(b,'codex-turn-live','td >> nth=9')).toHaveText('11.11');
+  await row(b,'codex-turn-live','[data-testid="usage-row-open"]').click(); await ready(b);
+  await expect(byId(b,'usage-row')).toHaveCount(2); await expect(byId(b,'usage-total-tokens')).toHaveText('200');
+  await byId(b,'usage-drill-back').click(); await ready(b); append(); await refresh(b);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('1,400'); await expect(byId(b,'usage-row')).toHaveCount(5);
+  await page(b,'dashboard'); await range(b,'2026-10-01T00:01:30Z','2026-10-01T00:02:00Z');
+  await expect(byId(b,'summary-cost')).toHaveText('—'); await expect(byId(b,'value-cache')).toHaveText('—');
+  await expect(byId(b,'panel-speed')).toContainText('当前条件没有可用计时样本');
+  await range(b,'2026-10-01T00:02:00Z','2026-10-01T00:03:00Z'); await expect(byId(b,'value-rate')).toHaveText('0');
+  await expect(byId(b,'turn-count')).toHaveText('0');
+  await byId(b,'time-start').fill('-24h'); await byId(b,'time-end').fill('现在'); await byId(b,'time-apply').click(); await ready(b);
+  await byId(b,'slice-hour').click(); await ready(b); append(1); await refresh(b); await expect(byId(b,'summary-tokens')).toHaveText('100');
+  await reveal(b,'slices-consumption'); await b.locator('[data-testid="slices-consumption"] tbody tr >> nth=-1 >> button').click(); await ready(b);
+  const frozen=await byId(b,'resolved-range').textContent(); append(2); await refresh(b);
+  await expect(byId(b,'resolved-range')).toHaveText(frozen!); await expect(byId(b,'summary-tokens')).toHaveText('100');
+  await byId(b,'zoom-back').click(); await ready(b); await expect(byId(b,'time-start')).toHaveValue('-24h');
+  await expect(byId(b,'time-end')).toHaveValue('现在'); await refresh(b); await expect(byId(b,'summary-tokens')).toHaveText('200');
+  await app.screenshot('incremental-refresh-and-live-return');
+});
+
+test('inline time: relative/since/fixed, auto refresh persisted, editing pause and no overlap', async ({ browser: b, app }) => {
+  const requests:URL[]=[]; let posts=0,hold=false,release:(()=>void)|undefined;
+  await b.route(/\/api\//,async r=>{
+    const u=new URL(r.request.url); requests.push(u);
+    if(r.request.method==='POST'&&u.pathname==='/api/refresh') {posts++; if(hold){hold=false;await new Promise<void>(resolve=>{release=resolve;});}}
+    await r.continue();
   });
-  await browser.goto('/', { waitUntil: 'networkidle' });
-  await expect(byId(browser, 'global-query')).toBeVisible();
-  await expect(byId(browser, 'auto-refresh')).toHaveValue('0');
-  await byId(browser, 'timezone').selectOption({ value: 'UTC' });
-  const latestQuery = () => requests.filter(r => r.pathname === '/api/analytics').at(-1)!;
-  const relative = async (expression: string, milliseconds: number) => {
-    await byId(browser, 'range-trigger').click();
-    await byId(browser, 'time-mode').selectOption({ value: 'relative' });
-    await byId(browser, 'relative-start').fill(expression);
-    const response = browser.waitForResponse(/\/api\/analytics\?/);
-    await byId(browser, 'apply-time').click();
-    await response;
-    await expect(byId(browser, 'range-trigger')).toContainText('至今');
-    const q = latestQuery();
-    expect(Date.parse(q.searchParams.get('end')!) - Date.parse(q.searchParams.get('start')!)).toBe(milliseconds);
-    expect(Math.abs(Date.parse(q.searchParams.get('end')!) - Date.now()) < 5000).toBe(true);
-  };
-  await relative('-18h', 18 * 3600000);
-  await relative('-2days', 2 * 86400000);
-  await byId(browser, 'range-trigger').click();
-  await byId(browser, 'time-mode').selectOption({ value: 'since' });
-  await byId(browser, 'range-start').fill('2026-10-01T00:00');
-  const sinceResponse = browser.waitForResponse(/\/api\/analytics\?/);
-  await byId(browser, 'apply-time').click();
-  await sinceResponse;
-  expect(latestQuery().searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z');
-  const beforeEnd = latestQuery().searchParams.get('end')!;
-  const afterScan = browser.waitForResponse(/\/api\/analytics\?/);
-  await byId(browser, 'scan-data').click();
-  await afterScan;
-  for (let i = 0; i < 100 && Date.parse(latestQuery().searchParams.get('end')!) <= Date.parse(beforeEnd); i++)
-    await new Promise(resolve => setTimeout(resolve, 100));
-  expect(Date.parse(latestQuery().searchParams.get('end')!) > Date.parse(beforeEnd)).toBe(true);
-  expect(latestQuery().searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z');
-  await relative('-18h', 18 * 3600000);
-  await byId(browser, 'time-slice').selectOption({ value: 'hour' });
-  await tab(browser, 'turns');
-  await expect(turn(browser, 'codex-recent-99')).toHaveCount(0);
-  const state = JSON.parse(readFileSync(new URL('../../.e2e/fixture-state.json', import.meta.url), 'utf8'));
-  execFileSync('python3', [new URL('./fixture_logs.py', import.meta.url).pathname, '--append', state.root, '--recent-call', '99']);
-  refreshPosts = 0;
-  holdRefresh = true;
-  await byId(browser, 'auto-refresh').selectOption({ value: '15' });
-  // Wait one real interval. The engine has no public clock control; requests
-  // still reach the real server, with only the first POST temporarily delayed.
-  for (let i = 0; i < 20 && !releaseRefresh; i++) await new Promise(resolve => setTimeout(resolve, 1000));
-  expect(refreshPosts).toBe(1);
-  await new Promise(resolve => setTimeout(resolve, 16000));
-  expect(refreshPosts).toBe(1);
-  releaseRefresh!();
-  await expect(turn(browser, 'codex-recent-99')).toBeVisible();
-  await expect(turnRow(browser, 'codex-recent-99')).toContainText('100');
-  await browser.reload();
-  await expect(byId(browser, 'auto-refresh')).toHaveValue('15');
-  await byId(browser, 'range-trigger').click();
-  await expect(byId(browser, 'time-mode')).toHaveValue('relative');
-  await expect(byId(browser, 'relative-start')).toHaveValue('-18h');
-  const beforeEdit = refreshPosts;
-  await new Promise(resolve => setTimeout(resolve, 16000));
-  expect(refreshPosts).toBe(beforeEdit);
-  await screen.getByRole('button', { name: '关闭时间范围', exact: true }).click();
-  await byId(browser, 'auto-refresh').selectOption({ value: '0' });
-  await range(browser, screen);
-  const historical = await byId(browser, 'range-trigger').getAttribute('title');
-  const fixedScan = browser.waitForResponse(/\/api\/analytics\?/);
-  await byId(browser, 'scan-data').click();
-  await fixedScan;
-  await expect(byId(browser, 'range-trigger')).toHaveAttribute('title', historical!);
-  await browser.reload();
-  await expect(byId(browser, 'range-trigger')).toHaveAttribute('title', historical!);
-  await expect(byId(browser, 'auto-refresh')).toHaveValue('0');
-  await app.screenshot('time-modes-and-auto-refresh');
+  await b.goto('/',{waitUntil:'networkidle'}); await expect(byId(b,'auto-refresh-toggle')).not.toBeChecked();
+  const latest=()=>requests.filter(r=>r.pathname==='/api/analytics').at(-1)!;
+  for (const [expression,ms] of [['-18h',18*3600000],['-2days',2*86400000]] as const) {
+    await byId(b,'time-start').fill(expression); await byId(b,'time-end').fill('现在'); await byId(b,'time-apply').click(); await ready(b);
+    const q=latest(); expect(Date.parse(q.searchParams.get('end')!)-Date.parse(q.searchParams.get('start')!)).toBe(ms);
+    expect(Math.abs(Date.parse(q.searchParams.get('end')!)-Date.now())<5000).toBe(true);
+    expect(q.searchParams.get('timezone')).toBe(await b.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone));
+  }
+  await byId(b,'time-start').fill('2026-10-01T00:00:00Z'); await byId(b,'time-apply').click(); await ready(b);
+  expect(latest().searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z'); const before=latest().searchParams.get('end')!;
+  await refresh(b); expect(Date.parse(latest().searchParams.get('end')!)>Date.parse(before)).toBe(true);
+  expect(latest().searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z');
+  await byId(b,'time-start').fill('-18h'); await byId(b,'time-apply').click(); await ready(b); await byId(b,'slice-hour').click(); await ready(b);
+  const baseline=Number(await byId(b,'summary-calls').textContent()); append(99); posts=0;hold=true; await byId(b,'auto-period-15').click(); await byId(b,'auto-refresh-toggle').check();
+  for(let i=0;i<20&&!release;i++) await wait(1000); expect(posts).toBe(1); await wait(16000); expect(posts).toBe(1);
+  release!(); await expect(byId(b,'summary-calls')).toHaveText(String(baseline+1));
+  await b.reload(); await ready(b); await expect(byId(b,'auto-refresh-toggle')).toBeChecked();
+  await expect(byId(b,'auto-period-15')).toHaveAttribute('class','selected'); await expect(byId(b,'time-start')).toHaveValue('-18h');
+  await byId(b,'time-start').fill('-18h'); const beforeEdit=posts; await wait(16000); expect(posts).toBe(beforeEdit);
+  await byId(b,'auto-refresh-toggle').uncheck(); await range(b); const fixed=await byId(b,'resolved-range').textContent();
+  await refresh(b); await expect(byId(b,'resolved-range')).toHaveText(fixed!); await b.reload(); await ready(b);
+  await expect(byId(b,'resolved-range')).toHaveText(fixed!); await expect(byId(b,'auto-refresh-toggle')).not.toBeChecked();
+  await app.screenshot('inline-time-and-auto-refresh');
 });

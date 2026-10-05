@@ -131,6 +131,7 @@ def prepare(root):
     (root / 'pricing.json').write_text(json.dumps({MODEL: {'inputCostPerMillion': 2,
         'cacheReadCostPerMillion': .5, 'cacheWriteCostPerMillion': 3, 'outputCostPerMillion': 8}}))
     prepare_daily_cases(root)
+    prepare_activity_cases(root)
     (root / 'codex/config.toml').write_text('service_tier = "default"\n')
     return root
 
@@ -182,6 +183,53 @@ def prepare_daily_cases(root):
                          'model': model, 'stop_reason': 'end_turn', 'content': [], 'usage': usage}},
         ])
     write(root / 'claude/projects/synthetic/partial-session.jsonl', partial)
+
+
+def prepare_activity_cases(root):
+    """Old open metadata is separate from real window activity and orphan usage."""
+    project = '/synthetic/company/platform/products/usage-workbench/feature-branches/extremely-long-project-path/activity'
+    old = datetime(2026, 9, 30, tzinfo=timezone.utc)
+    recent = datetime(2026, 10, 4, tzinfo=timezone.utc)
+    for sid, active in [
+        ('44444444-1111-4111-8111-111111111111', True),
+        ('55555555-5555-4555-8555-555555555555', False),
+    ]:
+        turn = 'old-active-turn' if active else 'old-stale-turn'
+        records = [
+            {'timestamp': old.isoformat(), 'type': 'session_meta', 'payload': {
+                'id': sid, 'cwd': project, 'timestamp': old.isoformat(), 'model_provider': 'e2e'}},
+            {'timestamp': old.isoformat(), 'type': 'turn_context', 'payload': {'model': MODEL, 'cwd': project}},
+            {'timestamp': old.isoformat(), 'type': 'event_msg', 'payload': {
+                'type': 'task_started', 'turn_id': turn, 'started_at': old.timestamp()}},
+            codex_call(f'old-response-{sid}', turn, 0, 10, 0, 10),
+            codex_tool(1, f'old-tool-{sid}'),
+        ]
+        records[3]['timestamp'] = old.isoformat()
+        records[3]['payload'].update(thread_id=sid, session_id=sid)
+        records[4]['timestamp'] = (old + timedelta(seconds=1)).isoformat()
+        if active:
+            call = codex_call('fresh-old-session', turn, 10, 100, 20, 30)
+            call['timestamp'] = (recent + timedelta(seconds=10)).isoformat()
+            call['payload'].update(thread_id=sid, session_id=sid)
+            tool = codex_tool(11, 'fresh-tool', 'fresh_tool')
+            tool['timestamp'] = (recent + timedelta(seconds=11)).isoformat()
+            result = codex_tool_end(12, 'fresh-tool', 0)
+            result['timestamp'] = (recent + timedelta(seconds=12)).isoformat()
+            records.extend([call, tool, result])
+        write(root / 'codex/sessions/2026/09/30' / f'rollout-2026-09-30T00-00-00-{sid}.jsonl', records)
+    sid = '44444444-2222-4222-8222-222222222222'
+    call = codex_call('unassigned-window-response', None, 20, 120, 30, 50)
+    call['timestamp'] = (recent + timedelta(seconds=20)).isoformat()
+    call['payload'].update(thread_id=sid, session_id=sid)
+    call['payload'].pop('turn_id')
+    call['payload'].pop('root_turn_id')
+    call['payload']['usage']['cache_write_input_tokens'] = 20
+    write(root / 'codex/sessions/2026/09/30' / f'rollout-2026-09-30T00-00-00-{sid}.jsonl', [
+        {'timestamp': old.isoformat(), 'type': 'session_meta', 'payload': {
+            'id': sid, 'cwd': project, 'timestamp': old.isoformat(), 'model_provider': 'e2e'}},
+        {'timestamp': old.isoformat(), 'type': 'turn_context', 'payload': {'model': MODEL, 'cwd': project}},
+        call,
+    ])
 
 
 def append_completion(root):
