@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from codex_usage import cli, stats
-from codex_usage.parser import Session, collect, parse_rollout, to_local
-from codex_usage.render import tables
+from harnesscope import cli, stats
+from harnesscope.parser import Session, collect, parse_rollout, to_local
+from harnesscope.render import tables
 
 SID = '00000000-0000-0000-0000-000000000001'
 BASE = datetime(2026, 9, 30, tzinfo=timezone.utc)

@@ -11,22 +11,22 @@ import pytest
 @pytest.fixture(autouse=True)
 def isolated_user_pricing(tmp_path, monkeypatch):
     """测试与子进程使用临时来源和配置，避免读取个人日志或本机价格。"""
-    from codex_usage import pricing
+    from harnesscope import pricing
 
     for variable, relative in {
         "CODEX_HOME": "codex",
-        "CODEX_USAGE_SESSIONS_DIR": "codex/sessions",
-        "CODEX_USAGE_ARCHIVE_DIR": "codex/archived_sessions",
+        "HARNESCOPE_SESSIONS_DIR": "codex/sessions",
+        "HARNESCOPE_ARCHIVE_DIR": "codex/archived_sessions",
         "CLAUDE_CONFIG_DIR": "claude",
         "OMP_SESSIONS_DIR": "omp/sessions",
         "PI_CODING_AGENT_DIR": "omp",
         "DSH_HOME": "dsh",
     }.items():
         monkeypatch.setenv(variable, str(tmp_path / relative))
-    monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(tmp_path / "config.toml"))
-    monkeypatch.setenv("CODEX_USAGE_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("CODEX_USAGE_PRICING_FILE", str(tmp_path / "prices.json"))
-    for key in ("CODEX_USAGE_TIER_PRICING_FILE", "CODEX_USAGE_ALIASES_FILE"):
+    monkeypatch.setenv("HARNESCOPE_CODEX_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setenv("HARNESCOPE_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("HARNESCOPE_PRICING_FILE", str(tmp_path / "prices.json"))
+    for key in ("HARNESCOPE_TIER_PRICING_FILE", "HARNESCOPE_ALIASES_FILE"):
         monkeypatch.delenv(key, raising=False)
     caches = (pricing.load_aliases, pricing.load_tier_pricing, pricing.default_service_tier)
     for cached in caches:
@@ -149,7 +149,7 @@ def env(tmp_path, monkeypatch):
         token_event(ARCH, usage(550, 500, 10), usage(550, 500, 10)),
     ])
 
-    monkeypatch.setenv("CODEX_USAGE_SESSIONS_DIR", str(sess))
-    monkeypatch.setenv("CODEX_USAGE_ARCHIVE_DIR", str(arch))
-    monkeypatch.setenv("CODEX_USAGE_PRICING_FILE", str(price))
+    monkeypatch.setenv("HARNESCOPE_SESSIONS_DIR", str(sess))
+    monkeypatch.setenv("HARNESCOPE_ARCHIVE_DIR", str(arch))
+    monkeypatch.setenv("HARNESCOPE_PRICING_FILE", str(price))
     return {"sessions": str(sess), "archive": str(arch), "pricing": str(price), "ids": ids}

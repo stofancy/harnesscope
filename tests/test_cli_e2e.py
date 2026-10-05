@@ -8,17 +8,17 @@ from datetime import datetime, timezone
 import pytest
 
 
-MOD = "codex_usage.cli"
+MOD = "harnesscope.cli"
 
 
 @pytest.fixture
 def mixed_fast_recs(tmp_path, monkeypatch):
-    from codex_usage.parser import Session
-    from codex_usage import pricing
+    from harnesscope.parser import Session
+    from harnesscope import pricing
 
-    monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(tmp_path / "config.toml"))
-    monkeypatch.setenv("CODEX_USAGE_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("CODEX_USAGE_PRICING_FILE", str(tmp_path / "prices.json"))
+    monkeypatch.setenv("HARNESCOPE_CODEX_CONFIG", str(tmp_path / "config.toml"))
+    monkeypatch.setenv("HARNESCOPE_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("HARNESCOPE_PRICING_FILE", str(tmp_path / "prices.json"))
     pricing.default_service_tier.cache_clear()
     model = "gpt-6.1-sol"
     recs = []
@@ -35,7 +35,7 @@ def mixed_fast_recs(tmp_path, monkeypatch):
 
 
 def test_json_model_unit_price_uses_recorded_tiers(mixed_fast_recs, capsys):
-    from codex_usage import cli
+    from harnesscope import cli
 
     recs, table = mixed_fast_recs
     cli._emit_json(recs, table)
@@ -56,7 +56,7 @@ def test_json_model_unit_price_uses_recorded_tiers(mixed_fast_recs, capsys):
 ])
 def test_model_day_charts_use_tier_costs_and_weighted_ratios(
         mixed_fast_recs, chart, metric, expected):
-    from codex_usage import cli
+    from harnesscope import cli
 
     recs, table = mixed_fast_recs
     args = cli.build_parser().parse_args([
@@ -86,15 +86,15 @@ def run(env, *args, code="2026-09-10", until="2026-09-11"):
 def test_fast_pricing_cli_switches_and_config_fallback(tmp_path, monkeypatch,
                                                      initial_tier, expected):
     """真实 CLI 从 rollout 取档位：显式 Standard 保留，unknown 才使用 Fast 配置。"""
-    from codex_usage import pricing
+    from harnesscope import pricing
 
     sess = tmp_path / "sessions" / "2026" / "09" / "30"
     sess.mkdir(parents=True)
     config = tmp_path / "config.toml"
     config.write_text('service_tier = "fast"\n')
-    monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(config))
-    monkeypatch.setenv("CODEX_USAGE_SESSIONS_DIR", str(tmp_path / "sessions"))
-    monkeypatch.setenv("CODEX_USAGE_ARCHIVE_DIR", str(tmp_path / "archive"))
+    monkeypatch.setenv("HARNESCOPE_CODEX_CONFIG", str(config))
+    monkeypatch.setenv("HARNESCOPE_SESSIONS_DIR", str(tmp_path / "sessions"))
+    monkeypatch.setenv("HARNESCOPE_ARCHIVE_DIR", str(tmp_path / "archive"))
     pricing.default_service_tier.cache_clear()
     ts = datetime(2026, 9, 30, 10).astimezone(timezone.utc).isoformat()
     body = []
@@ -209,8 +209,8 @@ def test_model_metric_total_counts_cache_once():
 
     回归点：曾用 sum(v[:3])（毛输入已含缓存）导致 total 虚高。
     """
-    from codex_usage import cli
-    from codex_usage.parser import Session
+    from harnesscope import cli
+    from harnesscope.parser import Session
 
     v = [6000, 5000, 300, 150, 2]                       # 毛 6000（含缓存 5000）、出 300
     rec = Session(file="f", sid="s", uuids=["s"], models={"m": v},
@@ -306,19 +306,19 @@ def test_chart_ascii_and_pipe_fallback(env):
 
 
 def test_use_image_respects_image_mode_env(monkeypatch):
-    """CODEX_USAGE_IMAGE_MODE=ascii 等同 --ascii；halfcell/tgp 仍走真图路径；非法值按 auto。"""
-    from codex_usage import cli
-    from codex_usage.render import imgcharts
+    """HARNESCOPE_IMAGE_MODE=ascii 等同 --ascii；halfcell/tgp 仍走真图路径；非法值按 auto。"""
+    from harnesscope import cli
+    from harnesscope.render import imgcharts
 
     args = cli.build_parser().parse_args(["--chart", "bar", "--by-model"])
     monkeypatch.setattr(cli.sys.stdout, "isatty", lambda: True)
     monkeypatch.setattr(imgcharts, "available", lambda: True)
-    monkeypatch.delenv("CODEX_USAGE_IMAGE_MODE", raising=False)
+    monkeypatch.delenv("HARNESCOPE_IMAGE_MODE", raising=False)
     assert cli._use_image(args) is True
     for mode, expect in (("ascii", False), ("halfcell", True), ("tgp", True), ("bogus", True)):
-        monkeypatch.setenv("CODEX_USAGE_IMAGE_MODE", mode)
+        monkeypatch.setenv("HARNESCOPE_IMAGE_MODE", mode)
         assert cli._use_image(args) is expect, mode
-    monkeypatch.setenv("CODEX_USAGE_IMAGE_MODE", "halfcell")
+    monkeypatch.setenv("HARNESCOPE_IMAGE_MODE", "halfcell")
     assert cli._use_image(cli.build_parser().parse_args(["--ascii"])) is False
 
 
@@ -354,10 +354,10 @@ def test_chart_conflict_reported_without_data(env):
 
 def test_chart_image_failure_falls_back_to_text(env, monkeypatch, capsys):
     """真图渲染抛异常时回退字符画并提示，不让命令以 traceback 结束。"""
-    from codex_usage import cli
-    from codex_usage.parser import collect
-    from codex_usage.pricing import load_pricing
-    from codex_usage.render import imgcharts
+    from harnesscope import cli
+    from harnesscope.parser import collect
+    from harnesscope.pricing import load_pricing
+    from harnesscope.render import imgcharts
 
     recs = collect(env["sessions"], datetime(2026, 9, 10), datetime(2026, 9, 11, 23, 59, 59))
     args = cli.build_parser().parse_args(["--chart", "bar", "--by-day"])
@@ -375,7 +375,7 @@ def test_chart_image_failure_falls_back_to_text(env, monkeypatch, capsys):
 
 def test_use_image_gate(monkeypatch, capsys):
     """真图三条回退路径：非 TTY / --ascii / 未装 image extras（并提示装法）。"""
-    from codex_usage import cli
+    from harnesscope import cli
 
     class Args:
         ascii = False

@@ -4,24 +4,24 @@ import os
 
 
 def sessions_dir() -> str:
-    return os.environ.get("CODEX_USAGE_SESSIONS_DIR",
+    return os.environ.get("HARNESCOPE_SESSIONS_DIR",
                           os.path.join(os.path.expanduser("~"), ".codex", "sessions"))
 
 
 def archive_dir() -> str:
-    return os.environ.get("CODEX_USAGE_ARCHIVE_DIR",
+    return os.environ.get("HARNESCOPE_ARCHIVE_DIR",
                           os.path.join(os.path.expanduser("~"), ".codex", "archived_sessions"))
 
 
 def pricing_file() -> str:
-    return os.environ.get("CODEX_USAGE_PRICING_FILE",
+    return os.environ.get("HARNESCOPE_PRICING_FILE",
                           os.path.join(os.path.expanduser("~"), ".cc-switch", "model-pricing.json"))
 
 
 def cache_dir() -> str:
-    """用户缓存目录：sync 拉取的公开定价表写在这里（CODEX_USAGE_CACHE_DIR 可覆盖）。"""
-    return os.environ.get("CODEX_USAGE_CACHE_DIR",
-                          os.path.join(os.path.expanduser("~"), ".cache", "codex-usage"))
+    """用户缓存目录：sync 拉取的公开定价表写在这里（HARNESCOPE_CACHE_DIR 可覆盖）。"""
+    return os.environ.get("HARNESCOPE_CACHE_DIR",
+                          os.path.join(os.path.expanduser("~"), ".cache", "harnesscope"))
 
 
 def cache_pricing_file() -> str:

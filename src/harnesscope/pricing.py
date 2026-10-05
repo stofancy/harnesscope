@@ -3,8 +3,8 @@
 加载语义（``load_pricing``）：
 - ``load_pricing()``（无参）**合并**三层，同名 modelId 后写覆盖：::
 
-      内置表（基底，随包发行） ← 用户缓存 ``~/.cache/codex-usage/pricing.json``
-                              ← ``CODEX_USAGE_PRICING_FILE`` / ``~/.cc-switch/model-pricing.json``
+      内置表（基底，随包发行） ← 用户缓存 ``~/.cache/harnesscope/pricing.json``
+                              ← ``HARNESCOPE_PRICING_FILE`` / ``~/.cc-switch/model-pricing.json``
 
   用户既能保留私有定价（覆盖同名项），又能拿到公开模型的完整覆盖。
 - ``load_pricing(path)``：严格只读该文件（doctor 用它判断“指定文件是否存在”），不回退/不合并。
@@ -105,9 +105,9 @@ OFFICIAL_TIER_MODELS = frozenset({
     "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.2", "gpt-5.1", "gpt-5",
 })
 #: 数据文件覆盖用的环境变量（未设置时读包内 data/ 资源）。
-ALIASES_FILE_ENV = "CODEX_USAGE_ALIASES_FILE"
-TIER_PRICING_FILE_ENV = "CODEX_USAGE_TIER_PRICING_FILE"
-CODEX_CONFIG_ENV = "CODEX_USAGE_CODEX_CONFIG"
+ALIASES_FILE_ENV = "HARNESCOPE_ALIASES_FILE"
+TIER_PRICING_FILE_ENV = "HARNESCOPE_TIER_PRICING_FILE"
+CODEX_CONFIG_ENV = "HARNESCOPE_CODEX_CONFIG"
 #: 少量常见别名（归一化后仍需纠正的写法）。
 _ALIASES = {
     "claude-3.5-sonnet": "claude-3-5-sonnet",
@@ -260,7 +260,7 @@ def lookup(pricing: dict[str, dict], model: str) -> dict | None:
 def _builtin_traversable():
     """内置表资源（importlib.resources，兼容 zip 安装）。"""
     from importlib.resources import files
-    return files("codex_usage").joinpath("data", "pricing.json")
+    return files("harnesscope").joinpath("data", "pricing.json")
 
 
 def builtin_path() -> str:
@@ -331,7 +331,7 @@ def _data_traversable(filename: str):
     """包内 data/ 资源（importlib.resources，兼容 zip 安装）。"""
     from importlib.resources import files
     # 分两次 joinpath：Traversable.joinpath 的类型存根只接受单个参数，多参形式 mypy 报 call-arg。
-    return files("codex_usage").joinpath("data").joinpath(filename)
+    return files("harnesscope").joinpath("data").joinpath(filename)
 
 
 def _read_data_file(filename: str, env_var: str):
@@ -348,7 +348,7 @@ def _read_data_file(filename: str, env_var: str):
 
 @lru_cache(maxsize=1)
 def load_aliases() -> dict[str, dict]:
-    """别名映射表 ``data/model_aliases.json``（``CODEX_USAGE_ALIASES_FILE`` 可覆盖）。
+    """别名映射表 ``data/model_aliases.json``（``HARNESCOPE_ALIASES_FILE`` 可覆盖）。
 
     形如 ``{"codex-auto-review": {"model": "gpt-5.5", "assumed": true, "note": ...}}``；
     文件缺失/损坏/结构不识别时返回空表（安全回退，不影响精确/归一化/前缀匹配）。
@@ -380,7 +380,7 @@ def aliases_info() -> dict:
 
 @lru_cache(maxsize=1)
 def load_tier_pricing() -> dict:
-    """档位价表 ``data/tier_pricing.json``（``CODEX_USAGE_TIER_PRICING_FILE`` 可覆盖）。
+    """档位价表 ``data/tier_pricing.json``（``HARNESCOPE_TIER_PRICING_FILE`` 可覆盖）。
 
     返回 ``{"priority": {modelId: 记录}, "flex": {...}, "multipliers": {modelId: float},
     "updated": ..., "source": ...}``；文件缺失/损坏时各表为空（一切按标准价）。
@@ -419,7 +419,7 @@ def _parse_service_tier(text: str) -> str | None:
 
 @lru_cache(maxsize=1)
 def default_service_tier() -> str:
-    """``~/.codex/config.toml`` 的 ``service_tier``（``CODEX_USAGE_CODEX_CONFIG`` 可覆盖）。
+    """``~/.codex/config.toml`` 的 ``service_tier``（``HARNESCOPE_CODEX_CONFIG`` 可覆盖）。
 
     ``Session.tiers`` 里的 ``unknown`` 档用它兜底；读不到/损坏返回 ``"default"``（标准价）。
     进程内缓存一次（改配置后重启进程生效）。
@@ -474,7 +474,7 @@ def _with_aliases(table: dict[str, dict]) -> dict[str, dict]:
 def _layers(path: str | None) -> list[tuple[str, str, bool]]:
     """参与合并的层，**低 → 高**优先级：(来源标签, 路径, 是否内置资源)。
 
-    无参：内置表（基底）→ 用户缓存 → ``CODEX_USAGE_PRICING_FILE``（后者覆盖同名项）。
+    无参：内置表（基底）→ 用户缓存 → ``HARNESCOPE_PRICING_FILE``（后者覆盖同名项）。
     显式 ``path``：只有该文件一层（严格单文件，selfdoc/doctor 依赖这个语义）。
     """
     if path is not None:
@@ -530,7 +530,7 @@ def _resolve(path: str | None = None) -> tuple[dict[str, dict], dict, str]:
 def load_pricing(path: str | None = None) -> dict[str, dict]:
     """加载定价表 → {modelId: {inputCostPerMillion, cacheReadCostPerMillion, outputCostPerMillion}}。
 
-    无参：**合并**内置表（基底）→ 用户缓存 → ``CODEX_USAGE_PRICING_FILE``；同名 modelId
+    无参：**合并**内置表（基底）→ 用户缓存 → ``HARNESCOPE_PRICING_FILE``；同名 modelId
     被更高优先级的层覆盖。某层缺失/损坏/为空只跳过该层，三层都不可用返回空表。
     传入 ``path`` 时严格只读该文件（找不到返回空表，不回退不合并），供 doctor 等判断指定文件状态。
     """
@@ -965,7 +965,7 @@ _urlopen = urllib.request.urlopen       # 仅供测试 monkeypatch
 
 def _fetch_text(url: str, timeout: float) -> str:
     request = urllib.request.Request(url, headers={
-        "User-Agent": f"codex-usage/{_package_version()}",
+        "User-Agent": f"harnesscope/{_package_version()}",
         "Accept": "application/json",
     })
     resp = _urlopen(request, timeout=timeout)

@@ -5,8 +5,8 @@
 #   E4 / E7 / E9   pycodestyle: import placement, statement and syntax checks
 #   F              pyflakes: unused imports/variables, undefined names, redefinitions
 #   I              isort (NOT enabled yet): enabling it would immediately flag import
-#                  ordering in four files (src/codex_usage/parser.py,
-#                  src/codex_usage/render/tables.py, tests/test_stats.py,
+#                  ordering in four files (src/harnesscope/parser.py,
+#                  src/harnesscope/render/tables.py, tests/test_stats.py,
 #                  tools/make_doc_shots.py). Sort those imports first, then add "I".
 #
 # Baseline: with the current selection the existing tree has ~13 findings
@@ -39,4 +39,4 @@ select = ["E4", "E7", "E9", "F"]
 
 [lint.isort]
 # Used once the isort rules are enabled (add "I" to select).
-known-first-party = ["codex_usage"]
+known-first-party = ["harnesscope"]

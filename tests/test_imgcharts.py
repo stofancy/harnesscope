@@ -11,7 +11,7 @@ pytest.importorskip("textual_image")
 from PIL import Image  # noqa: E402
 from rich.console import Console  # noqa: E402
 
-from codex_usage.render import imgcharts  # noqa: E402
+from harnesscope.render import imgcharts  # noqa: E402
 
 LABELS = ["09-06", "09-07", "09-08", "09-09", "09-10", "09-11", "09-12"]
 DAYS20 = [f"09-{d:02d}" for d in range(1, 21)]
@@ -57,7 +57,7 @@ def _reset_cache():
 
 def test_ascii_text_rewrites_labels():
     """字符画标签转写：plotext 按 1 列=1 字符排版，中文会错位，必须转成 ASCII。"""
-    from codex_usage.render import charts
+    from harnesscope.render import charts
 
     assert charts.ascii_text("各模型成本(USD)") == "by model cost (USD)"
     assert charts.ascii_text("每天成本(USD)·堆叠") == "per day cost (USD) [stacked]"
@@ -71,7 +71,7 @@ def test_ascii_text_rewrites_labels():
 @pytest.mark.parametrize("name", ["pie", "bar", "bar-stacked", "area", "line"])
 def test_text_charts_have_no_cjk(name, monkeypatch):
     """字符画档位：标题/图例/标签都不得含 CJK（否则 plotext 输出错位乱码）。"""
-    from codex_usage.render import charts
+    from harnesscope.render import charts
 
     monkeypatch.setattr(charts.shutil, "get_terminal_size",
                         lambda *a, **k: os.terminal_size((120, 44)))
@@ -92,17 +92,17 @@ def test_text_charts_have_no_cjk(name, monkeypatch):
 @pytest.mark.parametrize("mode,expect", [("tgp", "TGPImage"), ("sixel", "SixelImage"),
                                          ("halfcell", "HalfcellImage"), ("ascii", "UnicodeImage")])
 def test_image_mode_override(monkeypatch, mode, expect):
-    """CODEX_USAGE_IMAGE_MODE 能强制渲染类（textual-image 的类都叫 Image，必须按对象身份比）。"""
-    monkeypatch.setenv("CODEX_USAGE_IMAGE_MODE", mode)
+    """HARNESCOPE_IMAGE_MODE 能强制渲染类（textual-image 的类都叫 Image，必须按对象身份比）。"""
+    monkeypatch.setenv("HARNESCOPE_IMAGE_MODE", mode)
     renderable = imgcharts._renderable()
     assert imgcharts.image_mode() == mode
     assert imgcharts.image_class() is getattr(renderable, expect)
 
 
 def test_image_mode_invalid_falls_back_to_auto(monkeypatch):
-    monkeypatch.setenv("CODEX_USAGE_IMAGE_MODE", "  SIXEL-please  ")
+    monkeypatch.setenv("HARNESCOPE_IMAGE_MODE", "  SIXEL-please  ")
     assert imgcharts.image_mode() == "auto"
-    monkeypatch.delenv("CODEX_USAGE_IMAGE_MODE", raising=False)
+    monkeypatch.delenv("HARNESCOPE_IMAGE_MODE", raising=False)
     assert imgcharts.image_mode() == "auto"
     assert imgcharts.image_class() is imgcharts._renderable().Image
 
@@ -111,7 +111,7 @@ def test_image_mode_invalid_falls_back_to_auto(monkeypatch):
                                               ("tgp", False), ("ascii", None)])
 def test_target_px_follows_mode(monkeypatch, mode, expect_half):
     """光栅要跟随档位：半块 = 每格 1 像素宽 2 像素高，字符回退 = 1 字符 1 像素。"""
-    monkeypatch.setenv("CODEX_USAGE_IMAGE_MODE", mode)
+    monkeypatch.setenv("HARNESCOPE_IMAGE_MODE", mode)
     imgcharts._target_px.cache_clear()
     monkeypatch.setattr(imgcharts.shutil, "get_terminal_size",
                         lambda *a, **k: os.terminal_size((120, 44)))
@@ -125,13 +125,13 @@ def test_target_px_follows_mode(monkeypatch, mode, expect_half):
 
 
 def test_describe_reports_mode(monkeypatch):
-    monkeypatch.setenv("CODEX_USAGE_IMAGE_MODE", "halfcell")
+    monkeypatch.setenv("HARNESCOPE_IMAGE_MODE", "halfcell")
     imgcharts.describe.cache_clear()
     d = imgcharts.describe()
     assert d["mode"] == "halfcell"
     assert d["display"] == "彩色半块"
     assert d["detected"]                                    # 自动探测结果仍要保留
-    monkeypatch.delenv("CODEX_USAGE_IMAGE_MODE", raising=False)
+    monkeypatch.delenv("HARNESCOPE_IMAGE_MODE", raising=False)
     imgcharts.describe.cache_clear()
     assert imgcharts.describe()["mode"] == "auto"
 

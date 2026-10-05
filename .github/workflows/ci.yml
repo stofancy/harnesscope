@@ -79,9 +79,9 @@ jobs:
           python -c "import glob,sys,zipfile; \
           w=glob.glob('dist/*.whl')[0]; \
           names=zipfile.ZipFile(w).namelist(); \
-          hit=[n for n in names if n.endswith('codex_usage/data/pricing.json')]; \
-          web=[n for n in names if n.startswith('codex_usage/web_static/')]; \
-          required=['codex_usage/data/pricing.json','codex_usage/web_static/index.html']; \
+          hit=[n for n in names if n.endswith('harnesscope/data/pricing.json')]; \
+          web=[n for n in names if n.startswith('harnesscope/web_static/')]; \
+          required=['harnesscope/data/pricing.json','harnesscope/web_static/index.html']; \
           missing=[n for n in required if n not in names]; \
           sys.exit('wheel missing ' + str(missing)) if missing else print('wheel ships pricing and',len(web),'web assets'); \
           assert any(n.endswith('.js') for n in web), 'web JavaScript missing'; \

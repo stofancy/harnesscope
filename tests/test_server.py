@@ -3,7 +3,7 @@
 import pytest
 from starlette.testclient import TestClient
 
-from codex_usage.server import create_app
+from harnesscope.server import create_app
 
 
 class FakeService:
@@ -140,7 +140,7 @@ def test_query_errors_and_session_identity(web):
 
 
 def test_serve_binds_loopback_only(monkeypatch):
-    from codex_usage import server
+    from harnesscope import server
     calls = []
     sentinel = object()
     monkeypatch.setattr(server, "create_app", lambda: sentinel)

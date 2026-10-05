@@ -1,16 +1,16 @@
-# codex-usage
+# Harnesscope · 用量镜
 
-[![CI](https://github.com/stofancy/codex-usage/actions/workflows/ci.yml/badge.svg)](https://github.com/stofancy/codex-usage/actions/workflows/ci.yml)
+[![CI](https://github.com/stofancy/harnesscope/actions/workflows/ci.yml/badge.svg)](https://github.com/stofancy/harnesscope/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 [English](README.md) · **中文**
 
-本机个人用量分析，支持 **Codex、Claude、OMP（oh my pi）、DSH（deepseek harness）**。运行 `codex-usage --web`，在 PC 浏览器查看用量、估算费用、时间趋势与维度贡献。现有 Codex 终端报表、图表和 JSON 继续可用。
+本机个人用量分析，支持 **Codex、Claude、OMP（oh my pi）、DSH（deepseek harness）**。运行 `harnesscope --web`，在 PC 浏览器查看用量、估算费用、时间趋势与维度贡献。现有 Codex 终端报表、图表和 JSON 继续可用。
 
 图表默认出**真图**：[matplotlib](https://matplotlib.org/) 渲染 PNG 后由 [textual-image](https://github.com/lnqs/textual-image) 送进终端——支持图形协议（kitty / Sixel）的终端直接显示图片，其余终端显示彩色半块字符；装了可选依赖且输出是终端时才会启用。未装依赖、输出被管道重定向或加 `--ascii` 时，回退到字符画（[plotext](https://github.com/piccolomo/plotext) + [termcharts](https://github.com/zvovcahovo/termcharts)）。
 
-源文件保持只读；网页版维护自有、可重建的 SQLite 统计索引，在 loopback 提供随包静态资源，普通查询无需访问外网。`codex-usage --update-pricing` 显式下载公开价格。估算费用采用内置表、价格缓存和 `CODEX_USAGE_PRICING_FILE` 覆盖值，详见[定价](#定价)。网页分别展示已知估算小计与缺价覆盖，真实账单未知。旧 Codex 报表沿用 `$0*` 的缺价展示约定，`*` 表示费用未知。
+源文件保持只读；网页版维护自有、可重建的 SQLite 统计索引，在 loopback 提供随包静态资源，普通查询无需访问外网。`harnesscope --update-pricing` 显式下载公开价格。估算费用采用内置表、价格缓存和 `HARNESCOPE_PRICING_FILE` 覆盖值，详见[定价](#定价)。网页分别展示已知估算小计与缺价覆盖，真实账单未知。旧 Codex 报表沿用 `$0*` 的缺价展示约定，`*` 表示费用未知。
 
 ## 为什么是它
 
@@ -22,38 +22,53 @@
 
 [2026-09-27 研究文档](docs/research/2026-09-27-harness-usage-proposal.md) 保留历史竞品对照与本次实施基线。CodeBurn、New API 的参考重点是维度、筛选与时间线，浏览器界面独立设计。
 
-## 安装
+## 安装与启停
 
-要求 **Python ≥ 3.10**。
-
-```bash
-uv tool install codex-usage                                          # 最新已发布版本
-uv tool install "git+https://github.com/stofancy/codex-usage[image]" # 可选：加终端真图图表
-```
-
-网页工作台当前属于 **Unreleased** 源码版本。安装本次 checkout 时，先构建随包网页资源：
+源码安装需要 **Python ≥ 3.10**、uv、Node.js 和 npm；安装后的工作台只需 Python 运行时。
+Harnesscope 改名版本当前属于 **Unreleased** 源码，请使用本次 checkout 的安装脚本。
 
 ```bash
-cd web
-npm ci
-npm run build
-cd ..
-uv tool install --force .
-codex-usage --web
+git clone https://github.com/stofancy/harnesscope.git
+cd harnesscope
+./install.sh                         # 安装程序，首次默认普通后台方式
+./install.sh --service               # 可选：配置 Linux systemd 用户服务并启动
+./install.sh --service --port 8766    # 可选：指定服务端口
+./install.sh --no-service            # 移除本工具的用户服务，切回普通方式
+./install.sh --image                 # 可选：终端真图图表依赖
 ```
 
-开发与浏览器验收使用 Node.js 22.x >=22.22.3 或 >=24.8.0，以及 npm；安装后的工作台只需 Python 运行时。
+Linux 上无论是否配置系统服务，都使用同一套命令：
+
+```bash
+harnesscope start
+harnesscope stop
+harnesscope restart
+harnesscope status
+harnesscope start --port 8766        # 普通方式选择并记住端口
+harnesscope --web                    # 前台运行，Ctrl-C 停止
+```
+
+系统服务采用当前用户的 systemd 服务，登录后自启，无需 sudo。普通方式启动独立后台进程，
+`stop` 只停止本工具管理的实例。安装脚本默认保留已有运行方式；`--service` 与 `--no-service`
+用于明确切换。开发与浏览器验收使用 Node.js 22.x >=22.22.3 或 >=24.8.0，以及 npm。
+重新安装会重启正在运行的实例以应用更新。其他平台可使用报表及 `--web` 前台模式。
+
+改名后 Python 包和命令为 `harnesscope`，工具专用环境变量为 `HARNESCOPE_*`，默认缓存
+改为 `~/.cache/harnesscope`。`CODEX_HOME`、`DSH_HOME` 等原生工具变量保持原名。
+旧的可重建缓存保留，新缓存从源日志生成；私有路径和价格覆盖值需改用新变量名。
+历史终端版本以 `codex-usage` 发布，确认新安装可用后，可用 `uv tool uninstall codex-usage`
+移除旧的 uv tool。
 
 可选 extras `[image]` 会装上 matplotlib 与 textual-image，其中 `textual-image` 要求 **Python ≥ 3.12**；Python 3.10/3.11 下图表保持字符画，其余功能不受影响。未装 extras、输出不是终端或加 `--ascii` 时，图表自动回退字符画。
 
-## 网页用量工作台
+## 网页用量镜
 
 ```bash
-codex-usage --web
-codex-usage --web --port 8766   # 指定本机端口
+harnesscope --web
+harnesscope --web --port 8766   # 指定本机端口
 ```
 
-打开命令打印的本机地址（默认 `http://127.0.0.1:8765`）。启动时会后台扫描来源，后续变化通过工作台的刷新操作重新扫描。浏览期间保留前台进程，按 Ctrl-C 退出并释放端口；关闭浏览器标签页后进程继续运行。
+打开命令打印的本机地址（默认 `http://127.0.0.1:8765`）。启动时会后台扫描来源，后续变化通过工作台的刷新操作重新扫描。后台实例用 `harnesscope stop` 停止，`--web` 前台实例用 Ctrl-C 停止；关闭浏览器标签页后进程继续运行。
 
 网页采用共享的多源事件查询层与自有统计索引。下面的现有报表参数继续读取 Codex 会话，终端报表尚未迁移为四源输出契约。
 
@@ -95,8 +110,8 @@ Dashboard 首屏显示估算费用、Tokens、模型调用和轮次。主消耗�
 | OMP | `~/.omp/agent/sessions/**/*.jsonl` | `OMP_SESSIONS_DIR`，或 `PI_CODING_AGENT_DIR` 下的 `/sessions` |
 | DSH | `~/.dsh/sessions` | `DSH_HOME` 指定 DSH 根目录 |
 
-网页统计索引为 `~/.cache/codex-usage/usage.sqlite3`，可用 `CODEX_USAGE_CACHE_DIR`
-更改目录。旧 Codex 报表继续使用 `CODEX_USAGE_SESSIONS_DIR`、`CODEX_USAGE_ARCHIVE_DIR`
+网页统计索引为 `~/.cache/harnesscope/usage.sqlite3`，可用 `HARNESCOPE_CACHE_DIR`
+更改目录。旧 Codex 报表继续使用 `HARNESCOPE_SESSIONS_DIR`、`HARNESCOPE_ARCHIVE_DIR`
 覆盖路径。
 
 Claude 读取 assistant 用量与 advisor iterations，保留已记录的缓存读写分量；日志缺失时
@@ -114,7 +129,7 @@ DSH interrupted / error turn 的已记录 tokens 保留，计时排除出完整 
 ### 共享分析 JSON
 
 ```bash
-codex-usage --analytics --query 'harness=codex&group_by=model&metric=tokens'
+harnesscope --analytics --query 'harness=codex&group_by=model&metric=tokens'
 ```
 
 `--analytics` 刷新统计索引，查询与网页共用的多源分析层并输出 JSON。筛选通过
@@ -176,25 +191,25 @@ POST `/api/refresh` 携带 `Content-Type: application/json`，显式启动后台
 ## Codex CLI 使用
 
 ```bash
-codex-usage                                          # 今天的会话明细（含子代理，每会话一行）
-codex-usage --by-model                               # 按模型聚合（每模型一行，含会话数）
-codex-usage --by-day --since 2026-09-04              # 按天聚合
-codex-usage --by-day --by-model --since 2026-09-04   # 天×模型
-codex-usage --family --parent 01a083b7 --since 2026-09-09     # 家族树：主线程+各子代理
-codex-usage --family --by-model --since 2026-09-09            # 家族×模型
-codex-usage --raw --type subagent                    # 文件粒度：每个子代理文件一行
-codex-usage --since "2026-09-11 09:00" --until "2026-09-11 14:00"   # 分钟级时间过滤
-codex-usage --by-model --since 20260912-161023       # 紧凑时间：同 2026-09-12 16:10:23
-codex-usage --by-model --since 20260912-16           # 紧凑时间：同 2026-09-12 16:00
-codex-usage --chart pie                              # 饼图：各模型成本分布
-codex-usage --chart bar --by-day --by-model --metric total   # 堆叠柱状图
-codex-usage --chart area --by-day --metric cache     # 面积图：每天缓存读趋势
-codex-usage --chart bar --by-day --ascii             # 强制字符画（默认终端下优先真图）
-codex-usage --json                                   # 机器可读输出（含按模型明细）
-codex-usage --help                                   # 自说明帮助（/? 、-? 、help 等价）
-codex-usage --schema                                 # 机器可读自描述（JSON 契约）
-codex-usage --doctor                                 # 环境自检（数据源/定价/真图能力）
-codex-usage --update-pricing                         # 显式从外网下载价格
+harnesscope                                          # 今天的会话明细（含子代理，每会话一行）
+harnesscope --by-model                               # 按模型聚合（每模型一行，含会话数）
+harnesscope --by-day --since 2026-09-04              # 按天聚合
+harnesscope --by-day --by-model --since 2026-09-04   # 天×模型
+harnesscope --family --parent 01a083b7 --since 2026-09-09     # 家族树：主线程+各子代理
+harnesscope --family --by-model --since 2026-09-09            # 家族×模型
+harnesscope --raw --type subagent                    # 文件粒度：每个子代理文件一行
+harnesscope --since "2026-09-11 09:00" --until "2026-09-11 14:00"   # 分钟级时间过滤
+harnesscope --by-model --since 20260912-161023       # 紧凑时间：同 2026-09-12 16:10:23
+harnesscope --by-model --since 20260912-16           # 紧凑时间：同 2026-09-12 16:00
+harnesscope --chart pie                              # 饼图：各模型成本分布
+harnesscope --chart bar --by-day --by-model --metric total   # 堆叠柱状图
+harnesscope --chart area --by-day --metric cache     # 面积图：每天缓存读趋势
+harnesscope --chart bar --by-day --ascii             # 强制字符画（默认终端下优先真图）
+harnesscope --json                                   # 机器可读输出（含按模型明细）
+harnesscope --help                                   # 自说明帮助（/? 、-? 、help 等价）
+harnesscope --schema                                 # 机器可读自描述（JSON 契约）
+harnesscope --doctor                                 # 环境自检（数据源/定价/真图能力）
+harnesscope --update-pricing                         # 显式从外网下载价格
 ```
 
 ### 时间格式
@@ -248,21 +263,21 @@ token 取自 rollout 里 `token_count.total_token_usage` 的**累计值快照**�
 
 ## 定价
 
-token 统计完全在本地完成，只有成本列需要价格。`codex-usage` 随包内置一份**公开定价快照**（来源 `models.dev`，当前 2086 个有价模型），因此装完即可离线算成本。三层按 `modelId` **合并**，高优先级层的同名条目覆盖低优先级层：
+token 统计完全在本地完成，只有成本列需要价格。`harnesscope` 随包内置一份**公开定价快照**（来源 `models.dev`，当前 2086 个有价模型），因此装完即可离线算成本。三层按 `modelId` **合并**，高优先级层的同名条目覆盖低优先级层：
 
 | 优先级 | 来源 | 作用 |
 |---|---|---|
-| 低 | 内置表 `src/codex_usage/data/pricing.json` | 公开模型的基础覆盖 |
-| 中 | 用户缓存 `~/.cache/codex-usage/pricing.json`（目录可用 `CODEX_USAGE_CACHE_DIR` 覆盖） | `--update-pricing` 写入 |
-| 高 | `CODEX_USAGE_PRICING_FILE`（未设置时为 `~/.cc-switch/model-pricing.json`） | 你自己的私有定价 |
+| 低 | 内置表 `src/harnesscope/data/pricing.json` | 公开模型的基础覆盖 |
+| 中 | 用户缓存 `~/.cache/harnesscope/pricing.json`（目录可用 `HARNESCOPE_CACHE_DIR` 覆盖） | `--update-pricing` 写入 |
+| 高 | `HARNESCOPE_PRICING_FILE`（未设置时为 `~/.cc-switch/model-pricing.json`） | 你自己的私有定价 |
 
 任一层缺失 / 为空 / JSON 损坏只跳过该层；三层都不可用时 token 照常统计、成本显示 `$0.00*`。文件格式与 cc-switch 兼容 —— `{"models":[{"modelId": …, "inputCostPerMillion": …, "cacheReadCostPerMillion": …, "outputCostPerMillion": …}]}` —— 已有 cc-switch 表可继续使用，只覆盖它定义的同名条目。
 
 显式从公开渠道下载价格并刷新缓存：
 
 ```bash
-codex-usage --update-pricing                         # 默认 models.dev
-codex-usage --update-pricing --pricing-source litellm
+harnesscope --update-pricing                         # 默认 models.dev
+harnesscope --update-pricing --pricing-source litellm
 ```
 
 会话里的模型名按「精确 → 归一化（大小写、provider 前缀、日期与 `-latest` 后缀、常见别名）→ 最长前缀」三档匹配，因此 `gpt-5.1-codex-2025-11-13`、`openrouter/openai/GPT-5.1-Codex` 都能落到 `gpt-5.1-codex`。
@@ -271,17 +286,17 @@ codex-usage --update-pricing --pricing-source litellm
 
 - **缓存读缺价**：生效合并表中约三分之一（33.6%）的条目没有 `cacheReadCostPerMillion`。这些模型的缓存读按该模型的 **input 价**计，而不是 $0——这是有意的上界（真实 cache read 价约为 input 的 10%），宁可多算也不会静默少算。
 - **服务档位**：Codex 会记录每一轮走的档位。`priority` 与 `fast` 是同一档（OpenAI 把 priority processing 改名为 Fast），按官方逐模型 Fast 价计——`gpt-6.1-sol`、GPT-6 Sol/Luna/Astra 与 5.6 Sol/Terra/Luna 为标准的 2.0×、`gpt-5.5` 为 2.5×，`flex` 为 0.5×。价格口径是 **API 等价美元**，不是 ChatGPT 订阅 credits 的倍率（那是另一套价目表）。没有公开 Fast 价的模型（如 `gpt-5-codex`）保持标准价并标 `tier_priced: false`。
-- **没有公开价的标签**：`codex-auto-review` 在任何公开渠道都没有价格字段，因此走一张可审计的别名表（`src/codex_usage/data/model_aliases.json`）映射到 `gpt-5.5`，并标 `assumed: true`（依据是 ccusage 按发布日的 fallback 表 + 三方 token 对账）。`gpt-reserve` 任何渠道都没有公开价，保持 `$0.00*`，不臆造。别名表与档位价表可分别用 `CODEX_USAGE_ALIASES_FILE`、`CODEX_USAGE_TIER_PRICING_FILE` 替换。
+- **没有公开价的标签**：`codex-auto-review` 在任何公开渠道都没有价格字段，因此走一张可审计的别名表（`src/harnesscope/data/model_aliases.json`）映射到 `gpt-5.5`，并标 `assumed: true`（依据是 ccusage 按发布日的 fallback 表 + 三方 token 对账）。`gpt-reserve` 任何渠道都没有公开价，保持 `$0.00*`，不臆造。别名表与档位价表可分别用 `HARNESCOPE_ALIASES_FILE`、`HARNESCOPE_TIER_PRICING_FILE` 替换。
 
 网页工作台包含缓存写计价，保留 Claude 5 分钟 / 1 小时 TTL 分项。显式写入价格优先；已核实 Claude 型号缺写入价格时，可采用官方输入价 1.25× / 2× 规则。必需分量或价格缺失时，该调用费用未知。型号范围与假设见[缓存写计价](docs/pricing.md#11-多源工作台缓存写计价)。
 
-旧 CLI 的限制：内置表是快照（含 `updated` 时间戳）；旧报表未建模 context 阶梯价（`>200k`）、缓存写价与转售商加价，缺价显示 `$0.00*`。自建 `CODEX_USAGE_PRICING_FILE` 可对齐渠道价格估算，真实账单仍需独立来源。数据源、字段映射与许可见 [docs/pricing.md](docs/pricing.md)。
+旧 CLI 的限制：内置表是快照（含 `updated` 时间戳）；旧报表未建模 context 阶梯价（`>200k`）、缓存写价与转售商加价，缺价显示 `$0.00*`。自建 `HARNESCOPE_PRICING_FILE` 可对齐渠道价格估算，真实账单仍需独立来源。数据源、字段映射与许可见 [docs/pricing.md](docs/pricing.md)。
 
 ### 与 ccusage 的对账
 
 定窗 `--since 20260911 --until 20260912`，复算日 2026-09-21：
 
-| | codex-usage | ccusage | 差值 |
+| | harnesscope | ccusage | 差值 |
 |---|---|---|---|
 | token（逐 天×模型） | 1,830,205,933 | 1,830,205,933 | **0** |
 | 成本 | $1,116.04 | $1,064.64 | **+$51.40** |
@@ -292,32 +307,32 @@ codex-usage --update-pricing --pricing-source litellm
 
 工具不需要外部文档就能说清自己怎么用、能输出什么、当前环境是否正常。
 
-`codex-usage --help`（`/?`、`-?`、`help` 等价）结尾是一份结构化说明：先列帮助入口，再分四段——示例命令、语义约定、输出与退出码、数据源与环境变量。`codex-usage --schema` 是同一份契约的 JSON 版——选项清单直接由 argparse 定义生成，不会和实现漂移：
+`harnesscope --help`（`/?`、`-?`、`help` 等价）结尾是一份结构化说明：先列帮助入口，再分四段——示例命令、语义约定、输出与退出码、数据源与环境变量。`harnesscope --schema` 是同一份契约的 JSON 版——选项清单直接由 argparse 定义生成，不会和实现漂移：
 
 ```bash
-codex-usage --schema | jq '.options[] | select(.flags | index("--chart"))'
-codex-usage --schema | jq '.json_output.fields'   # --json 每行记录的字段含义与单位
-codex-usage --json --since 20260910 | jq -c '{id:.session_id,total:.total_tokens,calls}' | head -3
+harnesscope --schema | jq '.options[] | select(.flags | index("--chart"))'
+harnesscope --schema | jq '.json_output.fields'   # --json 每行记录的字段含义与单位
+harnesscope --json --since 20260910 | jq -c '{id:.session_id,total:.total_tokens,calls}' | head -3
 ```
 
-`codex-usage --doctor`（加 `--json` 得到结构化结果）做环境自检：会话与归档目录是否存在、有多少 rollout 文件、当前生效的定价来源、模型数以及其中缺缓存读价的比例、真图依赖与终端档位、中文字体；有可操作建议时单独列出，`ok` 字段表示是否一切正常。
+`harnesscope --doctor`（加 `--json` 得到结构化结果）做环境自检：会话与归档目录是否存在、有多少 rollout 文件、当前生效的定价来源、模型数以及其中缺缓存读价的比例、真图依赖与终端档位、中文字体；有可操作建议时单独列出，`ok` 字段表示是否一切正常。
 
-![codex-usage --doctor](docs/shots/doctor.png)
+![harnesscope --doctor](docs/shots/doctor.png)
 
 ```text
-$ codex-usage --doctor
-codex-usage 0.1.0  |  Python 3.14.7  |  Linux-...
+$ harnesscope --doctor
+harnesscope 0.4.0  |  Python 3.14.7  |  Linux-...
 
-会话数据   /tmp/codex-usage-doc-fixture/sessions  存在，32 个 rollout 文件（最近 2026-09-13 23:36）
-归档数据   /tmp/codex-usage-doc-fixture/archived_sessions  存在，0 个 rollout 文件
-定价       内置表+自定义文件 /tmp/codex-usage-doc-fixture/model-pricing.json，2086 个模型（数据 2026-09-13），其中 33.6% 缺缓存读价（按 input 价回退）
+会话数据   /tmp/harnesscope-doc-fixture/sessions  存在，32 个 rollout 文件（最近 2026-09-13 23:36）
+归档数据   /tmp/harnesscope-doc-fixture/archived_sessions  存在，0 个 rollout 文件
+定价       内置表+自定义文件 /tmp/harnesscope-doc-fixture/model-pricing.json，2086 个模型（数据 2026-09-13），其中 33.6% 缺缓存读价（按 input 价回退）
 图表渲染   彩色半块（matplotlib 3.11.2 + textual-image 0.13.2，光栅 119×84，档位 auto（探测为 彩色半块））
 中文字体   Noto Sans CJK SC
 
 结论: 一切正常
 ```
 
-约定：数据只写到 stdout，提示与错误只写到 stderr（因此 `codex-usage --json … | jq` 不会被噪声打断）；退出码 `0` 成功、`1` 用法或运行时错误、`2` 参数解析错误、`141` 管道下游提前关闭。
+约定：数据只写到 stdout，提示与错误只写到 stderr（因此 `harnesscope --json … | jq` 不会被噪声打断）；退出码 `0` 成功、`1` 用法或运行时错误、`2` 参数解析错误、`141` 管道下游提前关闭。
 
 ## 图表
 
@@ -348,12 +363,12 @@ codex-usage 0.1.0  |  Python 3.14.7  |  Linux-...
 自动探测偶尔会失灵（例如某些终端声称支持图形协议但渲染异常），可以用环境变量覆盖：
 
 ```bash
-CODEX_USAGE_IMAGE_MODE=halfcell codex-usage --chart bar --by-model   # 降级到彩色半块
-CODEX_USAGE_IMAGE_MODE=tgp      codex-usage --chart bar --by-model   # 强制 kitty 图形协议
-CODEX_USAGE_IMAGE_MODE=ascii    codex-usage --chart bar --by-model   # 等同 --ascii
+HARNESCOPE_IMAGE_MODE=halfcell harnesscope --chart bar --by-model   # 降级到彩色半块
+HARNESCOPE_IMAGE_MODE=tgp      harnesscope --chart bar --by-model   # 强制 kitty 图形协议
+HARNESCOPE_IMAGE_MODE=ascii    harnesscope --chart bar --by-model   # 等同 --ascii
 ```
 
-取值 `auto`（默认，自动探测）｜`tgp`｜`sixel`｜`halfcell`｜`ascii`；非法值按 `auto` 处理。当前生效档位、自动探测结果都会由 `codex-usage --doctor` 报出，Agent 也可以从 `codex-usage --schema` 的 `chart_rendering.env` 里读到。
+取值 `auto`（默认，自动探测）｜`tgp`｜`sixel`｜`halfcell`｜`ascii`；非法值按 `auto` 处理。当前生效档位、自动探测结果都会由 `harnesscope --doctor` 报出，Agent 也可以从 `harnesscope --schema` 的 `chart_rendering.env` 里读到。
 
 其它视图的示例（按模型成本表格、天×模型堆叠柱、成本占比饼图、每天成本面积图）：
 
@@ -401,7 +416,7 @@ run 为 `01a10b08-e11f-7763-9de5-f9d51c1a2e58`。覆盖连续旅程、部分桶�
 每轮值、详情和追加去重更新，以及相对刷新 / 固定历史 / 返回恢复模式。结果适用于上述隔离
 夹具与场景；本轮未新增单元 / 组件测试，不据此推断全部历史或个人来源都已完整验证。
 
-数据路径可用环境变量覆盖：`CODEX_USAGE_SESSIONS_DIR`、`CODEX_USAGE_ARCHIVE_DIR`、`CODEX_USAGE_PRICING_FILE`、`CODEX_USAGE_CACHE_DIR`、`CODEX_USAGE_TIER_PRICING_FILE`、`CODEX_USAGE_ALIASES_FILE`。
+数据路径可用环境变量覆盖：`HARNESCOPE_SESSIONS_DIR`、`HARNESCOPE_ARCHIVE_DIR`、`HARNESCOPE_PRICING_FILE`、`HARNESCOPE_CACHE_DIR`、`HARNESCOPE_TIER_PRICING_FILE`、`HARNESCOPE_ALIASES_FILE`。
 
 `docs/shots/` 下的示例图由 [`tools/make_doc_shots.py`](tools/make_doc_shots.py) 用合成夹具（公开模型名 + 公开定价）生成，不含任何真实会话数据：
 

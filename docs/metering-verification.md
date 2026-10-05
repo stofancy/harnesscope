@@ -3,12 +3,12 @@
 - 验证人：verify-dev（独立验证者，不写实现）
 - 验证对象：task-6（计量口径改为「累计值增量」）+ task-7/task-9（定价回退/档位/别名）中与计量相关的部分
 - 快照时间：2026-09-13 21:52 +0800（机器在跑，`~/.codex/sessions` 会持续追加；下文所有分窗数字均用**定窗**避免漂移）
-- 环境指纹：HEAD `a3c9e18`；`src/codex_usage/parser.py` md5 `806bdf592ab8b55745b31bd070814ee7`；`stats.py` md5 `b6d4789e7a672609f5a105fc0a324ca6`；`pricing.py` md5 `0fe7abdcdfbd2dfb9328a81db454a3c7`；`data/tier_pricing.json` md5 `44d09459ead2f940c20cc6ad0711fb4e`；ccusage `20.0.20`
-- 复算工具（本报告所有数字的来源，见文末命令汇总）：`tests/test_metering_regression.py`（独立实现的 oracle + `--recompute/--ledger/--cost` 三个对账入口，不复用 `codex_usage` 的解析代码，只读实现用于对账）
+- 环境指纹：HEAD `a3c9e18`；`src/harnesscope/parser.py` md5 `806bdf592ab8b55745b31bd070814ee7`；`stats.py` md5 `b6d4789e7a672609f5a105fc0a324ca6`；`pricing.py` md5 `0fe7abdcdfbd2dfb9328a81db454a3c7`；`data/tier_pricing.json` md5 `44d09459ead2f940c20cc6ad0711fb4e`；ccusage `20.0.20`
+- 复算工具（本报告所有数字的来源，见文末命令汇总）：`tests/test_metering_regression.py`（独立实现的 oracle + `--recompute/--ledger/--cost` 三个对账入口，不复用 `harnesscope` 的解析代码，只读实现用于对账）
 
 ## 0. 结论摘要（实测）
 
-1. **逐文件复算 0 误差**：定窗 `--since 20260911 --until 20260912` 119 个文件、118 个有用量（1 个无任何 token_count 用量），与 `codex-usage --json --raw` 逐模型（毛输入/缓存读/输出/推理/调用数）**完全一致，0 处不一致**；全窗 `--since 20260911 --until 20260913` 128 个文件、127 个一致、0 处不一致。
+1. **逐文件复算 0 误差**：定窗 `--since 20260911 --until 20260912` 119 个文件、118 个有用量（1 个无任何 token_count 用量），与 `harnesscope --json --raw` 逐模型（毛输入/缓存读/输出/推理/调用数）**完全一致，0 处不一致**；全窗 `--since 20260911 --until 20260913` 128 个文件、127 个一致、0 处不一致。
 2. **与 ccusage 的 token 差异 100% 查到根因**：逐 (天,模型) 台账在把「跨日目录文件」补回后**逐项完全一致，总差 0**（两边都是 1,830,205,933，定窗）。
    - 未解释项 `gpt-5.6-sol` 少 **24,632,119** = `sessions/2026/09/08/` 里一个 09-08 开始、09-12 仍在写轮次的长会话在窗口内的用量。
    - 另一项 `gpt-6-astra` 少 **38,148,793** 是同源问题（`sessions/2026/09/09/` 35,828,470 + `sessions/2026/09/10/` 2,320,323）。
@@ -22,8 +22,8 @@
 
 ## 1. 方法：独立复算怎么保证「独立」
 
-- 复算脚本（`tests/test_metering_regression.py` 的 `oracle()` 与 `_event_metering()`）**自己实现** T6 约定：累计差分、首帧取 last、跳升以 last 封顶、回落/缺 total 回退 last、窗口按事件时间戳过滤。它**不 import** `codex_usage.parser` 的解析函数（仅在对账时调用 CLI 子进程/读其 JSON）。
-- 与实现的对账走 `codex-usage --json --raw`（每文件一行）与 `--json`（每会话一行，含 tiers/metering 诊断）。
+- 复算脚本（`tests/test_metering_regression.py` 的 `oracle()` 与 `_event_metering()`）**自己实现** T6 约定：累计差分、首帧取 last、跳升以 last 封顶、回落/缺 total 回退 last、窗口按事件时间戳过滤。它**不 import** `harnesscope.parser` 的解析函数（仅在对账时调用 CLI 子进程/读其 JSON）。
+- 与实现的对账走 `harnesscope --json --raw`（每文件一行）与 `--json`（每会话一行，含 tiers/metering 诊断）。
 - 与 ccusage 的对账走 `npx ccusage@latest codex daily --json`；npm 缓存固定到仓库内 `.scratch/npm`（不写家目录）。
 - 定窗说明：所有台账数字都用 `--since 20260911 --until 20260912`（两个完整过去的日期）。机器在持续写 09-13 的数据，不定窗的数字会分钟后漂移；正文中「实时窗口」的数字都单独标注了采样时刻。
 - 时区：本机 `+0800`；两边都按本地日期分桶，事件时间戳在 rollout 里是 UTC。
@@ -35,7 +35,7 @@
 ### 2.1 一条命令
 
 ```bash
-cd /home/ztmdsbt/workspaces/codex-usage
+cd /home/ztmdsbt/workspaces/harnesscope
 .venv/bin/python tests/test_metering_regression.py --recompute --verbose --since 20260911 --until 20260912
 ```
 
@@ -70,7 +70,7 @@ cd /home/ztmdsbt/workspaces/codex-usage
 ### 2.3 分页合并（用 CLI 非 raw 行复核）
 
 ```bash
-.venv/bin/python -m codex_usage.cli --since 20260912 --until 20260912 --json --session 01a0940d
+.venv/bin/python -m harnesscope.cli --since 20260912 --until 20260912 --json --session 01a0940d
 ```
 
 实测该会话（两个分页文件合并后）：`total_tokens=16,472,317`、`cost_usd_known=22.1425`，
@@ -141,7 +141,7 @@ cd /home/ztmdsbt/workspaces/codex-usage
 总 tokens：独立复算(含跨日) 1,830,205,933 | ccusage 1,830,205,933 | 差 0
 ```
 
-- 我们的「目录内」合计 = 1,767,425,021，与 `codex-usage --by-model` 的「合计」逐位一致（同一命令的交叉校验）。
+- 我们的「目录内」合计 = 1,767,425,021，与 `harnesscope --by-model` 的「合计」逐位一致（同一命令的交叉校验）。
 - 补正项合计 62,780,912 = astra 38,148,793 + sol 24,632,119。
 
 ### 4.2 根因：三条「早日期目录、窗口内事件」的文件（实测）
@@ -197,7 +197,7 @@ day          ccusage costUSD        我们标准价        我们档位感知
 
 | 项 | 金额（定窗 09-11~09-12） | 说明 |
 |---|---|---|
-| 我们 CLI 当前输出（仅日期目录内，117 会话） | $1,049.30 | `codex-usage --by-model --since 20260911 --until 20260912` |
+| 我们 CLI 当前输出（仅日期目录内，117 会话） | $1,049.30 | `harnesscope --by-model --since 20260911 --until 20260912` |
 | 跨日目录文件应补 | +$66.7472 | astra $51.9019 + sol $14.8453（与 token 缺口同一根因） |
 | **我们（补齐后、档位感知）** | **$1,116.0424** | 应为正确值 |
 | ccusage | $1,064.6425 | 同窗口 |
@@ -266,7 +266,7 @@ day          ccusage costUSD        我们标准价        我们档位感知
 
 ### 6.5 文档不一致（非功能缺陷）
 
-`src/codex_usage/parser.py` 顶部模块 docstring 第 8–10 行仍写着旧口径（「token 计量用每轮 token_count.last_token_usage」），与同文件 `parse_rollout` 的新口径 docstring 矛盾。属陈旧注释，建议顺手更新（未改，不在我的写范围）。
+`src/harnesscope/parser.py` 顶部模块 docstring 第 8–10 行仍写着旧口径（「token 计量用每轮 token_count.last_token_usage」），与同文件 `parse_rollout` 的新口径 docstring 矛盾。属陈旧注释，建议顺手更新（未改，不在我的写范围）。
 
 ---
 
@@ -297,7 +297,7 @@ day          ccusage costUSD        我们标准价        我们档位感知
 .venv/bin/python -m pytest tests/ -q                                 # 183 passed, 1 xfailed
 .scratch/bin/ruff-x86_64-unknown-linux-gnu/ruff check .              # All checks passed!
 
-# 2. 逐文件独立复算 vs codex-usage --json --raw（第 2 节）
+# 2. 逐文件独立复算 vs harnesscope --json --raw（第 2 节）
 .venv/bin/python tests/test_metering_regression.py --recompute --verbose --since 20260911 --until 20260912
 .venv/bin/python tests/test_metering_regression.py --recompute --since 20260911 --until 20260913
 
@@ -308,8 +308,8 @@ day          ccusage costUSD        我们标准价        我们档位感知
 .venv/bin/python tests/test_metering_regression.py --cost --ccusage --since 20260911 --until 20260912
 
 # 5. 我们 CLI 的直接数字
-.venv/bin/python -m codex_usage.cli --since 20260911 --until 20260912 --by-model
-.venv/bin/python -m codex_usage.cli --since 20260912 --until 20260912 --json --session 01a0940d
+.venv/bin/python -m harnesscope.cli --since 20260911 --until 20260912 --by-model
+.venv/bin/python -m harnesscope.cli --since 20260912 --until 20260912 --json --session 01a0940d
 
 # 6. ccusage 原始数据（缓存固定到仓库内）
 env npm_config_cache="$PWD/.scratch/npm" npx --yes ccusage@latest codex daily --json --since 20260911 --until 20260912

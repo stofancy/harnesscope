@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""生成 / 更新内置定价表 src/codex_usage/data/pricing.json（构建期工具，需网络）。
+"""生成 / 更新内置定价表 src/harnesscope/data/pricing.json（构建期工具，需网络）。
 
 公开渠道（免认证）：
     models.dev  https://models.dev/api.json                          cost 单位 $/M tokens
     litellm     BerriAI/litellm model_prices_and_context_window.json *_cost_per_token 单位 $/token
 
-输出为 cc-switch 兼容格式，供 src/codex_usage/pricing.py 直接读取：
+输出为 cc-switch 兼容格式，供 src/harnesscope/pricing.py 直接读取：
     {"source": ..., "updated": ..., "models": [{"modelId", "inputCostPerMillion",
       "cacheReadCostPerMillion", "outputCostPerMillion"}, ...]}
 
@@ -34,15 +34,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:       # 源码树优先，避免用到过期的安装版本
     sys.path.insert(0, str(ROOT / "src"))
 
-from codex_usage import pricing              # noqa: E402
+from harnesscope import pricing              # noqa: E402
 
-DEFAULT_OUT = ROOT / "src" / "codex_usage" / "data" / "pricing.json"
+DEFAULT_OUT = ROOT / "src" / "harnesscope" / "data" / "pricing.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="sync_pricing.py",
-        description="生成/更新 codex-usage 内置定价表（cc-switch 兼容格式）",
+        description="生成/更新 harnesscope 内置定价表（cc-switch 兼容格式）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__.split("用法::")[-1].strip(),
     )

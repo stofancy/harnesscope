@@ -1,7 +1,7 @@
 {
   "version": "2026-09-21",
   "updated": "2026-09-21",
-  "note": "无公开价标签的假设性映射表。assumed=true 的条目会在输出里保留原始标签 + priced_as；依据见 docs/pricing-facts.md 与 docs/pricing.md。顶层字段可被 CODEX_USAGE_ALIASES_FILE 覆盖。",
+  "note": "无公开价标签的假设性映射表。assumed=true 的条目会在输出里保留原始标签 + priced_as；依据见 docs/pricing-facts.md 与 docs/pricing.md。顶层字段可被 HARNESCOPE_ALIASES_FILE 覆盖。",
   "aliases": {
     "codex-auto-review": {
       "model": "gpt-5.5",

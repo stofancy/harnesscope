@@ -27,7 +27,7 @@ body:
       label: Proposed solution
       description: What should it look like - command, flags, output shape?
       placeholder: |
-        Example: `codex-usage --by-day --export csv` to write a CSV to stdout for spreadsheets.
+        Example: `harnesscope --by-day --export csv` to write a CSV to stdout for spreadsheets.
     validations:
       required: true
 

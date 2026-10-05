@@ -5,10 +5,10 @@ from datetime import datetime
 
 import pytest
 
-from codex_usage.domain import UsageEvent, TimingSample
-from codex_usage.index import SQLiteIndex, EVENT_COLUMNS, TIMING_COLUMNS
-from codex_usage.query import AnalyticsQuery, QueryRequest
-from codex_usage.pricing import model_cost, records_from_modelsdev, records_from_litellm
+from harnesscope.domain import UsageEvent, TimingSample
+from harnesscope.index import SQLiteIndex, EVENT_COLUMNS, TIMING_COLUMNS
+from harnesscope.query import AnalyticsQuery, QueryRequest
+from harnesscope.pricing import model_cost, records_from_modelsdev, records_from_litellm
 
 PRICES = {'known': {'inputCostPerMillion': 2, 'cacheReadCostPerMillion': 0.5,
                     'cacheWriteCostPerMillion': 3, 'cacheWrite1hCostPerMillion': 4,
@@ -185,7 +185,7 @@ def test_provider_prices_preserve_cache_write_fields():
 
 
 def test_official_claude_cache_rules_and_explicit_overrides_do_not_mutate_prices():
-    from codex_usage.pricing import model_cost_detail
+    from harnesscope.pricing import model_cost_detail
     prices = {'claude-sonnet-4-6': {'inputCostPerMillion': 3, 'cacheReadCostPerMillion': 0.3, 'outputCostPerMillion': 15}}
     baseline = json.dumps(prices, sort_keys=True)
     detail = model_cost_detail(prices, 'claude-sonnet-4-6', 100, 200, 50, cache_write=300, cache_write_1h=100)
@@ -242,7 +242,7 @@ def test_tps_model_response_binding_and_whole_turn_filter(tmp_path):
 
 
 def test_price_model_resolution_is_reused_including_unknown_models(tmp_path, monkeypatch):
-    import codex_usage.query as module
+    import harnesscope.query as module
     lookups = []
     original = module._lookup_hit
     def counting(prices, model):

@@ -3,7 +3,7 @@ import { web } from './web/node_modules/@e2e-dev/web/dist/index.js';
 
 // Dependencies are installed once under web/. No model/provider is configured.
 export default {
-  projectId: 'codex-usage-workbench',
+  projectId: 'harnesscope-workbench',
   tests: ['tests/e2e/*.e2e.ts'],
   workers: 1,
   retries: 0,

@@ -20,24 +20,31 @@ SCHEMA_VERSION = 1
 # --help 的补充说明（raw 格式，不折叠换行）
 EPILOG = """\
 帮助入口:
-  codex-usage --help        人读帮助（/?, -?, help 等价）
-  codex-usage --schema      机器可读自描述（选项、字段、语义、退出码的 JSON）
-  codex-usage --doctor      环境自检（数据源、定价表、真图能力、终端档位）
-  codex-usage --web         本机四源用量工作台（默认 http://127.0.0.1:8765）
+  harnesscope --help        人读帮助（/?, -?, help 等价）
+  harnesscope --schema      机器可读自描述（选项、字段、语义、退出码的 JSON）
+  harnesscope --doctor      环境自检（数据源、定价表、真图能力、终端档位）
+  harnesscope --web         本机四源用量工作台（默认 http://127.0.0.1:8765）
+  harnesscope start         启动用量镜（普通后台或已安装的用户服务）
+  harnesscope status        查看运行状态（支持 --json）
 
 示例:
-  codex-usage                                      今天各会话明细（含子代理，每会话一行）
-  codex-usage --by-model                           按模型聚合
-  codex-usage --by-day --since 20260904            按天聚合（紧凑时间 = 2026-09-04）
-  codex-usage --by-day --by-model --metric total   天×模型
-  codex-usage --family --parent 01a083b7           家族树：主线程 + 各子代理
-  codex-usage --chart bar --by-day                 每天成本柱状图（终端下优先出真图）
-  codex-usage --chart bar --by-day --ascii         同上，但强制字符画
-  codex-usage --json --since 20260910              机器可读：每会话一行 JSON
-  codex-usage --schema                             机器可读自描述（本文档的 JSON 版）
-  codex-usage --doctor                             环境自检：数据源、定价、真图能力
-  codex-usage --web --port 8765                    Codex / Claude / OMP / DSH 用量工作台
-  codex-usage --analytics --query 'harness=codex&metric=tokens'  共享分析 JSON
+  harnesscope                                      今天各会话明细（含子代理，每会话一行）
+  harnesscope --by-model                           按模型聚合
+  harnesscope --by-day --since 20260904            按天聚合（紧凑时间 = 2026-09-04）
+  harnesscope --by-day --by-model --metric total   天×模型
+  harnesscope --family --parent 01a083b7           家族树：主线程 + 各子代理
+  harnesscope --chart bar --by-day                 每天成本柱状图（终端下优先出真图）
+  harnesscope --chart bar --by-day --ascii         同上，但强制字符画
+  harnesscope --json --since 20260910              机器可读：每会话一行 JSON
+  harnesscope --schema                             机器可读自描述（本文档的 JSON 版）
+  harnesscope --doctor                             环境自检：数据源、定价、真图能力
+  harnesscope --web --port 8765                    Codex / Claude / OMP / DSH 用量工作台
+  harnesscope --analytics --query 'harness=codex&metric=tokens'  共享分析 JSON
+  harnesscope start --port 8765                   后台启动并保存端口
+  harnesscope stop                               停止本工具的进程或用户服务
+  harnesscope restart                            重启（端口沿用保存的配置）
+  harnesscope service install --port 8765         安装用户服务并 enable 登录自启
+  harnesscope service remove                      停止并移除用户服务，回到普通模式
 
 语义约定:
   聚合 --by-day/--by-model  决定行粒度，可组合成「天×模型」
@@ -51,21 +58,25 @@ EPILOG = """\
   表格        人读，非 TTY 时给足宽度避免截断
   --json      每行一条会话记录（JSON Lines），字段见 `--schema`
   --chart     终端 + 装了 [image] 时出真图，其余情况字符画
-  退出码      0 成功；1 用法/运行时错误；2 参数解析错误；141 管道下游提前关闭
+  退出码      0 成功；1 用法/运行时错误；2 参数解析错误；3 status 未运行；141 管道下游提前关闭
 
 数据源与环境变量:
-  会话      ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl   CODEX_USAGE_SESSIONS_DIR
-  归档      ~/.codex/archived_sessions                     CODEX_USAGE_ARCHIVE_DIR
+  会话      ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl   HARNESCOPE_SESSIONS_DIR
+  归档      ~/.codex/archived_sessions                     HARNESCOPE_ARCHIVE_DIR
   Web Codex CODEX_HOME（默认 ~/.codex），含 sessions 与 archived_sessions
   Web Claude CLAUDE_CONFIG_DIR（默认 ~/.claude）下的 projects
   Web OMP   OMP_SESSIONS_DIR；否则 PI_CODING_AGENT_DIR/sessions（默认 ~/.omp/agent/sessions）
   Web DSH   DSH_HOME（默认 ~/.dsh）下的 sessions
-  定价      内置表 → 用户缓存 → 自定义文件，后者优先       CODEX_USAGE_PRICING_FILE
-            刷新：codex-usage --update-pricing（可选 --pricing-source litellm）
-  图表档位  CODEX_USAGE_IMAGE_MODE=auto|tgp|sixel|halfcell|ascii（默认 auto 自动探测）
+  定价      内置表 → 用户缓存 → 自定义文件，后者优先       HARNESCOPE_PRICING_FILE
+            刷新：harnesscope --update-pricing（可选 --pricing-source litellm）
+  图表档位  HARNESCOPE_IMAGE_MODE=auto|tgp|sixel|halfcell|ascii（默认 auto 自动探测）
 
 Web 与共享分析: 查询参数见 docs/workbench-api.md；默认全部可用事件，时间窗 [start,end)。
 Web 仅监听 127.0.0.1；首次后台扫描，之后点击刷新显式重扫；GET 只读取本机索引。
+Linux 运行管理: start / stop / restart / status；已安装 harnesscope.service 时管理 systemd --user。
+service install 仅安装并 enable，启动请用 start；service remove 停止服务并切回普通模式。
+配置: $XDG_CONFIG_HOME/harnesscope/config.json（默认 ~/.config）；端口也可用 HARNESCOPE_PORT。
+日志/PID: $XDG_STATE_HOME/harnesscope（默认 ~/.local/state）；--web 保留前台运行方式。
 联网说明: 只有 --update-pricing 访问外部网络（拉公开定价表）；Web 在本机提供服务。
 """
 
@@ -93,7 +104,8 @@ _CONVENTIONS = {
 }
 
 _EXIT_CODES = {"0": "成功", "1": "用法或运行时错误（含参数冲突、时间格式非法）",
-               "2": "参数解析错误（argparse）", "141": "输出管道下游提前关闭（SIGPIPE）"}
+               "2": "参数解析错误（argparse）", "3": "运行管理 status 未运行",
+               "141": "输出管道下游提前关闭（SIGPIPE）"}
 
 _JSON_FIELDS = {
     "session_id": {"type": "string", "meaning": "会话 ID（子代理取文件名第二个 UUID）"},
@@ -158,28 +170,31 @@ _TABLE_COLUMNS = ["净输入", "缓存读", "命中率", "输出", "总 tokens",
                   "单次成本", "每百万 tokens", "TPS", "成本"]
 
 _DATA_SOURCES = {
-    "sessions_dir": {"env": "CODEX_USAGE_SESSIONS_DIR", "default": "~/.codex/sessions",
+    "sessions_dir": {"env": "HARNESCOPE_SESSIONS_DIR", "default": "~/.codex/sessions",
                      "pattern": "YYYY/MM/DD/rollout-*.jsonl"},
-    "archive_dir": {"env": "CODEX_USAGE_ARCHIVE_DIR", "default": "~/.codex/archived_sessions"},
-    "pricing_file": {"env": "CODEX_USAGE_PRICING_FILE",
-                     "precedence": ["CODEX_USAGE_PRICING_FILE（自定义，cc-switch 兼容格式）",
-                                    "用户缓存 ~/.cache/codex-usage/pricing.json（CODEX_USAGE_CACHE_DIR 可覆盖）",
-                                    "内置表 src/codex_usage/data/pricing.json（随包发行，离线可用）"],
-                     "refresh": "codex-usage --update-pricing [--pricing-source models.dev|litellm]"},
+    "archive_dir": {"env": "HARNESCOPE_ARCHIVE_DIR", "default": "~/.codex/archived_sessions"},
+    "pricing_file": {"env": "HARNESCOPE_PRICING_FILE",
+                     "precedence": ["HARNESCOPE_PRICING_FILE（自定义，cc-switch 兼容格式）",
+                                    "用户缓存 ~/.cache/harnesscope/pricing.json（HARNESCOPE_CACHE_DIR 可覆盖）",
+                                    "内置表 src/harnesscope/data/pricing.json（随包发行，离线可用）"],
+                     "refresh": "harnesscope --update-pricing [--pricing-source models.dev|litellm]"},
 }
 
 _EXAMPLES = [
-    {"command": "codex-usage --web", "description": "启动本机四源用量工作台"},
-    {"command": "codex-usage --analytics --query 'harness=codex&metric=tokens'",
+    {"command": "harnesscope start --port 8765", "description": "后台启动并保存端口"},
+    {"command": "harnesscope status --json", "description": "结构化运行状态，未运行退出 3"},
+    {"command": "harnesscope service install --port 8765", "description": "安装用户服务并启用登录自启"},
+    {"command": "harnesscope --web", "description": "启动本机四源用量工作台"},
+    {"command": "harnesscope --analytics --query 'harness=codex&metric=tokens'",
      "description": "四源共享分析 JSON，可按 API 参数筛选和分组"},
-    {"command": "codex-usage --by-model", "description": "按模型聚合（每模型一行，含会话数）"},
-    {"command": "codex-usage --by-day --since 20260904", "description": "按天聚合，紧凑时间写法"},
-    {"command": "codex-usage --by-day --by-model --metric total", "description": "天×模型"},
-    {"command": "codex-usage --family --parent 01a083b7", "description": "家族树：主线程+子代理"},
-    {"command": "codex-usage --chart bar --by-day", "description": "每天成本柱状图（终端下优先真图）"},
-    {"command": "codex-usage --chart bar --by-day --ascii", "description": "强制字符画图表"},
-    {"command": "codex-usage --json --since 20260910", "description": "每会话一行 JSON（JSON Lines）"},
-    {"command": "codex-usage --doctor", "description": "环境自检：数据源、定价、真图能力"},
+    {"command": "harnesscope --by-model", "description": "按模型聚合（每模型一行，含会话数）"},
+    {"command": "harnesscope --by-day --since 20260904", "description": "按天聚合，紧凑时间写法"},
+    {"command": "harnesscope --by-day --by-model --metric total", "description": "天×模型"},
+    {"command": "harnesscope --family --parent 01a083b7", "description": "家族树：主线程+子代理"},
+    {"command": "harnesscope --chart bar --by-day", "description": "每天成本柱状图（终端下优先真图）"},
+    {"command": "harnesscope --chart bar --by-day --ascii", "description": "强制字符画图表"},
+    {"command": "harnesscope --json --since 20260910", "description": "每会话一行 JSON（JSON Lines）"},
+    {"command": "harnesscope --doctor", "description": "环境自检：数据源、定价、真图能力"},
 ]
 
 
@@ -213,7 +228,7 @@ def schema(parser: argparse.ArgumentParser) -> dict:
     """机器可读自描述：命令契约、语义、输出字段、环境变量、退出码。"""
     return {
         "schema_version": SCHEMA_VERSION,
-        "name": "codex-usage",
+        "name": "harnesscope",
         "version": __version__,
         "summary": "本机 Codex / Claude / OMP / DSH 用量工作台；兼容原 Codex 终端统计",
         "usage": parser.format_usage().removeprefix("usage: ").strip(),
@@ -232,16 +247,31 @@ def schema(parser: argparse.ArgumentParser) -> dict:
             "tiers": ["终端支持图形协议（kitty/Sixel）→ 直接显示 PNG 真图",
                       "终端不支持图形协议 → 彩色半块字符",
                       "未装 [image] extras / 输出被管道重定向 / --ascii → plotext 字符画"],
-            "env": {"CODEX_USAGE_IMAGE_MODE": "auto|tgp|sixel|halfcell|ascii",
+            "env": {"HARNESCOPE_IMAGE_MODE": "auto|tgp|sixel|halfcell|ascii",
                     "note": "覆盖自动探测的显示档位；ascii 等同 --ascii；"
                             "遇到把真图渲染坏的终端可降级到 halfcell"},
             "ascii_labels": "字符画档位下标题与图例自动转写为 ASCII（plotext 不支持宽字符会错位）",
-            "install": "uv tool install \"codex-usage[image]\"（PyPI 发布后；源码安装用 "
-                       "uv tool install \"git+https://github.com/stofancy/codex-usage[image]\"；需 Python ≥3.12）",
+            "install": "源码 checkout 运行 ./install.sh --image；PyPI 发布后可用 "
+                       "uv tool install \"harnesscope[image]\"；真图协议需 Python ≥3.12",
         },
         "data_sources": _DATA_SOURCES,
+        "runtime_management": {
+            "platform": "linux",
+            "commands": ["start [--port PORT] [--json]", "stop [--json]",
+                         "restart [--port PORT] [--json]", "status [--json]",
+                         "service install [--port PORT] [--json]", "service remove [--json]"],
+            "modes": "已安装本工具用户服务配置时使用 systemd --user；其余使用后台进程",
+            "foreground": "harnesscope --web [--port PORT]",
+            "config": "$XDG_CONFIG_HOME/harnesscope/config.json (default ~/.config)",
+            "state": "$XDG_STATE_HOME/harnesscope (default ~/.local/state)",
+            "port": "显式 --port > HARNESCOPE_PORT > 保存的端口 > 8765",
+            "unit": "harnesscope.service；enable 登录自启；install 不立即启动",
+            "service_environment": "安装时保存 HARNESCOPE_*、XDG 与原生四源路径覆盖；重新 install 更新",
+            "process_identity": "boot id、PID 启动时刻、随机实例标识；flock 串行管理，pidfd 安全停止",
+            "status_exit": "运行 0；未运行 3；运行管理错误 1",
+        },
         "workbench": {
-            "command": "codex-usage --web [--port 8765]",
+            "command": "harnesscope --web [--port 8765]",
             "listen": "127.0.0.1",
             "sources": {
                 "codex": {"env": "CODEX_HOME", "default": "~/.codex",
@@ -263,7 +293,7 @@ def schema(parser: argparse.ArgumentParser) -> dict:
                 "missing": "404；缺失、空值或重复标识 400",
             },
             "query_contract": "docs/workbench-api.md",
-            "analytics_command": "codex-usage --analytics [--query URL_QUERY]",
+            "analytics_command": "harnesscope --analytics [--query URL_QUERY]",
             "analytics_output": "one JSON object; same query and metrics as GET /api/analytics",
             "default_window": "全部已索引事件；显式时间窗口 [start,end)，ISO 时间须含 offset",
             "refresh": "启动后台扫描；GET 无扫描副作用；POST application/json 显式刷新",
@@ -308,20 +338,20 @@ def doctor() -> dict:
 
     hints, notes = [], []
     if not os.path.isdir(sessions):
-        hints.append(f"会话目录不存在: {sessions}（确认 Codex 在本机跑过，或用 CODEX_USAGE_SESSIONS_DIR 指定）")
+        hints.append(f"会话目录不存在: {sessions}（确认 Codex 在本机跑过，或用 HARNESCOPE_SESSIONS_DIR 指定）")
     elif n_sessions == 0:
         hints.append(f"会话目录里没有 rollout-*.jsonl: {sessions}")
     price_src = pricing.source_info()
     if not table:
         hints.append(f"定价不可用: 内置表与自定义文件都读不到（{price_file}）；"
                      "token 照常统计、成本按 $0 计并标 *，可用 --update-pricing 拉取公开定价")
-    elif os.environ.get("CODEX_USAGE_PRICING_FILE") and \
+    elif os.environ.get("HARNESCOPE_PRICING_FILE") and \
             "env-file" not in (price_src.get("source") or ""):
         notes.append(f"自定义定价文件不可用，已回退 {price_src.get('source')}: "
-                     f"{os.environ['CODEX_USAGE_PRICING_FILE']}")
+                     f"{os.environ['HARNESCOPE_PRICING_FILE']}")
     if not render["available"]:
         hints.append("真图图表不可用：未装 matplotlib/textual-image（"
-                     "uv tool install \"codex-usage[image]\"，需 Python ≥3.12）")
+                     "uv tool install \"harnesscope[image]\"，需 Python ≥3.12）")
     elif not sys.stdout.isatty():
         notes.append("当前输出不是终端：图表会走字符画；看真图请在终端里直接运行")
     elif render["display"] == "字符回退":
@@ -330,11 +360,11 @@ def doctor() -> dict:
         hints.append("系统缺中文字体：图表里的中文可能显示为方框（可装 Noto Sans CJK）")
 
     return {
-        "name": "codex-usage",
+        "name": "harnesscope",
         "version": __version__,
         "python": sys.version.split()[0],
         "platform": platform.platform(),
-        "executable": shutil.which("codex-usage") or sys.argv[0],
+        "executable": shutil.which("harnesscope") or sys.argv[0],
         "data": {
             "workbench_sources": workbench_sources,
             "sessions_dir": {"path": sessions, "exists": os.path.isdir(sessions),
@@ -360,7 +390,7 @@ def doctor() -> dict:
 
 def _tier(render: dict) -> str:
     if render.get("mode") == "ascii":
-        return "字符画（CODEX_USAGE_IMAGE_MODE=ascii）"
+        return "字符画（HARNESCOPE_IMAGE_MODE=ascii）"
     if not render["available"]:
         return "字符画（未装 [image] extras）"
     if not sys.stdout.isatty():
@@ -382,7 +412,7 @@ def format_doctor(d: dict) -> str:
               + (f"，档位 {mode}，自动探测为 {render['detected']}" if mode != "auto"
                  else f"，档位 auto（探测为 {render['detected']}）") + "）"
               if render["available"] and render["raster_px"] else "")
-    lines = [f"codex-usage {d['version']}  |  Python {d['python']}  |  {d['platform']}",
+    lines = [f"harnesscope {d['version']}  |  Python {d['python']}  |  {d['platform']}",
              "",
              f"会话数据   {data['sessions_dir']['path']}"
              f"  {'存在' if data['sessions_dir']['exists'] else '不存在'}"

@@ -76,7 +76,7 @@ class LocalOnlyMiddleware:
 
 
 def create_app(service=None, *, static_dir: Path | None = None,
-               initial_refresh: bool = True) -> Starlette:
+               initial_refresh: bool = True, instance_id: str | None = None) -> Starlette:
     """Build an app; injected services/static directories support isolated tests."""
     if service is None:
         from .service import UsageService
@@ -93,7 +93,9 @@ def create_app(service=None, *, static_dir: Path | None = None,
             await run_in_threadpool(service.close)
 
     async def status(request: Request) -> Response:
-        return JSONResponse(await run_in_threadpool(service.status))
+        import os
+        result = await run_in_threadpool(service.status)
+        return JSONResponse({**result, "server_pid": os.getpid(), "instance_id": instance_id})
 
     async def refresh(request: Request) -> Response:
         content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
@@ -230,8 +232,13 @@ def create_app(service=None, *, static_dir: Path | None = None,
     return app
 
 
-def serve(port: int = DEFAULT_PORT) -> None:
+def serve(port: int = DEFAULT_PORT, *, socket_fd: int | None = None,
+          instance_id: str | None = None) -> None:
     """Run the local workbench; listening on external interfaces is unsupported."""
     import uvicorn
     print(f"本机用量工作台：http://127.0.0.1:{port}（Ctrl+C 停止）", flush=True)
-    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    app = create_app(instance_id=instance_id) if instance_id is not None else create_app()
+    if socket_fd is None:
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    else:
+        uvicorn.run(app, host="127.0.0.1", port=port, fd=socket_fd, log_level="warning")

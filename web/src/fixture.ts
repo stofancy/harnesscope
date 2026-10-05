@@ -84,7 +84,7 @@ export function fixture(q: Query): Analysis {
                     harness: h,
                     model: m,
                     project: [
-                        "codex-usage",
+                        "harnesscope",
                         "weihub",
                         "new-api",
                         "chuangxin-trade",

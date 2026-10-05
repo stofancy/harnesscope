@@ -5,10 +5,10 @@ from dataclasses import replace
 
 import pytest
 
-from codex_usage.adapters.codex import CodexAdapter
-from codex_usage.domain import ParseBatch, SourceFile, UsageEvent, timestamp_us
-from codex_usage.index import SQLiteIndex
-from codex_usage.parser import parse_codex_file, parse_rollout
+from harnesscope.adapters.codex import CodexAdapter
+from harnesscope.domain import ParseBatch, SourceFile, UsageEvent, timestamp_us
+from harnesscope.index import SQLiteIndex
+from harnesscope.parser import parse_codex_file, parse_rollout
 
 SID = "00000000-0000-0000-0000-000000000001"
 PARENT = "00000000-0000-0000-0000-000000000002"

@@ -3,10 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "codex-usage"
+name = "harnesscope"
 # 未做过正式发布，开源首发从 0.x 起步：允许在 1.0 之前做破坏性调整
 version = "0.4.0"
-description = "Local Codex, Claude, OMP and DSH usage workbench with token, cost and session analytics"
+description = "Harnesscope: local multi-harness token, cost, cache and session analytics"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -44,16 +44,16 @@ image = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/stofancy/codex-usage"
-Repository = "https://github.com/stofancy/codex-usage"
-Issues = "https://github.com/stofancy/codex-usage/issues"
-Changelog = "https://github.com/stofancy/codex-usage/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/stofancy/harnesscope"
+Repository = "https://github.com/stofancy/harnesscope"
+Issues = "https://github.com/stofancy/harnesscope/issues"
+Changelog = "https://github.com/stofancy/harnesscope/blob/main/CHANGELOG.md"
 
 [project.scripts]
-codex-usage = "codex_usage.cli:main"
+harnesscope = "harnesscope.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/codex_usage"]
+packages = ["src/harnesscope"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -61,6 +61,7 @@ include = [
     "tests",
     "docs",
     "tools",
+    "install.sh",
     "web",
     "e2e.config.ts",
     "CONTRIBUTING.md",
@@ -74,7 +75,7 @@ include = [
 [tool.hatch.build]
 # npm build generates these files before release/CI packaging. Include the same
 # immutable bundle in wheels and sdists, independent of .gitignore.
-artifacts = ["src/codex_usage/web_static/**"]
+artifacts = ["src/harnesscope/web_static/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

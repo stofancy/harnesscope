@@ -1,4 +1,4 @@
-# codex-usage 竞品调研（开源前市场/定位分析）
+# harnesscope 竞品调研（开源前市场/定位分析）
 
 > 历史研究：本文保留 2026-09-21 的 Codex 专用定位与资料截面。当前跨 harness、本地浏览器 UI 与 TUI 方案见[2026-09-27 研究总方案](research/2026-09-27-harness-usage-proposal.md)；本文“终端真图优势”等旧定位不代表新方案，版本/支持数量请勿作为当前事实引用。
 
@@ -25,7 +25,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 - 🟢 **事实**：可直接在该竞品 README / 官方文档 / GitHub API 返回值中读到，已附 URL。
 - 🟡 **推断**：由"文档中没有"或间接证据推出，并已写明推断依据；不等于该能力一定不存在。
 - ⬜ **未获取**：抓取当日没有拿到可靠数据，不猜数字。
-- 涉及"我方"（codex-usage）的事实一律给本仓库内路径或 README 行号。
+- 涉及"我方"（harnesscope）的事实一律给本仓库内路径或 README 行号。
 
 **我方基线（本仓库，抓取日状态；2026-09-21 晚按开源改造后的实测更新过成本/测试两行）**
 
@@ -33,12 +33,12 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 |---|---|---|
 | 数据源 | 仅 `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`（OpenAI 官方订阅 OAuth 产生的 rollout） | `README.md` 第 3、166 行 |
 | 聚合维度 | 会话 / 子代理 / 天 / 模型 / 天×模型 / 家族树（`--by-day` `--by-model` `--family` `--raw`） | `README.md` 第 68–77 行 |
-| 图表 | 四档：真图（kitty TGP / Sixel）→ 彩色半块 → 字符画；`CODEX_USAGE_IMAGE_MODE` 可强制档位 | `README.md` 第 111–141 行 |
-| 成本来源 | **内置公开定价表（`src/codex_usage/data/pricing.json`，2086 个有价模型，离线可用）为基底**，`CODEX_USAGE_PRICING_FILE` 与本地缓存按 modelId 合并覆盖；`--update-pricing` 从 models.dev / LiteLLM 刷新；无价模型 token 照统计、成本计 $0 并标 `*` | `src/codex_usage/pricing.py`；`docs/pricing.md`；实测 `--doctor` 输出"内置表+自定义文件 … 2086 个模型" |
-| 机器可读 | `--json`；`--schema`（由 argparse 定义生成的 JSON 契约）；`--doctor`（环境自检，可 `--json`） | `README.md` 第 81–105 行；`src/codex_usage/selfdoc.py`；`tests/test_selfdoc.py` |
+| 图表 | 四档：真图（kitty TGP / Sixel）→ 彩色半块 → 字符画；`HARNESCOPE_IMAGE_MODE` 可强制档位 | `README.md` 第 111–141 行 |
+| 成本来源 | **内置公开定价表（`src/harnesscope/data/pricing.json`，2086 个有价模型，离线可用）为基底**，`HARNESCOPE_PRICING_FILE` 与本地缓存按 modelId 合并覆盖；`--update-pricing` 从 models.dev / LiteLLM 刷新；无价模型 token 照统计、成本计 $0 并标 `*` | `src/harnesscope/pricing.py`；`docs/pricing.md`；实测 `--doctor` 输出"内置表+自定义文件 … 2086 个模型" |
+| 机器可读 | `--json`；`--schema`（由 argparse 定义生成的 JSON 契约）；`--doctor`（环境自检，可 `--json`） | `README.md` 第 81–105 行；`src/harnesscope/selfdoc.py`；`tests/test_selfdoc.py` |
 | 工程状态 | Python ≥3.10；`version = "0.1.0"`；单作者 `stofancy`；MIT；CI（3.10–3.13 矩阵）、ruff/mypy、CHANGELOG/CONTRIBUTING/SECURITY/CoC、issue 与 PR 模板均已就位 | `pyproject.toml`；`.github/workflows/ci.yml`；`CHANGELOG.md` |
 | 测试 | **129 个用例、7 个测试文件**（合成夹具，不依赖本机数据；含内置定价表覆盖与家族树用例） | `tests/`（`pytest tests/ -q` → 129 passed） |
-| 源码规模 | 11 个 Python 模块、约 2345 行 | `src/codex_usage/` |
+| 源码规模 | 11 个 Python 模块、约 2345 行 | `src/harnesscope/` |
 
 ---
 
@@ -81,7 +81,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 | **JedIV/token-tracker** 🟢 | 仓库内手编 `prices.json`（按 tool 有 `_default` 兜底），ingest 时计算、每次运行重新套用 | HTTP API（`/api/stats`、`/api/mcp`、`/api/sessions`），非 CLI JSON 契约 | 无 |
 | **jleechanorg/ai-usage-tracker** 🟢 | 完全继承 `ccusage` / `ccusage-codex` 的数字 | `--json`（Python 与 JS 两个 CLI 都是） | 无 |
 | **genewoo/ccusage** | 同旧版 ccusage（LiteLLM） | `--json` | 无 |
-| **我方 codex-usage** | 本机 `~/.cc-switch/model-pricing.json`（doctor 示例：56 个模型）；缺表时成本 $0 并标 `*` | `--json`（会话级，含按模型明细与调用次数）；**`--schema`**（argparse 定义生成的契约，含 `json_output.fields`、`chart_rendering.env`）；**`--doctor`**（环境自检，支持 `--json`） | ✅ 有 |
+| **我方 harnesscope** | 本机 `~/.cc-switch/model-pricing.json`（doctor 示例：56 个模型）；缺表时成本 $0 并标 `*` | `--json`（会话级，含按模型明细与调用次数）；**`--schema`**（argparse 定义生成的契约，含 `json_output.fields`、`chart_rendering.env`）；**`--doctor`**（环境自检，支持 `--json`） | ✅ 有 |
 
 ### 1.3 安装、跨平台、license、活跃度
 
@@ -113,13 +113,13 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 
 ### A1. 终端里的**真图**：三档渲染 + 可强制档位，竞品官方图表基本在 Web/桌面端
 
-- 我方：matplotlib 出 PNG → textual-image 送进终端（kitty TGP / Sixel），不支持图形协议时降级彩色半块，未装依赖/被管道重定向/`--ascii` 时用 plotext+termcharts 字符画；`CODEX_USAGE_IMAGE_MODE=auto|tgp|sixel|halfcell|ascii` 可强制；当前档位由 `--doctor` 报出、`--schema` 的 `chart_rendering.env` 可读（`README.md` 第 111–141 行）。
+- 我方：matplotlib 出 PNG → textual-image 送进终端（kitty TGP / Sixel），不支持图形协议时降级彩色半块，未装依赖/被管道重定向/`--ascii` 时用 plotext+termcharts 字符画；`HARNESCOPE_IMAGE_MODE=auto|tgp|sixel|halfcell|ascii` 可强制；当前档位由 `--doctor` 报出、`--schema` 的 `chart_rendering.env` 可读（`README.md` 第 111–141 行）。
 - 竞品对照：ccusage 官方**无图表命令**（v18 还移除了 `blocks --live`，`docs/guide/live-monitoring.md`），官方把图表列为社区项目；codeburn 的图表在 `codeburn web` / 桌面端；tokscale 在 TUI/Web 前端；agentsview 在 Web UI；anthropometer 出的是 **PDF** 报告。抓取到的 11 份 README 中，**没有一家**声明支持 kitty TGP / Sixel 终端真图（🟡 推断：至少未被文档化）。
 - 对远程/SSH/纯终端用户这是独占卖点。
 
 ### A2. `--schema` + `--doctor`：把"工具怎么用、输出是什么、环境对不对"变成机器可读契约
 
-- 我方：`--schema` 的选项清单**直接由 argparse 定义生成**（不会与实现漂移），并暴露 `json_output.fields` 与 `chart_rendering.env`；`--doctor` 自检数据源、定价表、真图依赖与终端档位、中文字体，支持 `--json`（`README.md` 第 81–105 行；`src/codex_usage/selfdoc.py`，295 行；`tests/test_selfdoc.py` 9 个用例）。
+- 我方：`--schema` 的选项清单**直接由 argparse 定义生成**（不会与实现漂移），并暴露 `json_output.fields` 与 `chart_rendering.env`；`--doctor` 自检数据源、定价表、真图依赖与终端档位、中文字体，支持 `--json`（`README.md` 第 81–105 行；`src/harnesscope/selfdoc.py`，295 行；`tests/test_selfdoc.py` 9 个用例）。
 - 竞品对照：抓取范围内只有 **agentsview** 的 `--format json` 带版本化 schema（`schema_version: 1`）与之同类；ccusage 有 `--json` 字段文档但**没有** `--schema` 类自描述命令（🟡 推断）；splitrail 走 MCP server 暴露能力，codeburn 有 MCP（2 tools）但与"本地 CLI 契约"是两条路线。整体上"自描述 + 自检"在竞品中基本是空白区（🟡 推断：以抓取到的 11 份 README 为限）。
 
 ### A3. 家族树聚合：`--family` / `--parent` 把主线程与各子代理放同一棵树里
@@ -134,7 +134,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 
 ### A5. 默认零网络 + 内置公开定价表：数据不出机器也能算成本
 
-- 我方：解析、聚合、出图全程本地；**内置公开定价表随包发行（`src/codex_usage/data/pricing.json`，2086 个有价模型，离线可用）**，用户可用 `CODEX_USAGE_PRICING_FILE` 与本地缓存按 modelId 覆盖，`--update-pricing` 是唯一联网动作且由用户显式触发（`src/codex_usage/pricing.py`；`docs/pricing.md`；`SECURITY.md` 有写入/联网边界声明）。
+- 我方：解析、聚合、出图全程本地；**内置公开定价表随包发行（`src/harnesscope/data/pricing.json`，2086 个有价模型，离线可用）**，用户可用 `HARNESCOPE_PRICING_FILE` 与本地缓存按 modelId 覆盖，`--update-pricing` 是唯一联网动作且由用户显式触发（`src/harnesscope/pricing.py`；`docs/pricing.md`；`SECURITY.md` 有写入/联网边界声明）。
 - 竞品对照：ccusage 需要 LiteLLM 定价（`--offline` 是显式降级选项，构建期也会抓取定价 revision）；codeburn 的 LiteLLM 定价**每日刷新**；VibeCodingTracker 用 LiteLLM **每日缓存**；splitrail 有云上传能力（默认关闭）；codeburn 桌面端有可选匿名遥测。也就是说"必须联网取价"或"有云/遥测面"是竞品常态，**全默认离线 + 自带定价表**是我们可宣传的隐私差异。
 
 ### A6. 契约面完整：stdout/stderr 分离 + 退出码语义 + 129 个不依赖本机数据的测试
@@ -159,7 +159,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 - 🟢 事实：ccusage/codeburn/toktrack/tokscale 都是 `npx <pkg>@latest` 一行即用；splitrail/agentsview/anthropometer 是 `curl | sh` 二进制；VibeCodingTracker 同时上 npm/PyPI/crates。
 - 我方：`uv tool install <path>`，需要用户先装 `uv` 与 Python ≥3.10；真图还要 `[image]` 额外依赖（matplotlib + textual-image），且 textual-image **要求 Python ≥3.12**（`pyproject.toml` 第 35–40 行；`README.md` 第 22 行）。
 - 影响：TypeScript/Rust 用户第一次尝试的摩擦明显更高。
-- 可行动：优先发 PyPI（`uvx codex-usage` / `pipx run`），README 把安装压到一行；把"真图"和"基础表格"在首屏就说清依赖差异。
+- 可行动：优先发 PyPI（`uvx harnesscope` / `pipx run`），README 把安装压到一行；把"真图"和"基础表格"在首屏就说清依赖差异。
 
 ### R3. 单数据源：竞品普遍 9–41 个工具，我们只解析 Codex rollout
 
@@ -170,7 +170,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 ### R4.（已缓解）定价覆盖度：曾经依赖用户本机文件，缺表时静默 $0
 
 - 🟢 事实（抓取日）：当时成本只来自 `~/.cc-switch/model-pricing.json`（`--doctor` 示例显示 56 个模型），没有该文件时"token 照常统计、成本按 $0 计"。ccusage/codeburn/VibeCodingTracker 都内嵌 LiteLLM 定价数据集并自动/每日更新（各家覆盖模型数未逐一核实 ⬜）。
-- 🟢 **开源改造已完成**：内置 `src/codex_usage/data/pricing.json`（**2086 个有价模型**，来自 models.dev 公开数据）作为基底，`CODEX_USAGE_PRICING_FILE` 与本地缓存按 modelId **合并覆盖**；`--update-pricing` 可刷新缓存；`--doctor` 报出当前生效来源与模型数（实测："内置表+自定义文件 … 2086 个模型"）。该风险从"新用户第一印象是成本全 0"降级为"次要注意项"。
+- 🟢 **开源改造已完成**：内置 `src/harnesscope/data/pricing.json`（**2086 个有价模型**，来自 models.dev 公开数据）作为基底，`HARNESCOPE_PRICING_FILE` 与本地缓存按 modelId **合并覆盖**；`--update-pricing` 可刷新缓存；`--doctor` 报出当前生效来源与模型数（实测："内置表+自定义文件 … 2086 个模型"）。该风险从"新用户第一印象是成本全 0"降级为"次要注意项"。
 - 🟡 剩余局限：内置表是**快照**（带 `updated` 字段）；渠道的阶梯价（context > 200k）与 `cache_write` 未计入；公开渠道未收录的模型名在本机仍显示 `$0.00*`；不同转售商报价有差异，内置表按 provider 权威度取价（`docs/pricing.md` 已写明）。
 - 可行动：README 首屏给出"成本来源"一节并链接 `docs/pricing.md`；后续可加"成本为 0 时更醒目提示"。
 
@@ -200,7 +200,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 - 🟢 事实：splitrail 有 MCP server（6 tools + 2 resources）与 VS Code 扩展；codeburn 有 MCP（2 tools）+ macOS 菜单栏 + Windows 托盘 + GNOME 扩展；ccusage 有 `@ccusage/mcp`（npm 抓取日最新 v18.0.11，2026-05-19 最后修改——注意它停在 v18 世代，主包已到 v20.0.20）、statusline 集成，以及 `docs/guide/community-projects.md` 里一长串 Raycast/Neovim/leaderboard 社区项目；agentsview 有桌面 App 与 Docker。
 - 我方：只有 CLI（表格 + 图表 + `--json`/`--schema`/`--doctor`），没有 MCP、没有常驻面板、没有编辑器集成。
 - 影响：Agent 工作流里"让模型自己查用量"的场景会被 splitrail/codeburn 先占位。
-- 可行动：`--schema` + `--json` 已经是最小 MCP 化的地基；把"`codex-usage mcp`"列进路线图（本文件只做建议，不代表已实现）。
+- 可行动：`--schema` + `--json` 已经是最小 MCP 化的地基；把"`harnesscope mcp`"列进路线图（本文件只做建议，不代表已实现）。
 
 ### R9. 与 ccusage 对账口径可能不一致，会被当成 bug
 
@@ -212,7 +212,7 @@ curl -sL https://raw.githubusercontent.com/ccusage/ccusage/main/docs/guide/codex
 
 ## 4. 差异化定位建议
 
-**一句话**：codex-usage 是**面向 Codex 重度用户的本地用量显微镜**——只把 Codex 一件事做透（家族树、可复算口径、终端真图），并把 `--schema`/`--doctor` 做成 Agent 可直接消费的自描述契约，而不是再做一个横跨 40 个工具的聚合面板。
+**一句话**：harnesscope 是**面向 Codex 重度用户的本地用量显微镜**——只把 Codex 一件事做透（家族树、可复算口径、终端真图），并把 `--schema`/`--doctor` 做成 Agent 可直接消费的自描述契约，而不是再做一个横跨 40 个工具的聚合面板。
 
 **三条支撑**
 

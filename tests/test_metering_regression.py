@@ -3,10 +3,10 @@
 本文件是**独立验证者**的产物：不修改实现，只做核验。两部分：
 
 1. pytest 用例：用合成 rollout 夹具钉死 T6 约定的边界行为，并用本文件内**独立
-   实现**的 oracle（不调用 ``codex_usage`` 的解析代码）交叉验证实现结果；另含
+   实现**的 oracle（不调用 ``harnesscope`` 的解析代码）交叉验证实现结果；另含
    task-7/task-9 定价回退的反例检查（缓存读回退、priority 档不能被按标准价）。
 2. ``__main__`` 复算入口：对真实 ``~/.codex/sessions`` 数据独立复算，分别与
-   ``codex-usage --json``（逐文件）和 ccusage（逐天/模型）对账。报告里引用的
+   ``harnesscope --json``（逐文件）和 ccusage（逐天/模型）对账。报告里引用的
    每个数字都由这些命令产出。
 
 复现命令（工作目录 = 仓库根）::
@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from codex_usage.parser import collect, parse_rollout
+from harnesscope.parser import collect, parse_rollout
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -449,7 +449,7 @@ def test_cross_day_dir_file_with_in_window_event_is_scanned(tmp_path):
 
 def test_cache_read_price_fallback_uses_input_price(tmp_path):
     """表里缺 cache read 价或显式为 0 时回退 input 价，缓存读数不会被计成 0。"""
-    from codex_usage.pricing import model_cost_detail
+    from harnesscope.pricing import model_cost_detail
 
     for record in ({"inputCostPerMillion": 10.0, "outputCostPerMillion": 50.0},
                    {"inputCostPerMillion": 10.0, "outputCostPerMillion": 50.0,
@@ -463,7 +463,7 @@ def test_cache_read_price_fallback_uses_input_price(tmp_path):
 
 
 def test_cache_read_price_present_not_flagged_as_fallback():
-    from codex_usage.pricing import model_cost_detail
+    from harnesscope.pricing import model_cost_detail
 
     detail = model_cost_detail(
         {"m": {"inputCostPerMillion": 10.0, "outputCostPerMillion": 50.0,
@@ -474,7 +474,7 @@ def test_cache_read_price_present_not_flagged_as_fallback():
 
 def test_priority_tier_not_priced_as_standard():
     """反例：tier=priority 的用量不能被按标准价计（否则低估约一半）。"""
-    from codex_usage.pricing import load_pricing, model_cost_detail
+    from harnesscope.pricing import load_pricing, model_cost_detail
 
     pricing = load_pricing()
     std = model_cost_detail(pricing, "gpt-5.6-sol", 1_000_000, 0, 0)
@@ -492,7 +492,7 @@ def test_priority_tier_not_priced_as_standard():
 
 def test_alias_label_priced_as_target_model():
     """codex-auto-review 无公开价，按别名映射到 gpt-5.5（标 assumed），金额一致。"""
-    from codex_usage.pricing import load_pricing, model_cost_detail
+    from harnesscope.pricing import load_pricing, model_cost_detail
 
     pricing = load_pricing()
     alias = model_cost_detail(pricing, "codex-auto-review", 1_000_000, 0, 0)
@@ -573,7 +573,7 @@ def _dirs_for(sessions: str, since: datetime, until: datetime) -> list[str]:
 
 
 def _cli_json(repo: str, since: str, until: str, extra: list[str]) -> list[dict]:
-    cmd = [sys.executable, "-m", "codex_usage.cli", "--since", since, "--until", until,
+    cmd = [sys.executable, "-m", "harnesscope.cli", "--since", since, "--until", until,
            "--json", *extra]
     res = subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
     if res.returncode != 0:
@@ -599,7 +599,7 @@ def _ccusage_daily(repo: str, since: str, until: str) -> dict:
 
 
 def _cmd_recompute(args) -> int:
-    """逐文件对账：本文件的独立复算 vs `codex-usage --json --raw`。"""
+    """逐文件对账：本文件的独立复算 vs `harnesscope --json --raw`。"""
     sessions = args.sessions_dir
     since, until = args.since_dt, args.until_dt
     paths = []
@@ -717,7 +717,7 @@ def _ccusage_daily_cost(repo: str, since: str, until: str) -> dict[str, float]:
 
 def _cost_of_tiers(modeltiers: dict, pricing: dict, cfg) -> tuple[dict, dict, dict]:
     """{model: {tier: 槽}} → (档位感知成本, 标准价成本, 无定价 token 数) 三个 dict。"""
-    from codex_usage.pricing import model_cost
+    from harnesscope.pricing import model_cost
 
     tiered: dict[str, float] = defaultdict(float)
     standard: dict[str, float] = defaultdict(float)
@@ -738,7 +738,7 @@ def _cost_of_tiers(modeltiers: dict, pricing: dict, cfg) -> tuple[dict, dict, di
 
 def _cmd_cost(args) -> int:
     """独立复算成本：逐模型/档位明细，并与 ccusage 的 costUSD 对账（含差异归因）。"""
-    from codex_usage.pricing import default_service_tier, load_pricing
+    from harnesscope.pricing import default_service_tier, load_pricing
 
     since, until = args.since_dt, args.until_dt
     paths = _all_rollouts(args.sessions_dir)
@@ -799,7 +799,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="T6 计量口径独立复算（不写实现，只核验）")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--recompute", action="store_true",
-                      help="逐文件与 `codex-usage --json --raw` 对账")
+                      help="逐文件与 `harnesscope --json --raw` 对账")
     mode.add_argument("--ledger", action="store_true",
                       help="逐天/逐模型独立台账（可加 --ccusage）")
     mode.add_argument("--cost", action="store_true",

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking the time to improve codex-usage. This document explains how to set up
+Thanks for taking the time to improve Harnesscope. This document explains how to set up
 the project, run the tests and get a change merged.
 
 By participating you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -17,8 +17,8 @@ By participating you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 ## Local setup
 
 ```bash
-git clone https://github.com/stofancy/codex-usage
-cd codex-usage
+git clone https://github.com/stofancy/harnesscope
+cd harnesscope
 
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[image,test]" ruff mypy   # drop [image] if you don't need charts
@@ -71,7 +71,7 @@ hand-calculated fixture values and artifact locations live in
 ## Frontend development and packaging
 
 The React/TypeScript/Recharts source lives in `web/`. Its build writes distributable
-assets to `src/codex_usage/web_static/`.
+assets to `src/harnesscope/web_static/`.
 
 ```bash
 cd web
@@ -86,7 +86,7 @@ fixtures on API failure.
 
 Return to the repository root before Python checks and packaging. Rebuild assets after
 frontend edits; verify the wheel includes both pricing data and `web_static` resources.
-Users launching `codex-usage --web` from the installed package need no Node process or
+Users launching `harnesscope --web` from the installed package need no Node process or
 Vite development server.
 
 ## Static checks
@@ -117,7 +117,9 @@ extras and Python version; it is not the acceptance measure for the new function
   - Ordinary analysis requires no external network. `--web` serves loopback HTTP;
     external pricing download is explicit.
   - Source logs, harness configuration and user pricing overrides stay read-only. Writes
-    are limited to the tool's rebuildable statistics index and explicit price cache.
+    include the tool's rebuildable statistics index, explicit price cache and its own
+    lifecycle configuration/state/logs. Optional service installation writes only its
+    current-user systemd unit.
   - Statistical storage and API output exclude conversation bodies, prompts, tool
     arguments and credentials. Missing fields, prices and timing remain unknown.
   - Charts are rendered in memory and sent straight to the terminal - never written to disk.

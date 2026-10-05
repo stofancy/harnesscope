@@ -307,7 +307,7 @@ export default function App() {
             <header className="workbench-header">
                 <h1>
                     <span className="brand-dot" />
-                    用量工作台
+                    Harnesscope <span className="brand-subtitle">用量镜</span>
                 </h1>
                 <nav className="page-nav">
                     {[

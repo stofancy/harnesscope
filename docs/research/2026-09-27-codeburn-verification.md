@@ -1,4 +1,4 @@
-# CodeBurn 能否替代 codex-usage：非绘图能力实测
+# CodeBurn 能否替代 harnesscope：非绘图能力实测
 
 日期：2026-09-27。结论：**不能直接完整替代；普通日报、模型汇总、总 tokens/调用基本能力可用，Codex 家族身份、分钟过滤、档位计价、原始文件粒度和若干机器接口存在明确缺口。** 绘图全部排除，不作为优劣或阻断理由。
 
@@ -27,13 +27,13 @@ CODEX_HOME=/home/ztmdsbt/.codex TZ=Asia/Shanghai \
 node /tmp/codeburn-research-20260927/dist/cli.js report \
   --provider codex --from 2026-09-11 --to 2026-09-11 --format json
 
-TZ=Asia/Shanghai .venv/bin/python -m codex_usage.cli \
+TZ=Asia/Shanghai .venv/bin/python -m harnesscope.cli \
   --since 20260911 --until 20260911 --archived --json
 ```
 
-两者退出0。CodeBurn约3.17秒，codex-usage约1.85秒；单次样本不是性能排行榜。
+两者退出0。CodeBurn约3.17秒，harnesscope约1.85秒；单次样本不是性能排行榜。
 
-| 指标 | codex-usage | CodeBurn | 判断 |
+| 指标 | harnesscope | CodeBurn | 判断 |
 |---|---:|---:|---|
 | 净输入 | 9,774,292 | 9,774,292 | 相等 |
 | 缓存读 | 347,329,920 | 347,329,920 | 相等 |
@@ -58,7 +58,7 @@ TZ=Asia/Shanghai .venv/bin/python -m codex_usage.cli \
 
 判定“支持”要求可完成同一业务任务，不要求命令名相同；“部分”表示有替代路径但输出/语义/控制不等价。下面成功命令退出0，未知选项与非法日期反例退出1。
 
-| codex-usage现有能力 | CodeBurn实际入口/观察 | 结论 |
+| harnesscope现有能力 | CodeBurn实际入口/观察 | 结论 |
 |---|---|---|
 | 会话明细 | `sessions --format json`及文本表；`report`只提供topSessions | 支持基本明细，实体/字段不等价 |
 | 模型汇总 | `models --format table/json --min-cost 0`，两合成模型各一行 | 支持；注意默认最小成本筛选，不能遗漏低成本记录 |
@@ -103,7 +103,7 @@ TZ=Asia/Shanghai .venv/bin/python -m codex_usage.cli \
 - 重复累计100→100→200：两端计2 calls，不计重复帧。
 - 继承首帧累计大值、last=0：只计后续新增量。
 - 累计重置1000→100：两端计两轮，并非负数相减。
-- 跨日：同文件两天事件，CodeBurn日桶正确分开；它在此行为优于当前codex-usage按会话首日分桶。
+- 跨日：同文件两天事件，CodeBurn日桶正确分开；它在此行为优于当前harnesscope按会话首日分桶。
 - 同会话分页：两文件合并；active/archived同basename副本不重复。
 
 以上不代表算法完全相同。CodeBurn偏向last并用累计识别重复；本项目以累计差分及last封顶。中途正跳升、缺累计但last相同等组合未完整测遍。
@@ -112,7 +112,7 @@ TZ=Asia/Shanghai .venv/bin/python -m codex_usage.cli \
 
 合成父会话模型gpt-5.2、子代理模型gpt-5.1；两次独立调用都记录毛200/缓存100/输出20，子调用晚6秒，last均为实际本次用量，子代理有parent_thread_id与双UUID文件名。
 
-- codex-usage：父与子两实体，共2 calls。
+- harnesscope：父与子两实体，共2 calls。
 - CodeBurn：子调用被跨fork累计键判重，少1 call、净输入100、缓存100、输出20。
 - 改为子调用毛250/缓存100/输出30后：总量两端一致，但CodeBurn仍合入父会话，sessions=1，subagents=[]。
 
@@ -124,7 +124,7 @@ TZ=Asia/Shanghai .venv/bin/python -m codex_usage.cli \
 
 同模型三轮default/priority/fast，每轮毛200/缓存100/输出20：两端均3 calls、净300/缓存300/输出60。
 
-CodeBurn为 `$0.0014175`，三轮标准价；codex-usage为 `$0.0024`（四位舍入）且保留三档。固定版本parser在 [L1291-L1317](https://github.com/getagentseal/codeburn/blob/2a7d9588d88ac4fd938f4f13462de51735d59334/src/providers/codex.ts#L1291-L1317) 指定 `speed: 'standard'`，未按该 `thread_settings_applied` 档位定价。**费用差不是tokens差。** 本次用内置表；不以该单例推导所有历史模型费率差。
+CodeBurn为 `$0.0014175`，三轮标准价；harnesscope为 `$0.0024`（四位舍入）且保留三档。固定版本parser在 [L1291-L1317](https://github.com/getagentseal/codeburn/blob/2a7d9588d88ac4fd938f4f13462de51735d59334/src/providers/codex.ts#L1291-L1317) 指定 `speed: 'standard'`，未按该 `thread_settings_applied` 档位定价。**费用差不是tokens差。** 本次用内置表；不以该单例推导所有历史模型费率差。
 
 ### 新能力：OMP
 

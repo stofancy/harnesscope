@@ -3,7 +3,7 @@
 
 为什么需要它：公开仓库里的示例图必须能脱敏复现，不能出现真实会话中的内网模型名与
 真实金额。做法是先用确定性的合成夹具（公开模型名 + 公开定价）写出一套 rollout 会话，
-再用 CODEX_USAGE_SESSIONS_DIR / CODEX_USAGE_PRICING_FILE 把 CLI 指到夹具上，最后把
+再用 HARNESCOPE_SESSIONS_DIR / HARNESCOPE_PRICING_FILE 把 CLI 指到夹具上，最后把
 终端输出与 matplotlib 真图落成 PNG。脚本不启动任何 GUI 程序，也不读本机的
 ~/.codex 与 ~/.cc-switch，因此在任何机器上跑出来的图都是同一套合成数据。
 
@@ -46,8 +46,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = ROOT / "docs" / "shots"
-DEFAULT_FIXTURE = Path(os.environ.get("CODEX_USAGE_DOCS_FIXTURE",
-                                      Path(os.environ.get("TMPDIR", "/tmp")) / "codex-usage-doc-fixture"))
+DEFAULT_FIXTURE = Path(os.environ.get("HARNESCOPE_DOCS_FIXTURE",
+                                      Path(os.environ.get("TMPDIR", "/tmp")) / "harnesscope-doc-fixture"))
 
 # 夹具统一按 UTC+8 生成；子进程固定 TZ=Asia/Shanghai，保证换机器也落进同一个时间窗口
 TZ = timezone(timedelta(hours=8))
@@ -273,7 +273,7 @@ def _iso(local_dt: datetime) -> str:
 
 
 def _uuid(name: str) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"codex-usage/doc-shots/{name}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"harnesscope/doc-shots/{name}"))
 
 
 def _line(ts: str, typ: str, payload: dict) -> str:
@@ -388,16 +388,27 @@ def build_fixture(fixture_dir: Path) -> dict:
 # ------------------------------- CLI 采集 -------------------------------
 
 def cli_env(fixture: dict, cols: int = COLS, rows: int = ROWS) -> dict:
+    fixture_root = Path(fixture["sessions"]).parent
     env = {**os.environ,
            "TERM": "xterm-256color", "COLUMNS": str(cols), "LINES": str(rows),
            "TZ": "Asia/Shanghai",
            "PYTHONPATH": str(ROOT / "src"),
            "MPLCONFIGDIR": str(Path(fixture["sessions"]).parent / "matplotlib"),
-           "CODEX_USAGE_SESSIONS_DIR": fixture["sessions"],
-           "CODEX_USAGE_ARCHIVE_DIR": fixture["archive"],
-           "CODEX_USAGE_PRICING_FILE": fixture["pricing"]}
+           "HARNESCOPE_SESSIONS_DIR": fixture["sessions"],
+           "HARNESCOPE_ARCHIVE_DIR": fixture["archive"],
+           "HARNESCOPE_PRICING_FILE": fixture["pricing"],
+           "HARNESCOPE_CACHE_DIR": str(fixture_root / "cache"),
+           "HARNESCOPE_CODEX_CONFIG": str(fixture_root / "missing-config.toml"),
+           "CODEX_HOME": str(fixture_root),
+           "CLAUDE_CONFIG_DIR": str(fixture_root / "claude"),
+           "OMP_SESSIONS_DIR": str(fixture_root / "omp" / "agent" / "sessions"),
+           "DSH_HOME": str(fixture_root / "dsh")}
+    for key in ("CLAUDE_CONFIG_DIR", "OMP_SESSIONS_DIR", "DSH_HOME"):
+        Path(env[key]).mkdir(parents=True, exist_ok=True)
+    for key in ("HARNESCOPE_ALIASES_FILE", "HARNESCOPE_TIER_PRICING_FILE"):
+        env.pop(key, None)
     env.pop("NO_COLOR", None)                    # 截图要看颜色
-    env.pop("CODEX_USAGE_IMAGE_MODE", None)      # 档位由各用例显式指定
+    env.pop("HARNESCOPE_IMAGE_MODE", None)      # 档位由各用例显式指定
     Path(env["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
     return env
 
@@ -406,7 +417,7 @@ def run_cli_pty(argv: list[str], env: dict, cols: int = COLS, rows: int = ROWS) 
     """用真实 pty 跑一段 CLI，捕获合并后的终端字节流（含 ANSI）。"""
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    proc = subprocess.Popen([sys.executable, "-m", "codex_usage.cli", *argv],
+    proc = subprocess.Popen([sys.executable, "-m", "harnesscope.cli", *argv],
                             stdin=slave, stdout=slave, stderr=slave, env=env, cwd=str(ROOT))
     os.close(slave)
     chunks = []
@@ -434,14 +445,14 @@ def export_true_images(out_dir: Path, fixture: dict) -> None:
     这里把 _render 换成「收集 Figure」，存下来的即终端显示的那张原图（1200×700）。
     """
     sys.path.insert(0, str(ROOT / "src"))
-    os.environ["CODEX_USAGE_SESSIONS_DIR"] = fixture["sessions"]
-    os.environ["CODEX_USAGE_ARCHIVE_DIR"] = fixture["archive"]
-    os.environ["CODEX_USAGE_PRICING_FILE"] = fixture["pricing"]
+    os.environ["HARNESCOPE_SESSIONS_DIR"] = fixture["sessions"]
+    os.environ["HARNESCOPE_ARCHIVE_DIR"] = fixture["archive"]
+    os.environ["HARNESCOPE_PRICING_FILE"] = fixture["pricing"]
 
-    from codex_usage import cli, config                          # noqa: E402
-    from codex_usage.parser import collect                       # noqa: E402
-    from codex_usage.pricing import load_pricing                 # noqa: E402
-    from codex_usage.render import imgcharts as m                # noqa: E402
+    from harnesscope import cli, config                          # noqa: E402
+    from harnesscope.parser import collect                       # noqa: E402
+    from harnesscope.pricing import load_pricing                 # noqa: E402
+    from harnesscope.render import imgcharts as m                # noqa: E402
 
     recs = collect(config.sessions_dir(), datetime(2026, 9, 4), datetime(2026, 9, 13, 23, 59, 59))
     pricing = load_pricing()
@@ -483,7 +494,7 @@ def export_true_images(out_dir: Path, fixture: dict) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="生成脱敏的 README 示例图（合成数据 → 真实 CLI 输出 → PNG）")
     ap.add_argument("--out", default=str(DEFAULT_OUT), help="输出目录（默认 docs/shots）")
-    ap.add_argument("--fixture-dir", default=str(DEFAULT_FIXTURE), help="合成夹具目录（默认 $TMPDIR/codex-usage-doc-fixture）")
+    ap.add_argument("--fixture-dir", default=str(DEFAULT_FIXTURE), help="合成夹具目录（默认 $TMPDIR/harnesscope-doc-fixture）")
     ap.add_argument("--font", default=None, help="终端截图用的字体文件（默认自动探测 CJK 等宽字体）")
     ap.add_argument("--clean", action="store_true", help="生成前先删掉输出目录里的 *.png")
     args = ap.parse_args()
@@ -513,7 +524,7 @@ def main() -> int:
 
     window = ["--since", DEMO_SINCE, "--until", DEMO_UNTIL]
     capture_cases = [
-        # (产物名, CLI 参数, CODEX_USAGE_IMAGE_MODE, 截断行数, 是否带演示时间窗口)
+        # (产物名, CLI 参数, HARNESCOPE_IMAGE_MODE, 截断行数, 是否带演示时间窗口)
         ("table-bymodel", ["--by-model"], None, 30, True),
         ("chart-bar-halfcell", list(BAR_ARGS), "halfcell", None, True),
         ("chart-bar-ascii", [*BAR_ARGS, "--ascii"], None, None, True),
@@ -522,7 +533,7 @@ def main() -> int:
     for name, argv, mode, limit, windowed in capture_cases:
         run_env = dict(env)
         if mode:
-            run_env["CODEX_USAGE_IMAGE_MODE"] = mode
+            run_env["HARNESCOPE_IMAGE_MODE"] = mode
         raw = run_cli_pty([*(window if windowed else []), *argv], run_env)
         (raw_dir / f"{name}.raw").write_bytes(raw)
         w, h = render_terminal(raw, out_dir / f"{name}.png", font, limit)

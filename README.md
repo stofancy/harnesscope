@@ -1,20 +1,20 @@
-# codex-usage
+# Harnesscope · 用量镜
 
-[![CI](https://github.com/stofancy/codex-usage/actions/workflows/ci.yml/badge.svg)](https://github.com/stofancy/codex-usage/actions/workflows/ci.yml)
+[![CI](https://github.com/stofancy/harnesscope/actions/workflows/ci.yml/badge.svg)](https://github.com/stofancy/harnesscope/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **English** · [中文](README.zh-CN.md)
 
-Local personal usage analytics for **Codex, Claude, OMP (oh my pi), and DSH (deepseek harness)**. Run `codex-usage --web` on a PC to explore usage, estimated costs, time trends, and contributing dimensions in a browser. Existing Codex terminal reports, charts, and JSON remain available.
+Local personal usage analytics for **Codex, Claude, OMP (oh my pi), and DSH (deepseek harness)**. Run `harnesscope --web` on a PC to explore usage, estimated costs, time trends, and contributing dimensions in a browser. Existing Codex terminal reports, charts, and JSON remain available.
 
 Charts default to **native images**: [matplotlib](https://matplotlib.org/) renders a PNG and [textual-image](https://github.com/lnqs/textual-image) puts it into the terminal. Terminals with a graphics protocol (kitty / Sixel) show the image itself, others show colored half-blocks; this needs the optional image dependencies and a terminal on stdout. Without the extra, when stdout is redirected to a pipe, or with `--ascii`, charts fall back to ASCII art ([plotext](https://github.com/piccolomo/plotext) + [termcharts](https://github.com/zvovcahovo/termcharts)).
 
-Source files remain read-only. The web workbench maintains its own rebuildable SQLite statistics index and serves bundled assets on loopback; ordinary queries need no external network access. `codex-usage --update-pricing` explicitly downloads public prices. Cost estimates use the built-in table, local price cache, and `CODEX_USAGE_PRICING_FILE` overrides — see [Pricing](#pricing). The web workbench displays known estimated cost and unpriced coverage separately. Actual bills are unavailable. Legacy Codex reports retain their `$0*` display convention for unpriced models; that marker means unknown cost.
+Source files remain read-only. The web workbench maintains its own rebuildable SQLite statistics index and serves bundled assets on loopback; ordinary queries need no external network access. `harnesscope --update-pricing` explicitly downloads public prices. Cost estimates use the built-in table, local price cache, and `HARNESCOPE_PRICING_FILE` overrides — see [Pricing](#pricing). The web workbench displays known estimated cost and unpriced coverage separately. Actual bills are unavailable. Legacy Codex reports retain their `$0*` display convention for unpriced models; that marker means unknown cost.
 
 > The human-readable CLI output (table headers, chart titles, `--help`, `--doctor`) is currently Chinese; the screenshots below are real output. The machine-readable surface (`--json`, `--schema`, `--doctor --json`) has a language-neutral, documented contract.
 
-## Why codex-usage
+## Why harnesscope
 
 - **One local web workbench for four harnesses.** Compare sources, models, projects, sessions, purposes, and other recorded dimensions; source coverage exposes missing or malformed data.
 - **Dashboard and usage records.** Explore aggregated consumption, rates, cache, timing and contributors; open a separate ledger for requests, sessions, turns, models or harnesses. Both share the time/filter context and support light and dark themes.
@@ -24,39 +24,60 @@ Source files remain read-only. The web workbench maintains its own rebuildable S
 
 The [2026-09-27 research](docs/research/2026-09-27-harness-usage-proposal.md) preserves the earlier competitor comparison and the current implementation baseline. CodeBurn and New API informed the dimensions, filters, and timelines; the browser interface has its own design.
 
-## Install
+## Install and manage the web workbench
 
-Requires **Python ≥ 3.10**.
-
-```bash
-uv tool install codex-usage                                          # latest published package
-uv tool install "git+https://github.com/stofancy/codex-usage[image]" # + native image charts
-```
-
-The workbench is currently in the **Unreleased** source version. To install this checkout,
-build its bundled frontend before installing the Python package:
+Requires **Python ≥ 3.10**, uv, Node.js and npm to install from source. The installed
+application runs with Python only. Harnesscope is currently the **Unreleased** renamed
+source version; install this checkout with the script below.
 
 ```bash
-cd web
-npm ci
-npm run build
-cd ..
-uv tool install --force .
-codex-usage --web
+git clone https://github.com/stofancy/harnesscope.git
+cd harnesscope
+./install.sh                         # program only; first install uses ordinary background mode
+./install.sh --service               # optional Linux systemd user service; enable and start
+./install.sh --service --port 8766    # optional service port
+./install.sh --no-service            # remove this app's service; use ordinary mode
+./install.sh --image                 # optional native terminal image charts
 ```
 
-For the development and browser-validation workflow, use Node.js 22.x >=22.22.3 or >=24.8.0 and npm. The installed workbench runs with Python only.
+On Linux, use the same commands with or without the installed service:
+
+```bash
+harnesscope start
+harnesscope stop
+harnesscope restart
+harnesscope status
+harnesscope start --port 8766        # select and retain an ordinary-mode port
+harnesscope --web                    # foreground; Ctrl-C stops it
+```
+
+The Linux user service runs as the current user and starts on login. It requires no sudo.
+Ordinary mode starts a detached process; `stop` terminates only the managed instance.
+`--web` keeps the explicit foreground workflow. The install script retains an existing
+mode by default; `--service` and `--no-service` explicitly change it.
+Reinstallation restarts a running instance to apply updates. Other platforms can use
+the reports and `--web` foreground mode.
+
+The rename changes the Python package, command and tool-specific environment variables
+to `harnesscope` / `HARNESCOPE_*`, and the default cache to `~/.cache/harnesscope`.
+Native harness variables such as `CODEX_HOME` and `DSH_HOME` keep their original names.
+The old rebuildable cache is left in place; the new cache is populated from source logs.
+Update private overrides to their new environment names. Existing terminal releases were
+published under `codex-usage`; after checking the new installation, an older uv tool can
+be removed with `uv tool uninstall codex-usage`.
+
+For the development and browser-validation workflow, use Node.js 22.x >=22.22.3 or >=24.8.0 and npm.
 
 The optional `[image]` extra pulls in matplotlib and textual-image, and `textual-image` requires **Python ≥ 3.12**; on 3.10/3.11 charts stay in ASCII mode and everything else keeps working. Without the extra, when stdout is not a terminal, or with `--ascii`, charts automatically fall back to ASCII art.
 
 ## Web workbench
 
 ```bash
-codex-usage --web
-codex-usage --web --port 8766   # choose a local port
+harnesscope --web
+harnesscope --web --port 8766   # choose a local port
 ```
 
-Open the local address printed by the command (default `http://127.0.0.1:8765`). Startup begins a background source scan; use the workbench refresh control to scan subsequent changes. Keep the foreground process running while browsing; stop it with Ctrl-C to release the port. Closing a browser tab leaves the process running.
+Open the local address printed by the command (default `http://127.0.0.1:8765`). Startup begins a background source scan; use the workbench refresh control to scan subsequent changes. Use `harnesscope stop` for managed background instances, or Ctrl-C for `--web`. Closing a browser tab leaves the process running.
 
 The web entry uses a shared multi-source event query layer and its own statistics index. The existing report flags below continue to read Codex sessions. The CLI reports have not been migrated to a four-source output contract.
 
@@ -111,9 +132,9 @@ the selected window. Missing prices and components retain their indicators.
 | OMP | `~/.omp/agent/sessions/**/*.jsonl` | `OMP_SESSIONS_DIR`, or `PI_CODING_AGENT_DIR` followed by `/sessions` |
 | DSH | `~/.dsh/sessions` | `DSH_HOME` sets the DSH root |
 
-The web statistics index is `~/.cache/codex-usage/usage.sqlite3`; `CODEX_USAGE_CACHE_DIR`
-changes that directory. Legacy Codex reports retain their `CODEX_USAGE_SESSIONS_DIR` and
-`CODEX_USAGE_ARCHIVE_DIR` overrides.
+The web statistics index is `~/.cache/harnesscope/usage.sqlite3`; `HARNESCOPE_CACHE_DIR`
+changes that directory. Legacy Codex reports retain their `HARNESCOPE_SESSIONS_DIR` and
+`HARNESCOPE_ARCHIVE_DIR` overrides.
 
 Claude reads assistant usage and advisor iterations, including recorded cache read/write
 components. Provider and per-call timing are unavailable when absent from the logs;
@@ -136,7 +157,7 @@ conversation bodies, prompts and credentials.
 ### Shared analytics JSON
 
 ```bash
-codex-usage --analytics --query 'harness=codex&group_by=model&metric=tokens'
+harnesscope --analytics --query 'harness=codex&group_by=model&metric=tokens'
 ```
 
 `--analytics` refreshes the statistics index, queries the same multi-source layer as the
@@ -208,25 +229,25 @@ No tool arguments, result bodies, conversation text or credentials enter the ind
 ## Codex CLI usage
 
 ```bash
-codex-usage                                          # today's sessions (incl. subagents, one row per session)
-codex-usage --by-model                               # aggregate by model (one row per model, with session count)
-codex-usage --by-day --since 2026-09-04              # aggregate by day
-codex-usage --by-day --by-model --since 2026-09-04   # day × model
-codex-usage --family --parent 01a083b7 --since 2026-09-09     # family tree: main thread + its subagents
-codex-usage --family --by-model --since 2026-09-09            # family × model
-codex-usage --raw --type subagent                    # file granularity: one subagent file per row
-codex-usage --since "2026-09-11 09:00" --until "2026-09-11 14:00"   # minute-precision window
-codex-usage --by-model --since 20260912-161023       # compact time: same as 2026-09-12 16:10:23
-codex-usage --by-model --since 20260912-16           # compact time: same as 2026-09-12 16:00
-codex-usage --chart pie                              # pie: cost share per model
-codex-usage --chart bar --by-day --by-model --metric total   # stacked bars
-codex-usage --chart area --by-day --metric cache     # area: daily cache reads
-codex-usage --chart bar --by-day --ascii             # force ASCII art (native image is preferred in a terminal)
-codex-usage --json                                   # machine-readable output (per-model details included)
-codex-usage --help                                   # self-documenting help (/? , -? , help are equivalent)
-codex-usage --schema                                 # machine-readable contract (JSON)
-codex-usage --doctor                                 # environment self-check (data source / pricing / image support)
-codex-usage --update-pricing                         # explicit external price download
+harnesscope                                          # today's sessions (incl. subagents, one row per session)
+harnesscope --by-model                               # aggregate by model (one row per model, with session count)
+harnesscope --by-day --since 2026-09-04              # aggregate by day
+harnesscope --by-day --by-model --since 2026-09-04   # day × model
+harnesscope --family --parent 01a083b7 --since 2026-09-09     # family tree: main thread + its subagents
+harnesscope --family --by-model --since 2026-09-09            # family × model
+harnesscope --raw --type subagent                    # file granularity: one subagent file per row
+harnesscope --since "2026-09-11 09:00" --until "2026-09-11 14:00"   # minute-precision window
+harnesscope --by-model --since 20260912-161023       # compact time: same as 2026-09-12 16:10:23
+harnesscope --by-model --since 20260912-16           # compact time: same as 2026-09-12 16:00
+harnesscope --chart pie                              # pie: cost share per model
+harnesscope --chart bar --by-day --by-model --metric total   # stacked bars
+harnesscope --chart area --by-day --metric cache     # area: daily cache reads
+harnesscope --chart bar --by-day --ascii             # force ASCII art (native image is preferred in a terminal)
+harnesscope --json                                   # machine-readable output (per-model details included)
+harnesscope --help                                   # self-documenting help (/? , -? , help are equivalent)
+harnesscope --schema                                 # machine-readable contract (JSON)
+harnesscope --doctor                                 # environment self-check (data source / pricing / image support)
+harnesscope --update-pricing                         # explicit external price download
 ```
 
 ### Time formats
@@ -280,21 +301,21 @@ In legacy Codex reports, an unpriced model keeps its tokens, displays `$0*`, and
 
 ## Pricing
 
-Token counting is always local; only the cost column needs prices. `codex-usage` ships a **built-in public price snapshot** (2089 priced models, including official OpenAI Sol/Luna rates verified on 2026-09-30), so cost estimation works offline right after install. Three layers are merged by `modelId`, with higher-priority entries overriding lower ones:
+Token counting is always local; only the cost column needs prices. `harnesscope` ships a **built-in public price snapshot** (2089 priced models, including official OpenAI Sol/Luna rates verified on 2026-09-30), so cost estimation works offline right after install. Three layers are merged by `modelId`, with higher-priority entries overriding lower ones:
 
 | Priority | Source | Role |
 |---|---|---|
-| Low | built-in table (`src/codex_usage/data/pricing.json`) | baseline coverage of public models |
-| Middle | user cache `~/.cache/codex-usage/pricing.json` (`CODEX_USAGE_CACHE_DIR` overrides the directory) | written by `--update-pricing` |
-| High | `CODEX_USAGE_PRICING_FILE` (defaults to `~/.cc-switch/model-pricing.json`) | your own/private prices |
+| Low | built-in table (`src/harnesscope/data/pricing.json`) | baseline coverage of public models |
+| Middle | user cache `~/.cache/harnesscope/pricing.json` (`HARNESCOPE_CACHE_DIR` overrides the directory) | written by `--update-pricing` |
+| High | `HARNESCOPE_PRICING_FILE` (defaults to `~/.cc-switch/model-pricing.json`) | your own/private prices |
 
 A layer that is missing, empty or corrupt is simply skipped; if all three are unusable, tokens are still counted and the cost shows `$0.00*`. The format is cc-switch compatible — `{"models":[{"modelId": …, "inputCostPerMillion": …, "cacheReadCostPerMillion": …, "outputCostPerMillion": …}]}` — so an existing cc-switch table keeps working and only overrides the entries it defines.
 
 Refresh the cache from a public channel with an explicit external download:
 
 ```bash
-codex-usage --update-pricing                         # models.dev (default)
-codex-usage --update-pricing --pricing-source litellm
+harnesscope --update-pricing                         # models.dev (default)
+harnesscope --update-pricing --pricing-source litellm
 ```
 
 Model names found in sessions are matched exactly, then normalized (case, provider prefix, date and `-latest` suffixes, common aliases), then by longest prefix — so `gpt-5.1-codex-2025-11-13` and `openrouter/openai/GPT-5.1-Codex` both resolve to `gpt-5.1-codex`.
@@ -303,17 +324,17 @@ Three details shape the resulting numbers:
 
 - **Cache reads without a price.** About a third of the effective table (33.6%) has no `cacheReadCostPerMillion`. For those models, cached reads are charged at the model's **input price** instead of $0 — a deliberate upper bound (real cache-read prices are around 10% of input), so the estimate can over-count but not silently under-count.
 - **Service tiers.** Codex records which tier a turn ran under. `priority` and `fast` are the same tier (OpenAI renamed priority processing to Fast) and are priced with the official per-model Fast rates — 2.0× standard for `gpt-6.1-sol`, GPT-6 Sol/Luna/Astra, and the 5.6 Sol/Terra/Luna family, 2.5× for `gpt-5.5` — while `flex` is 0.5×. Prices are **API-equivalent USD**, not the ChatGPT subscription credit multipliers (a different rate card). Models without a public Fast price (for example `gpt-5-codex`) stay at the standard price and report `tier_priced: false`.
-- **Labels with no public price.** `codex-auto-review` has no price fields in any public source, so it goes through an auditable alias table (`src/codex_usage/data/model_aliases.json`) that maps it to `gpt-5.5` and flags the mapping `assumed: true` (following ccusage's dated fallback table and a three-way token reconciliation). `gpt-reserve` has no public price from any source, so it stays `$0.00*` instead of being guessed. The alias table and the tier price table can be replaced with `CODEX_USAGE_ALIASES_FILE` and `CODEX_USAGE_TIER_PRICING_FILE`.
+- **Labels with no public price.** `codex-auto-review` has no price fields in any public source, so it goes through an auditable alias table (`src/harnesscope/data/model_aliases.json`) that maps it to `gpt-5.5` and flags the mapping `assumed: true` (following ccusage's dated fallback table and a three-way token reconciliation). `gpt-reserve` has no public price from any source, so it stays `$0.00*` instead of being guessed. The alias table and the tier price table can be replaced with `HARNESCOPE_ALIASES_FILE` and `HARNESCOPE_TIER_PRICING_FILE`.
 
 The web workbench accounts for cache writes, including Claude 5-minute and 1-hour TTL subsets. Explicit write prices take precedence; verified Claude models can use the official 1.25× / 2× input-price rules when those prices are absent. Missing required components or rates keep that event cost unknown. See [cache-write pricing](docs/pricing.md#11-多源工作台缓存写计价) for the verified model scope and assumptions.
 
-Legacy CLI caveats: the built-in table is a snapshot (with an `updated` timestamp); context-tier prices (`>200k`), cache-write pricing and per-reseller markups are not modelled in those reports. Unpriced models display `$0.00*`. `CODEX_USAGE_PRICING_FILE` can align estimates with custom rates; it does not supply actual invoices. Sources, field mapping and licenses are documented in [docs/pricing.md](docs/pricing.md).
+Legacy CLI caveats: the built-in table is a snapshot (with an `updated` timestamp); context-tier prices (`>200k`), cache-write pricing and per-reseller markups are not modelled in those reports. Unpriced models display `$0.00*`. `HARNESCOPE_PRICING_FILE` can align estimates with custom rates; it does not supply actual invoices. Sources, field mapping and licenses are documented in [docs/pricing.md](docs/pricing.md).
 
 ### Reconciliation with ccusage
 
 Recomputed on 2026-09-21 for the fixed window `--since 20260911 --until 20260912`:
 
-| | codex-usage | ccusage | Difference |
+| | harnesscope | ccusage | Difference |
 |---|---|---|---|
 | Tokens, per (day, model) | 1,830,205,933 | 1,830,205,933 | **0** |
 | Cost | $1,116.04 | $1,064.64 | **+$51.40** |
@@ -324,32 +345,32 @@ The token ledgers match entry by entry once cross-day files are included (withou
 
 The tool explains itself: how to use it, what it can output, and whether the current environment is healthy — no external documentation required.
 
-`codex-usage --help` (`/?`, `-?` and `help` are equivalent) closes with a structured guide: the help entry points, followed by four parts — examples, semantics, output & exit codes, and data sources & environment variables. `codex-usage --schema` is the JSON version of the same contract; its option list is generated directly from the argparse definition, so it cannot drift from the implementation:
+`harnesscope --help` (`/?`, `-?` and `help` are equivalent) closes with a structured guide: the help entry points, followed by four parts — examples, semantics, output & exit codes, and data sources & environment variables. `harnesscope --schema` is the JSON version of the same contract; its option list is generated directly from the argparse definition, so it cannot drift from the implementation:
 
 ```bash
-codex-usage --schema | jq '.options[] | select(.flags | index("--chart"))'
-codex-usage --schema | jq '.json_output.fields'   # meaning and unit of every --json record field
-codex-usage --json --since 20260910 | jq -c '{id:.session_id,total:.total_tokens,calls}' | head -3
+harnesscope --schema | jq '.options[] | select(.flags | index("--chart"))'
+harnesscope --schema | jq '.json_output.fields'   # meaning and unit of every --json record field
+harnesscope --json --since 20260910 | jq -c '{id:.session_id,total:.total_tokens,calls}' | head -3
 ```
 
-`codex-usage --doctor` (add `--json` for the structured form) inspects the environment: whether the session and archive directories exist and how many rollout files they hold, which pricing source is in effect, how many models it provides and what share of them lacks a cache-read price, whether image rendering is available and which tier is active, and whether a CJK font is installed. Actionable hints are listed separately, and `ok` says whether everything is fine.
+`harnesscope --doctor` (add `--json` for the structured form) inspects the environment: whether the session and archive directories exist and how many rollout files they hold, which pricing source is in effect, how many models it provides and what share of them lacks a cache-read price, whether image rendering is available and which tier is active, and whether a CJK font is installed. Actionable hints are listed separately, and `ok` says whether everything is fine.
 
-![codex-usage --doctor](docs/shots/doctor.png)
+![harnesscope --doctor](docs/shots/doctor.png)
 
 ```text
-$ codex-usage --doctor
-codex-usage 0.1.0  |  Python 3.14.7  |  Linux-...
+$ harnesscope --doctor
+harnesscope 0.4.0  |  Python 3.14.7  |  Linux-...
 
-会话数据   /tmp/codex-usage-doc-fixture/sessions  存在，32 个 rollout 文件（最近 2026-09-13 23:36）
-归档数据   /tmp/codex-usage-doc-fixture/archived_sessions  存在，0 个 rollout 文件
-定价       内置表+自定义文件 /tmp/codex-usage-doc-fixture/model-pricing.json，2086 个模型（数据 2026-09-13），其中 33.6% 缺缓存读价（按 input 价回退）
+会话数据   /tmp/harnesscope-doc-fixture/sessions  存在，32 个 rollout 文件（最近 2026-09-13 23:36）
+归档数据   /tmp/harnesscope-doc-fixture/archived_sessions  存在，0 个 rollout 文件
+定价       内置表+自定义文件 /tmp/harnesscope-doc-fixture/model-pricing.json，2086 个模型（数据 2026-09-13），其中 33.6% 缺缓存读价（按 input 价回退）
 图表渲染   彩色半块（matplotlib 3.11.2 + textual-image 0.13.2，光栅 119×84，档位 auto（探测为 彩色半块））
 中文字体   Noto Sans CJK SC
 
 结论: 一切正常
 ```
 
-Convention: data goes to stdout only and messages/errors go to stderr only, so `codex-usage --json … | jq` is never interrupted by noise. Exit codes are `0` success, `1` usage or runtime error, `2` argument parsing error, and `141` when the consumer of the pipe closes early.
+Convention: data goes to stdout only and messages/errors go to stderr only, so `harnesscope --json … | jq` is never interrupted by noise. Exit codes are `0` success, `1` usage or runtime error, `2` argument parsing error, and `141` when the consumer of the pipe closes early.
 
 ## Charts
 
@@ -380,12 +401,12 @@ The native image is matplotlib's original figure with crisp text. Half-blocks sq
 Auto-detection occasionally gets it wrong (for example a terminal claims graphics-protocol support but renders badly), so an environment variable can override it:
 
 ```bash
-CODEX_USAGE_IMAGE_MODE=halfcell codex-usage --chart bar --by-model   # fall back to colored half-blocks
-CODEX_USAGE_IMAGE_MODE=tgp      codex-usage --chart bar --by-model   # force the kitty graphics protocol
-CODEX_USAGE_IMAGE_MODE=ascii    codex-usage --chart bar --by-model   # same as --ascii
+HARNESCOPE_IMAGE_MODE=halfcell harnesscope --chart bar --by-model   # fall back to colored half-blocks
+HARNESCOPE_IMAGE_MODE=tgp      harnesscope --chart bar --by-model   # force the kitty graphics protocol
+HARNESCOPE_IMAGE_MODE=ascii    harnesscope --chart bar --by-model   # same as --ascii
 ```
 
-Values are `auto` (default, auto-detect) | `tgp` | `sixel` | `halfcell` | `ascii`; an invalid value is treated as `auto`. Both the active tier and the auto-detected one are reported by `codex-usage --doctor`, and agents can read them from `chart_rendering.env` in `codex-usage --schema`.
+Values are `auto` (default, auto-detect) | `tgp` | `sixel` | `halfcell` | `ascii`; an invalid value is treated as `auto`. Both the active tier and the auto-detected one are reported by `harnesscope --doctor`, and agents can read them from `chart_rendering.env` in `harnesscope --schema`.
 
 Other views (per-model cost table, day × model stacked bars, cost-share pie, daily cost area chart):
 
@@ -438,7 +459,7 @@ updates, and relative refresh / fixed history / range-mode restoration. These re
 apply to the isolated fixtures and scenarios above; the iteration added no unit/component
 tests. They do not establish complete historical or personal-source coverage.
 
-Data paths can be overridden with environment variables: `CODEX_USAGE_SESSIONS_DIR`, `CODEX_USAGE_ARCHIVE_DIR`, `CODEX_USAGE_PRICING_FILE`, `CODEX_USAGE_CACHE_DIR`, `CODEX_USAGE_TIER_PRICING_FILE`, `CODEX_USAGE_ALIASES_FILE`.
+Data paths can be overridden with environment variables: `HARNESCOPE_SESSIONS_DIR`, `HARNESCOPE_ARCHIVE_DIR`, `HARNESCOPE_PRICING_FILE`, `HARNESCOPE_CACHE_DIR`, `HARNESCOPE_TIER_PRICING_FILE`, `HARNESCOPE_ALIASES_FILE`.
 
 The screenshots in `docs/shots/` are generated from synthetic fixtures (public model names and public prices) by [`tools/make_doc_shots.py`](tools/make_doc_shots.py); no real session data is involved:
 

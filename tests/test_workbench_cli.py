@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from codex_usage import cli, selfdoc
+from harnesscope import cli, selfdoc
 
 
 def test_web_dispatch(monkeypatch):
     calls = []
-    monkeypatch.setattr("codex_usage.server.serve", lambda port: calls.append(port))
-    monkeypatch.setattr("sys.argv", ["codex-usage", "--web", "--port", "9977"])
+    monkeypatch.setattr("harnesscope.server.serve", lambda port: calls.append(port))
+    monkeypatch.setattr("sys.argv", ["harnesscope", "--web", "--port", "9977"])
     cli._main()
     assert calls == [9977]
 
@@ -18,13 +18,13 @@ def test_web_dispatch(monkeypatch):
 @pytest.mark.parametrize("args", [["--port", "9977"], ["--web", "--port", "0"],
                                   ["--web", "--port", "65536"], ["--query", "metric=tokens"]])
 def test_invalid_workbench_options_stop_before_data_scan(monkeypatch, args):
-    monkeypatch.setattr("sys.argv", ["codex-usage", *args])
+    monkeypatch.setattr("sys.argv", ["harnesscope", *args])
     with pytest.raises(SystemExit):
         cli._main()
 
 
 def test_analytics_uses_shared_query_and_service(monkeypatch, capsys):
-    from codex_usage import service
+    from harnesscope import service
     calls = []
 
     class FakeService:
@@ -39,7 +39,7 @@ def test_analytics_uses_shared_query_and_service(monkeypatch, capsys):
             calls.append(("close",))
 
     monkeypatch.setattr(service, "UsageService", FakeService)
-    monkeypatch.setattr("sys.argv", ["codex-usage", "--analytics", "--query",
+    monkeypatch.setattr("sys.argv", ["harnesscope", "--analytics", "--query",
                                    "harness=codex&harness=claude&metric=tokens&timezone=Asia/Singapore"])
     cli._main()
     assert json.loads(capsys.readouterr().out)["summary"]["tokens"] == 456
@@ -49,7 +49,7 @@ def test_analytics_uses_shared_query_and_service(monkeypatch, capsys):
 
 
 def test_analytics_rejects_ambiguous_legacy_filters(monkeypatch):
-    monkeypatch.setattr("sys.argv", ["codex-usage", "--analytics", "--since", "2026-10-01"])
+    monkeypatch.setattr("sys.argv", ["harnesscope", "--analytics", "--since", "2026-10-01"])
     with pytest.raises(SystemExit, match="--query"):
         cli._main()
 

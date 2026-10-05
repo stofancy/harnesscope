@@ -265,7 +265,7 @@ if __name__ == '__main__':
     parser.add_argument('--append', type=Path, required=True)
     parser.add_argument('--recent-call', type=int)
     args = parser.parse_args()
-    if not args.append.name.startswith('codex-usage-browser-'):
+    if not args.append.name.startswith('harnesscope-browser-'):
         parser.error('append target must be the dedicated temporary browser fixture')
     if args.recent_call is None:
         append_completion(args.append)

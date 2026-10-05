@@ -1,6 +1,6 @@
 # 模型定价（Pricing）
 
-`codex-usage` 的成本列来自本地定价表。为了让开源用户**开箱即用**（没有
+`harnesscope` 的成本列来自本地定价表。为了让开源用户**开箱即用**（没有
 `~/.cc-switch/model-pricing.json` 也能看到成本），仓库内置了一份公开定价快照，
 并提供一条免认证渠道的同步命令。
 
@@ -28,7 +28,7 @@ LiteLLM      input_cost_per_token                 → inputCostPerMillion       
 
 ## 2. 内置表
 
-- 路径：`src/codex_usage/data/pricing.json`（随包分发，`importlib.resources` 读取，无网络也能用）。
+- 路径：`src/harnesscope/data/pricing.json`（随包分发，`importlib.resources` 读取，无网络也能用）。
 - 格式：**cc-switch 兼容**
 
 ```json
@@ -78,9 +78,9 @@ python tools/sync_pricing.py --format raw --out /tmp/models.dev.json
 
 | 层 | 来源 | 角色 |
 | --- | --- | --- |
-| 低 | 包内置表 `src/codex_usage/data/pricing.json` | 基底：公开模型的完整覆盖 |
-| 中 | 用户缓存 `~/.cache/codex-usage/pricing.json`（`CODEX_USAGE_CACHE_DIR` 可覆盖） | `--update-pricing` / `sync` 写入 |
-| 高 | `CODEX_USAGE_PRICING_FILE`（未设置时 `~/.cc-switch/model-pricing.json`） | 用户私有定价，覆盖同名项 |
+| 低 | 包内置表 `src/harnesscope/data/pricing.json` | 基底：公开模型的完整覆盖 |
+| 中 | 用户缓存 `~/.cache/harnesscope/pricing.json`（`HARNESCOPE_CACHE_DIR` 可覆盖） | `--update-pricing` / `sync` 写入 |
+| 高 | `HARNESCOPE_PRICING_FILE`（未设置时 `~/.cc-switch/model-pricing.json`） | 用户私有定价，覆盖同名项 |
 
 因此：用户既保留自己的私有/自定义定价，又能拿到内置表的完整公开覆盖（不会因为一个
 过时的 cc-switch 文件而丢掉新模型）。**任一层缺失 / 为空 / JSON 损坏都只跳过该层**，
@@ -132,12 +132,12 @@ python tools/sync_pricing.py --format raw --out /tmp/models.dev.json
 ~10%（如 `gpt-5.6-sol`：input 4 / cache_read 0.4），按 input 计只会**多算、不会少算**；
 按 $0 计则一定少算。诊断口径与 ccusage 的「cached input 用 cache-read 价、缺失时回退
 input 价」一致，便于对账。代价是这类模型成本偏高，需要精确值请在自己的
-`CODEX_USAGE_PRICING_FILE` 里补 `cacheReadCostPerMillion`。
+`HARNESCOPE_PRICING_FILE` 里补 `cacheReadCostPerMillion`。
 
 **怎么看出“这一行用了回退”**：`model_cost()` 的返回保持不变，新增明细接口
 
 ```python
-from codex_usage import pricing
+from harnesscope import pricing
 
 detail = pricing.model_cost_detail(pricing.load_pricing(), "gpt-5-pro", 1_000_000, 1_000_000, 0)
 # {"model": "gpt-5-pro", "matched": "gpt-5-pro", "cost_usd": 30.0,
@@ -170,7 +170,7 @@ Codex 的 `thread_settings_applied.service_tier` 会标注本轮用量走的档�
 | `unknown`（整个会话没有 settings 事件） | 由 `~/.codex/config.toml` 的 `service_tier` 决定（读不到 = `default` = 标准价） | 同左 |
 | 其它未知值 | `standard` | 标准价 |
 
-**价格来源**：`src/codex_usage/data/tier_pricing.json`（`CODEX_USAGE_TIER_PRICING_FILE`
+**价格来源**：`src/harnesscope/data/tier_pricing.json`（`HARNESCOPE_TIER_PRICING_FILE`
 可覆盖），生成自 LiteLLM 快照 `model_prices_and_context_window.json @ b1a61f510c90`
 （2026-09-13T04:13:52Z），逐模型收录 `*_priority` / `*_flex` 价。与 OpenAI 官方
 [Fast/Flex 价目表](https://platform.openai.com/docs/pricing.md)（抓取 2026-09-21）逐项一致：
@@ -197,7 +197,7 @@ Flex = 0.5×。官方 Fast 表**没有** 5.1/5.2/5.3-codex 的行，只有 LiteL
 > 这些订阅规则不参与美元估算。
 
 ```python
-from codex_usage import pricing
+from harnesscope import pricing
 
 table = pricing.load_pricing()
 pricing.model_cost(table, "gpt-5.6-sol", net_in, cached, out, tier="priority")  # Fast 价
@@ -214,7 +214,7 @@ pricing.tier_multiplier(table, "gpt-5.5", "priority")   # → 2.5
 
 ## 7. 别名映射（无可信价的标签）
 
-`src/codex_usage/data/model_aliases.json`（`CODEX_USAGE_ALIASES_FILE` 可覆盖，带 `version`）
+`src/harnesscope/data/model_aliases.json`（`HARNESCOPE_ALIASES_FILE` 可覆盖，带 `version`）
 只收录**有依据的假设映射**，命中时明细里保留原始标签并给出 `priced_as` + `assumed: true`：
 
 | 原始标签 | 映射到 | 依据（抓取 2026-09-21） | 不确定性 |
@@ -223,23 +223,23 @@ pricing.tier_multiplier(table, "gpt-5.5", "priority")   # → 2.5
 | `gpt-reserve` | **不映射** | Luna Reserve（额度耗尽兜底），OpenAI/LiteLLM/models.dev 均无价，ccusage 也计 $0 | agentsview 把它映射到 `gpt-5.6-luna` 是**另一个工具的选择**，本项目不臆造 → 保持 `$0.00*` |
 | `gpt-5-codex` | **不映射** | 官方 Fast 表无行、LiteLLM 也无 priority 价 | Fast 轮次保持标准价并标 `tier_priced: false` |
 
-优先级：**定价表里的真实同名记录 > 别名映射**（用户在 `CODEX_USAGE_PRICING_FILE` 里显式
+优先级：**定价表里的真实同名记录 > 别名映射**（用户在 `HARNESCOPE_PRICING_FILE` 里显式
 写了 `codex-auto-review` 的价就以用户的为准）。别名目标本身无价时**仍返回 `None`（标 `*`）**，
 不会静默算出一个价。映射表损坏/缺失时安全退回精确/归一化/前缀匹配。
 
 ## 8. 同步（公开渠道 → 用户缓存）
 
 ```python
-from codex_usage import pricing
+from harnesscope import pricing
 
-pricing.sync("models.dev")            # → {"path": "~/.cache/codex-usage/pricing.json",
+pricing.sync("models.dev")            # → {"path": "~/.cache/harnesscope/pricing.json",
                                       #    "models": 2086, "source": "models.dev"}
 pricing.sync("litellm", timeout=30.0)
 ```
 
 - 原子写（临时文件 + `os.replace`），失败抛异常且**不会**留下半截缓存。
-- CLI 里由 `codex-usage --update-pricing [--pricing-source litellm]` 调用并捕获异常。
-- 缓存目录可用 `CODEX_USAGE_CACHE_DIR` 覆盖（测试与容器场景）。
+- CLI 里由 `harnesscope --update-pricing [--pricing-source litellm]` 调用并捕获异常。
+- 缓存目录可用 `HARNESCOPE_CACHE_DIR` 覆盖（测试与容器场景）。
 
 ## 9. 与 cc-switch 的关系
 
@@ -251,7 +251,7 @@ cc-switch 的 `~/.cc-switch/model-pricing.json` 仍是**最高优先级的覆盖
 
 - **转售商价格差异**：同一个模型在不同 provider/中转站价格不同。内置表按权威度取一条，
   不能反映用户实际走的渠道加价；需要精确账单请把自己的 cc-switch 表放进
-  `CODEX_USAGE_PRICING_FILE`（同名项会覆盖内置价）。
+  `HARNESCOPE_PRICING_FILE`（同名项会覆盖内置价）。
 - **未计价格档位**：渠道的 context 阶梯价（`tiers` / `context_over_200k`，注意这个
   `tiers` 是上下文分档，与 service tier 无关）仍未纳入，成本按首档基础价估算；
   priority/Fast/Flex 见第 6 节，缓存写见第 11 节。
@@ -264,7 +264,7 @@ cc-switch 的 `~/.cc-switch/model-pricing.json` 仍是**最高优先级的覆盖
   可能缺；无定价的模型 token 照常统计、成本显示 `$0.00*` 并在表尾提示。
 - **公开渠道没有的名字才不会算价**：内置表来自 models.dev / LiteLLM 及官方 OpenAI 公开价格；
   本机出现过但公开渠道未收录、且别名表未映射的名字（如 `gpt-reserve`）保持 `$0.00*`，
-  可按需写进自己的 `CODEX_USAGE_PRICING_FILE` 覆盖层。
+  可按需写进自己的 `HARNESCOPE_PRICING_FILE` 覆盖层。
 
 
 ## 11. 多源工作台缓存写计价

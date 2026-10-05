@@ -4,9 +4,9 @@ import json
 import os
 import threading
 
-from codex_usage.domain import ParseBatch, SourceFile, TimingSample, UsageEvent
-from codex_usage.index import SQLiteIndex
-from codex_usage.service import UsageService
+from harnesscope.domain import ParseBatch, SourceFile, TimingSample, UsageEvent
+from harnesscope.index import SQLiteIndex
+from harnesscope.service import UsageService
 
 
 class Adapter:

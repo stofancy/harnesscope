@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from codex_usage import pricing
+from harnesscope import pricing
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +27,8 @@ def isolated(tmp_path, monkeypatch):
     """把 env-file 与用户缓存都挪到 tmp，保证测试与真实用户环境无关。"""
     env_file = tmp_path / "cc-switch-pricing.json"
     cache_dir = tmp_path / "cache"
-    monkeypatch.setenv("CODEX_USAGE_PRICING_FILE", str(env_file))
-    monkeypatch.setenv("CODEX_USAGE_CACHE_DIR", str(cache_dir))
+    monkeypatch.setenv("HARNESCOPE_PRICING_FILE", str(env_file))
+    monkeypatch.setenv("HARNESCOPE_CACHE_DIR", str(cache_dir))
     # 数据文件/配置读取都有进程内缓存：每个用例前后清掉，避免相互污染
     caches = (pricing.load_aliases, pricing.load_tier_pricing, pricing.default_service_tier)
     for cached in caches:
@@ -83,7 +83,7 @@ def test_builtin_table_loads_with_prices(isolated):
 
 def test_builtin_table_is_cc_switch_format():
     """内置文件是 cc-switch 兼容格式：{"models": [{modelId, 三个成本字段}]}。"""
-    text = importlib.resources.files("codex_usage").joinpath("data", "pricing.json").read_text(
+    text = importlib.resources.files("harnesscope").joinpath("data", "pricing.json").read_text(
         encoding="utf-8")
     raw = json.loads(text)
     assert isinstance(raw["models"], list) and len(raw["models"]) >= 10
@@ -130,7 +130,7 @@ def test_generated_prices_come_from_channel_data():
 
 def test_builtin_matches_channel_catalog(isolated):
     """内置表是公开渠道快照：公开条目有价；渠道里没有的名字不会凭空出现。"""
-    raw = json.loads(importlib.resources.files("codex_usage").joinpath(
+    raw = json.loads(importlib.resources.files("harnesscope").joinpath(
         "data", "pricing.json").read_text(encoding="utf-8"))
     ids = {r["modelId"] for r in raw["models"]}
     assert "gpt-6-astra" in ids                       # models.dev 公开条目（9 个 provider）
@@ -148,7 +148,7 @@ def test_builtin_table_never_merges_env_file_entries(isolated):
     """内置资源文件是生成产物，不并入 env-file 私有条目（env 只在运行时参与合并）。"""
     write_table(isolated["env_file"], [{"modelId": "priv-model-x", **price(1, 2)}])
     assert "priv-model-x" in pricing.load_pricing()           # 运行时合并可见
-    raw = json.loads(importlib.resources.files("codex_usage").joinpath(
+    raw = json.loads(importlib.resources.files("harnesscope").joinpath(
         "data", "pricing.json").read_text(encoding="utf-8"))
     assert "priv-model-x" not in {r["modelId"] for r in raw["models"]}
 
@@ -288,7 +288,7 @@ def test_model_cost_detail_matches_model_cost_and_reports_match():
 
 def test_builtin_table_has_cache_read_gap():
     """内置表确实存在 cache read 覆盖缺口（回退规则的前提），但不是全局缺失。"""
-    raw = json.loads(importlib.resources.files("codex_usage").joinpath(
+    raw = json.loads(importlib.resources.files("harnesscope").joinpath(
         "data", "pricing.json").read_text(encoding="utf-8"))
     rows = raw["models"]
     missing = [r for r in rows if not (r.get("cacheReadCostPerMillion") or 0)]
@@ -379,7 +379,7 @@ def test_explicit_path_is_strict(isolated):
 
 
 def test_env_file_missing_falls_back_to_builtin(isolated):
-    """验收路径：CODEX_USAGE_PRICING_FILE 指向缺失文件时，无参加载回退内置表并算出非 0 成本。"""
+    """验收路径：HARNESCOPE_PRICING_FILE 指向缺失文件时，无参加载回退内置表并算出非 0 成本。"""
     table = pricing.load_pricing()
     assert len(table) >= 10
     info = pricing.source_info()
@@ -582,7 +582,7 @@ def test_alias_target_without_price_stays_unpriced(isolated, tmp_path, monkeypat
     """映射目标本身无价 → 仍返回 None（标 *），不静默算出一个价。"""
     aliases = _write_json(tmp_path / "aliases.json", {
         "aliases": {"mystery-model": {"model": "not-in-table", "assumed": True}}})
-    monkeypatch.setenv("CODEX_USAGE_ALIASES_FILE", str(aliases))
+    monkeypatch.setenv("HARNESCOPE_ALIASES_FILE", str(aliases))
     pricing.load_aliases.cache_clear()
     table = {"gpt-5.5": price(5, 30, 0.5)}
     assert pricing.model_cost(table, "mystery-model", 1_000_000, 0, 0) is None
@@ -593,7 +593,7 @@ def test_alias_file_broken_falls_back_safely(isolated, tmp_path, monkeypatch):
     """映射文件损坏 → 空表（不崩），精确/归一化匹配照常。"""
     broken = tmp_path / "broken-aliases.json"
     broken.write_text("{ not json", encoding="utf-8")
-    monkeypatch.setenv("CODEX_USAGE_ALIASES_FILE", str(broken))
+    monkeypatch.setenv("HARNESCOPE_ALIASES_FILE", str(broken))
     pricing.load_aliases.cache_clear()
     assert pricing.load_aliases() == {}
     table = {"gpt-5.6-sol": price(4, 20, 0.4)}
@@ -699,7 +699,7 @@ def test_tier_flex_is_half_of_standard():
 def test_tier_unknown_uses_config_toml(isolated, tmp_path, monkeypatch):
     config = tmp_path / "config.toml"
     config.write_text('model = "gpt-5.6-sol"\nservice_tier = "priority"\n', encoding="utf-8")
-    monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(config))
+    monkeypatch.setenv("HARNESCOPE_CODEX_CONFIG", str(config))
     pricing.default_service_tier.cache_clear()
     assert pricing.default_service_tier() == "priority"
     assert pricing.resolve_tier("unknown") == "priority"
@@ -707,7 +707,7 @@ def test_tier_unknown_uses_config_toml(isolated, tmp_path, monkeypatch):
     assert pricing.resolve_tier("unknown", config_tier="standard") == "standard"
     assert pricing.resolve_tier("fast") == "priority"
 
-    monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("HARNESCOPE_CODEX_CONFIG", str(tmp_path / "missing.toml"))
     pricing.default_service_tier.cache_clear()
     assert pricing.default_service_tier() == "default"
     assert pricing.resolve_tier("unknown") == "standard"
@@ -716,7 +716,7 @@ def test_tier_unknown_uses_config_toml(isolated, tmp_path, monkeypatch):
 def test_tier_data_file_broken_falls_back_to_standard(isolated, tmp_path, monkeypatch):
     broken = tmp_path / "tiers.json"
     broken.write_text("[]", encoding="utf-8")
-    monkeypatch.setenv("CODEX_USAGE_TIER_PRICING_FILE", str(broken))
+    monkeypatch.setenv("HARNESCOPE_TIER_PRICING_FILE", str(broken))
     pricing.load_tier_pricing.cache_clear()
     data = pricing.load_tier_pricing()
     assert data["priority"] == {} and data["multipliers"] == {}
@@ -764,7 +764,7 @@ def test_tier_records_from_litellm_parses_confidence_and_multipliers():
 
 def test_cost_for_tiered_matches_whole_model_cost(isolated, tmp_path, monkeypatch):
     """T6 不变式交叉校验：tiers 逐分量求和 == models 时，分档计价与整块计价一致。"""
-    monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("HARNESCOPE_CODEX_CONFIG", str(tmp_path / "missing.toml"))
     pricing.default_service_tier.cache_clear()
     table = {"gpt-5.6-sol": price(4, 20, 0.4), "gpt-6-astra": price(10, 50, 1)}
     models = {"gpt-5.6-sol": [1_000_000, 2_000_000, 500_000, 0, 3],

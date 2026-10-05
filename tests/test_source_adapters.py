@@ -4,9 +4,9 @@ import json
 
 import zstandard
 
-from codex_usage.adapters.claude import ClaudeAdapter
-from codex_usage.adapters.dsh import DshAdapter, decode_zstd
-from codex_usage.adapters.omp import OmpAdapter
+from harnesscope.adapters.claude import ClaudeAdapter
+from harnesscope.adapters.dsh import DshAdapter, decode_zstd
+from harnesscope.adapters.omp import OmpAdapter
 
 
 def write(path, records):

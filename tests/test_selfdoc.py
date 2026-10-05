@@ -7,10 +7,10 @@ import sys
 
 import pytest
 
-from codex_usage import selfdoc
-from codex_usage.cli import build_parser
+from harnesscope import selfdoc
+from harnesscope.cli import build_parser
 
-MOD = "codex_usage.cli"
+MOD = "harnesscope.cli"
 
 
 def run(*args):
@@ -22,7 +22,7 @@ def test_help_entry_points(flag):
     """人读帮助的各个入口都要可用，且包含示例/语义/退出码/数据源四段。"""
     r = run(flag)
     assert r.returncode == 0, r.stderr[-200:]
-    assert "usage: codex-usage" in r.stdout
+    assert "usage: harnesscope" in r.stdout
     for section in ("示例:", "语义约定:", "输出与退出码:", "数据源与环境变量:"):
         assert section in r.stdout
 
@@ -57,7 +57,7 @@ def test_schema_cli_output(env):
     r = run("--schema")
     assert r.returncode == 0
     d = json.loads(r.stdout)
-    assert d["name"] == "codex-usage"
+    assert d["name"] == "harnesscope"
     assert any("--chart" in o["flags"] for o in d["options"])
 
 
@@ -83,8 +83,8 @@ def test_doctor_reports_environment(env):
 
 def test_doctor_reports_missing_sources(monkeypatch, tmp_path):
     """会话目录缺失是真问题；自定义定价文件无效则回退内置表（说明而非告警）。"""
-    monkeypatch.setenv("CODEX_USAGE_SESSIONS_DIR", str(tmp_path / "nope"))
-    monkeypatch.setenv("CODEX_USAGE_PRICING_FILE", str(tmp_path / "nope.json"))
+    monkeypatch.setenv("HARNESCOPE_SESSIONS_DIR", str(tmp_path / "nope"))
+    monkeypatch.setenv("HARNESCOPE_PRICING_FILE", str(tmp_path / "nope.json"))
     d = selfdoc.doctor()
     assert d["ok"] is False
     hints = " ".join(d["hints"])
@@ -98,7 +98,7 @@ def test_doctor_reports_missing_sources(monkeypatch, tmp_path):
 
 def test_doctor_when_pricing_fully_unavailable(monkeypatch):
     """三层定价都读不到时才算问题，提示要指向 --update-pricing。"""
-    from codex_usage import pricing
+    from harnesscope import pricing
 
     monkeypatch.setattr(pricing, "load_pricing", lambda *a, **k: {})
     monkeypatch.setattr(pricing, "source_info",
@@ -110,8 +110,8 @@ def test_doctor_when_pricing_fully_unavailable(monkeypatch):
 def test_schema_documents_image_mode():
     """档位开关要能被 Agent 从 --schema 里发现。"""
     env = selfdoc.schema(build_parser())["chart_rendering"]["env"]
-    assert "CODEX_USAGE_IMAGE_MODE" in env
-    assert "halfcell" in env["CODEX_USAGE_IMAGE_MODE"]
+    assert "HARNESCOPE_IMAGE_MODE" in env
+    assert "halfcell" in env["HARNESCOPE_IMAGE_MODE"]
 
 
 def test_doctor_cli_json(env):

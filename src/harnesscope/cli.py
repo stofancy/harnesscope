@@ -52,8 +52,8 @@ def _fix_single_dash(argv: list[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="codex-usage",
-                                 description="Codex 按会话/子代理/天/模型用量与成本（本地 rollout 解析）",
+    ap = argparse.ArgumentParser(prog="harnesscope",
+                                 description="Harnesscope 用量镜：本机四源用量工作台与 Codex 终端报表",
                                  epilog=selfdoc.EPILOG,
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  add_help=False)
@@ -85,7 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     workbench.add_argument("--web", action="store_true", help="启动本机四源用量 Web 工作台")
     workbench.add_argument("--analytics", action="store_true",
                            help="输出四源共享分析 JSON（可用 --query 指定 API 查询参数）")
-    ap.add_argument("--port", type=int, default=None, help="Web 端口（默认 8765，仅监听 127.0.0.1）")
+    ap.add_argument("--port", type=int, default=None,
+                    help="前台 Web 端口（默认已保存端口，初始 8765，仅监听 127.0.0.1）")
     ap.add_argument("--query", default=None,
                     help="--analytics 的 URL 查询参数，例如 'harness=codex&metric=tokens'")
     ap.add_argument("--update-pricing", action="store_true",
@@ -165,13 +166,13 @@ def _model_day_series(recs: list[Session], pricing: dict, days: list[str],
 
 
 def _use_image(args) -> bool:
-    """终端 + 装了 image extras + 未指定 --ascii（含 CODEX_USAGE_IMAGE_MODE=ascii）时用真图。"""
+    """终端 + 装了 image extras + 未指定 --ascii（含 HARNESCOPE_IMAGE_MODE=ascii）时用真图。"""
     if args.ascii or not sys.stdout.isatty() or imgcharts.image_mode() == "ascii":
         return False
     if imgcharts.available():
         return True
     print("提示: 未安装图片渲染依赖，图表回退字符画（装法: uv tool install "
-          "'codex-usage[image]'，需 Python ≥3.12）", file=sys.stderr)
+          "'harnesscope[image]'，需 Python ≥3.12）", file=sys.stderr)
     return False
 
 
@@ -266,7 +267,14 @@ def _main():
     argv = sys.argv[1:]
     if argv and argv[0] in ("/?", "-?", "help"):   # Windows 风格与子命令风格帮助入口
         argv = ["--help"]
-    sys.argv = [sys.argv[0]] + _fix_single_dash(argv)
+    argv = _fix_single_dash(argv)
+    sys.argv = [sys.argv[0]] + argv
+    from . import lifecycle
+    if argv and argv[0] in lifecycle.COMMANDS:
+        result = lifecycle.run_cli(argv)
+        if result:
+            raise SystemExit(result)
+        return
     args = build_parser().parse_args()
 
     if args.port is not None and (not args.web or not 1 <= args.port <= 65535):
@@ -286,8 +294,12 @@ def _main():
         _update_pricing(args)
         return
     if args.web:
-        from .server import DEFAULT_PORT, serve
-        serve(args.port if args.port is not None else DEFAULT_PORT)
+        from .server import serve
+        try:
+            port = lifecycle.configured_port(args.port)
+        except lifecycle.LifecycleError as exc:
+            raise SystemExit(str(exc)) from exc
+        serve(port)
         return
     if args.analytics:
         _analytics(args)

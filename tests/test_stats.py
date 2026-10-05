@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from codex_usage.parser import Session, collect
-from codex_usage.pricing import load_pricing
-from codex_usage import stats
+from harnesscope.parser import Session, collect
+from harnesscope.pricing import load_pricing
+from harnesscope import stats
 
 
 def test_aggregate_models(env):
@@ -83,8 +83,8 @@ def _rec(model, slots_by_tier, pricing):
 
 def test_rec_cost_applies_tier_multiplier():
     """priority/Fast 档按官方倍率计价，成本必须高于同量标准档（astra 官方 2.0×）。"""
-    from codex_usage.pricing import load_pricing
-    from codex_usage import stats
+    from harnesscope.pricing import load_pricing
+    from harnesscope import stats
 
     pricing = load_pricing()
     std = _rec("gpt-6-astra", {"standard": [1000, 0, 100, 0, 1]}, pricing)
@@ -99,8 +99,8 @@ def test_rec_cost_applies_tier_multiplier():
 
 def test_rec_cost_falls_back_when_no_tiers():
     """没有档位明细（老数据/异常）时仍能整块计价，不报错。"""
-    from codex_usage.pricing import load_pricing
-    from codex_usage import stats
+    from harnesscope.pricing import load_pricing
+    from harnesscope import stats
 
     pricing = load_pricing()
     rec = Session(file="f", sid="s", uuids=["u"])
@@ -115,8 +115,8 @@ def test_raw_session_filter_matches_any_uuid(env):
     实测分页会话占窗口用量 7.88%，此前 raw 模式用 --session 只看得到第一页。
     """
     from datetime import datetime
-    from codex_usage.parser import collect
-    from codex_usage import stats
+    from harnesscope.parser import collect
+    from harnesscope import stats
 
     raw = collect(env["sessions"], datetime(2026, 9, 10), datetime(2026, 9, 11, 23, 59, 59),
                   raw=True)
@@ -129,8 +129,8 @@ def test_raw_session_filter_matches_any_uuid(env):
 
 def test_hit_rate_edges_and_weighting():
     """命中率口径：缓存读/毛输入；无输入返回 None；聚合必须加权，不能平均各行百分比。"""
-    from codex_usage import stats
-    from codex_usage.render import charts, tables
+    from harnesscope import stats
+    from harnesscope.render import charts, tables
 
     assert stats.hit_rate(0, 0) is None          # 完全没有输入 → None（显示 -，不是 0%）
     assert stats.hit_rate(1, 0) == 0.0
@@ -153,8 +153,8 @@ def test_hit_rate_edges_and_weighting():
 
 def test_unit_cost_per_mtok_edges_and_weighting():
     """每百万 tokens 开销：成本 ÷ 总 tokens × 1e6；无 tokens 返回 None；聚合必须加权。"""
-    from codex_usage import stats
-    from codex_usage.render import charts, tables
+    from harnesscope import stats
+    from harnesscope.render import charts, tables
 
     assert stats.unit_cost_per_mtok(0.0, 0) is None
     assert abs(stats.unit_cost_per_mtok(1.0, 1_000_000) - 1.0) < 1e-12

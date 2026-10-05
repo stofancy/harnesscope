@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from codex_usage.parser import collect, parse_rollout, parse_time_arg
+from harnesscope.parser import collect, parse_rollout, parse_time_arg
 
 
 @pytest.mark.parametrize("s,expected", [

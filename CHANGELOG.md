@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Renamed the repository, Python package, CLI, browser UI and tool environment variables
+  to Harnesscope / `harnesscope` / `HARNESCOPE_*`. The default cache is now
+  `~/.cache/harnesscope`; native harness source variables keep their names.
 - Automatic refresh runs only for ranges ending now, with saved preferences restored
   on returning to now. Historical ranges retain manual refresh; future bounds are rejected.
 - Overview comparisons show the preceding equal-length window and explain which
@@ -41,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Source installer with optional systemd user service, plus the same `start`, `stop`,
+  `restart` and `status` commands for service and ordinary background modes.
 - Rolling time expressions such as `-18h` and `-2days`, fixed-start-until-now ranges,
   inline absolute-time inputs and optional automatic refresh. Refresh scans source changes before
   updating the view, advances rolling ranges and preserves fixed historical ranges.
@@ -67,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accounting, linked analysis, append updates, context persistence, sorting and time/refresh
   controls. This work adds no unit/component tests; recorded runs retain their stated coverage.
 
-- Local browser usage workbench (`codex-usage --web`) for Codex, Claude, OMP and
+- Local browser usage workbench (`harnesscope --web`) for Codex, Claude, OMP and
   DSH, backed by a rebuildable SQLite event index and a shared multi-source query layer.
   React/TypeScript/Recharts assets ship with the Python package; Starlette/Uvicorn serve
   them on loopback without a Node runtime for users.
@@ -161,11 +166,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rename of priority processing) and are priced with the official per-model Fast rates — 2.0×
   standard for Astra and the 5.6 Sol/Terra/Luna family, 2.5× for `gpt-5.5`, while `flex` is
   0.5×. The rates come from `data/tier_pricing.json` (override with
-  `CODEX_USAGE_TIER_PRICING_FILE`) and are declared as API-equivalent USD, not the ChatGPT
+  `HARNESCOPE_TIER_PRICING_FILE`) and are declared as API-equivalent USD, not the ChatGPT
   subscription credit multipliers. Models without a public Fast price stay at the standard
   price and report `tier_priced: false`.
 - Labels that no public source prices now go through an auditable alias table
-  (`data/model_aliases.json`, override with `CODEX_USAGE_ALIASES_FILE`): `codex-auto-review`
+  (`data/model_aliases.json`, override with `HARNESCOPE_ALIASES_FILE`): `codex-auto-review`
   is priced as `gpt-5.5` and flagged `assumed: true`, while `gpt-reserve` is deliberately left
   unpriced (`$0.00*`) instead of being guessed.
 
@@ -203,7 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **CLI** `codex-usage`: parses local Codex rollout session files and aggregates token
+- **CLI** `harnesscope`: parses local Codex rollout session files and aggregates token
   usage by session / subagent / day / model, rendered as rich terminal tables and charts.
 - **More accurate metering**: per-turn `last_token_usage` deltas instead of the
   `total_token_usage` counters, which context compaction can leave far below the real totals.
@@ -212,7 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parent and archived sessions. `--since` / `--until` accept both explicit and compact
   (`20260912-1610`) time formats.
 - **Cost estimation**: per-model cost from a pricing table, with a built-in offline table
-  shipped in the package (`src/codex_usage/data/pricing.json`). Unknown models are still
+  shipped in the package (`src/harnesscope/data/pricing.json`). Unknown models are still
   counted, priced at $0 and flagged in the output.
 - **Charts**: `--chart pie|bar|area|line` with `--metric cost|input|cache|output|total`.
   - Real-image rendering (`matplotlib` -> PNG -> terminal) in terminals that support a
@@ -220,7 +225,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Requires the optional `[image]` extra; `textual-image` requires Python >= 3.12.
   - ASCII charts (plotext + termcharts) when `[image]` is not installed, output is
     redirected, or `--ascii` is passed.
-- **Chart rendering mode override**: the `CODEX_USAGE_IMAGE_MODE` environment variable
+- **Chart rendering mode override**: the `HARNESCOPE_IMAGE_MODE` environment variable
   (`auto` (default) | `tgp` | `sixel` | `halfcell` | `ascii`), for terminals whose
   auto-detection misbehaves. Invalid values fall back to `auto`.
 - **Table metric columns**: API `calls` and `cost per call`.
@@ -231,12 +236,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for structured output.
 - **Optional pricing refresh**: `--update-pricing` (source selectable via
   `--pricing-source models.dev|litellm`) downloads a public pricing table and writes it to
-  the user cache (`~/.cache/codex-usage/pricing.json`, override with `CODEX_USAGE_CACHE_DIR`).
+  the user cache (`~/.cache/harnesscope/pricing.json`, override with `HARNESCOPE_CACHE_DIR`).
   This is the only code path that uses the network, and it never runs implicitly.
 - **Machine-readable output**: `--json` emits per-session records including per-model
   details. Data is written to stdout only; diagnostics and errors go to stderr.
-- **Environment overrides**: `CODEX_USAGE_SESSIONS_DIR`, `CODEX_USAGE_ARCHIVE_DIR`,
-  `CODEX_USAGE_PRICING_FILE`, `CODEX_USAGE_CACHE_DIR`, `CODEX_USAGE_IMAGE_MODE`.
+- **Environment overrides**: `HARNESCOPE_SESSIONS_DIR`, `HARNESCOPE_ARCHIVE_DIR`,
+  `HARNESCOPE_PRICING_FILE`, `HARNESCOPE_CACHE_DIR`, `HARNESCOPE_IMAGE_MODE`.
 - **Typing**: a `py.typed` marker so downstream type checkers use the bundled annotations.
 - **Engineering and community baseline**: GitHub Actions CI (Python 3.10-3.13 matrix plus a
   ruff/mypy job), `ruff.toml`, `mypy.ini`, this changelog, CONTRIBUTING, SECURITY,

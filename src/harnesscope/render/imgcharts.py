@@ -1,6 +1,6 @@
 """真图图表：matplotlib 渲成 PNG，再由 textual-image 在终端显示（可选依赖）。
 
-与 charts.py 的三个绘图函数同签名，cli 按运行环境二选一：装了 `codex-usage[image]`、
+与 charts.py 的三个绘图函数同签名，cli 按运行环境二选一：装了 `harnesscope[image]`、
 输出是终端且未指定 `--ascii` 时走本模块，其余情况回退字符画。
 显示方式由 textual-image 自动选择：支持图形协议（kitty TGP / Sixel）的终端出真图，
 其他终端出彩色半块字符。
@@ -37,7 +37,7 @@ class _ProbeStdout:
     """终端探测期的 `sys.__stdout__` 替身：只改写入目标，终端语义沿用真实 stdout。
 
     textual-image 在导入时按 `sys.__stdout__.isatty()` 选定渲染档位，并向它写能力查询。
-    若直接把 `__stdout__` 换成 stderr，`codex-usage --chart … 2>/dev/null` 会被判成
+    若直接把 `__stdout__` 换成 stderr，`harnesscope --chart … 2>/dev/null` 会被判成
     「非终端」而永久降级成字符回退，--doctor 也会报错档位；这里只把查询序列改投 stderr
     （终端照样应答），isatty/size 仍看真实 stdout，stdout 的数据流保持干净。
     """
@@ -141,10 +141,10 @@ _MODE_DISPLAY = {"tgp": "真图（kitty 图形协议）", "sixel": "真图（Six
 def image_mode() -> str:
     """渲染档位：auto（默认）| tgp | sixel | halfcell | ascii。
 
-    由环境变量 CODEX_USAGE_IMAGE_MODE 指定；非法值按 auto 处理。遇到把真图渲染坏的终端
+    由环境变量 HARNESCOPE_IMAGE_MODE 指定；非法值按 auto 处理。遇到把真图渲染坏的终端
     可以一键降级（halfcell/ascii），不必整个退到 --ascii 字符画。
     """
-    mode = os.environ.get("CODEX_USAGE_IMAGE_MODE", "auto").strip().lower()
+    mode = os.environ.get("HARNESCOPE_IMAGE_MODE", "auto").strip().lower()
     return mode if mode in IMAGE_MODES else "auto"
 
 

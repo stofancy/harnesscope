@@ -12,7 +12,7 @@
 
 ## 1. 已核实的现项目边界
 
-- `src/codex_usage/parser.py:32-56` 的 `Session` 缺少 harness、provider、独立调用标识与缓存写入维度。
+- `src/harnesscope/parser.py:32-56` 的 `Session` 缺少 harness、provider、独立调用标识与缓存写入维度。
 - `parser.py:136-259` 按 Codex 的累计快照差分计量，处理重复帧、继承首帧、回落与缺失累计值。该策略应留在 Codex 适配器，不应用于 OMP 逐调用 usage。
 - `parser.py:262-329` 扫描目录、处理归档副本并合并分页；最终已丢失每条记录的时间粒度。
 - `stats.py:110-114,150-156` 将整份会话归到 `first_local` 所在日期。时间窗口内正确筛选，不等于跨日分桶正确。
