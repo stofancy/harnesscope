@@ -13,6 +13,7 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
+import type { DotItemDotProps } from "recharts";
 import type {
     Analysis,
     ChartKind,
@@ -74,6 +75,31 @@ export function TimeChart({
     onZoom: (start: string, end: string) => void;
     id: string;
 }) {
+    // A value separated by unknown neighbours has no segment to draw.
+    const isolatedDot = (series: PlotSeries) => (p: DotItemDotProps) => {
+        const known = (i: number) =>
+            typeof rows[i]?.[series.id] === "number" &&
+            Number.isFinite(rows[i]?.[series.id]);
+        if (
+            !known(p.index) ||
+            known(p.index - 1) ||
+            known(p.index + 1) ||
+            typeof p.cx !== "number" ||
+            typeof p.cy !== "number"
+        )
+            return null;
+        return (
+            <circle
+                className="chart-isolated-point"
+                cx={p.cx}
+                cy={p.cy}
+                r={3}
+                fill={series.color}
+                stroke="var(--surface)"
+                strokeWidth={1}
+            />
+        );
+    };
     const chartElement = useRef<HTMLDivElement>(null);
     const Chart =
         kind === "area" ? AreaChart : kind === "bar" ? BarChart : LineChart;
@@ -123,7 +149,7 @@ export function TimeChart({
                         />
                         <CartesianGrid
                             vertical={false}
-                            stroke="#e5e9e1"
+                            stroke="var(--chart-grid)"
                             strokeDasharray="3 5"
                         />
                         <XAxis
@@ -131,14 +157,14 @@ export function TimeChart({
                             axisLine={false}
                             tickLine={false}
                             minTickGap={35}
-                            tick={{ fontSize: 10, fill: "#69786c" }}
+                            tick={{ fontSize: 10, fill: "var(--muted)" }}
                             tickFormatter={tickLabel}
                         />
                         <YAxis
                             axisLine={false}
                             tickLine={false}
                             width={64}
-                            tick={{ fontSize: 10, fill: "#69786c" }}
+                            tick={{ fontSize: 10, fill: "var(--muted)" }}
                             tickFormatter={formatter}
                             domain={share ? [0, 100] : [0, "auto"]}
                         />
@@ -213,7 +239,7 @@ export function TimeChart({
                                     fillOpacity={stack ? 0.32 : 0.1}
                                     stackId={stack ? "usage" : undefined}
                                     connectNulls={false}
-                                    dot={false}
+                                    dot={isolatedDot(s)}
                                     activeDot={{ r: 3 }}
                                     isAnimationActive={false}
                                 />
@@ -226,7 +252,7 @@ export function TimeChart({
                                     stroke={s.color}
                                     strokeWidth={1.8}
                                     connectNulls={false}
-                                    dot={false}
+                                    dot={isolatedDot(s)}
                                     activeDot={{ r: 3 }}
                                     isAnimationActive={false}
                                 />
@@ -237,8 +263,8 @@ export function TimeChart({
                                 dataKey="time"
                                 height={18}
                                 travellerWidth={6}
-                                stroke="#a9b7a9"
-                                fill="#f8faf5"
+                                stroke="var(--chart-brush)"
+                                fill="var(--surface-soft)"
                                 tickFormatter={tickLabel}
                                 onDragEnd={(range) => {
                                     const first = range.startIndex ?? 0,
@@ -395,7 +421,7 @@ export function AnalyticPanel({
                 : s.label,
             color:
                 s.key === "__other__"
-                    ? "#c0c9be"
+                    ? "var(--data-other)"
                     : memberColor(data.query.dimension, s.key),
         }));
         const rows = data.trend.map((p) => {

@@ -7,8 +7,8 @@ import type {
     PanelConfig,
     PanelId,
 } from "./types";
-import type { TurnView } from "./preferences";
-type Part = PanelId | "ledger" | "turns";
+
+type Part = PanelId | "turns";
 const angle = (c: {
     dimension: Dimension;
     metric: Metric;
@@ -22,10 +22,9 @@ const angle = (c: {
 export function useDashboard(
     global: GlobalQuery,
     panels: Record<PanelId, PanelConfig>,
-    ledger: { dimension: Dimension; metric: Metric },
-    offset: number,
-    turnView: TurnView,
     revision: number,
+    enabled = true,
+    snapshotHint: string | null = null,
 ) {
     const [data, setData] = useState<Dashboard | null>(null),
         [pending, setPending] = useState<Part[]>([]),
@@ -44,21 +43,21 @@ export function useDashboard(
         rate: angle(panels.rate),
         cache: angle(panels.cache),
         speed: angle(panels.speed),
-        ledger: angle(ledger),
-        turns: JSON.stringify({
-            offset,
-            sort: turnView.sort,
-            order: turnView.order,
-        }),
+        turns: "aggregate",
     };
     const localKey = JSON.stringify(keys);
     useEffect(() => {
         const c = new AbortController();
+        if (!enabled) {
+            setPending([]);
+            return () => c.abort();
+        }
         const full =
             !dataRef.current ||
             JSON.stringify(dataRef.current.global) !== globalKey ||
             lastRevision.current !== revision ||
-            forceFull.current;
+            forceFull.current ||
+            (!!snapshotHint && snapshotHint !== dataRef.current?.snapshot_id);
         lastRevision.current = revision;
         forceFull.current = false;
         const dirty = (Object.keys(keys) as Part[]).filter(
@@ -75,10 +74,7 @@ export function useDashboard(
                   ),
         );
         if (full) {
-            dashboard(global, panels, ledger, offset, c.signal, {
-                sort: turnView.sort,
-                order: turnView.order,
-            })
+            dashboard(global, panels, c.signal)
                 .then((result) => {
                     if (c.signal.aborted) return;
                     loaded.current = { ...keys };
@@ -96,17 +92,8 @@ export function useDashboard(
             for (const id of dirty) {
                 const task =
                     id === "turns"
-                        ? turns(global, offset, c.signal, {
-                              sort: turnView.sort,
-                              order: turnView.order,
-                          })
-                        : analyze(
-                              {
-                                  ...global,
-                                  ...(id === "ledger" ? ledger : panels[id]),
-                              },
-                              c.signal,
-                          );
+                        ? turns(global, 0, c.signal, undefined, false)
+                        : analyze({ ...global, ...panels[id] }, c.signal);
                 task.then((result) => {
                     if (c.signal.aborted) return;
                     if (result.snapshot_id !== dataRef.current?.snapshot_id) {
@@ -124,18 +111,13 @@ export function useDashboard(
                                       ...previous,
                                       turns: result as Dashboard["turns"],
                                   }
-                                : id === "ledger"
-                                  ? {
-                                        ...previous,
-                                        ledger: result as Dashboard["ledger"],
-                                    }
-                                  : {
-                                        ...previous,
-                                        panels: {
-                                            ...previous.panels,
-                                            [id]: result,
-                                        },
-                                    };
+                                : {
+                                      ...previous,
+                                      panels: {
+                                          ...previous.panels,
+                                          [id]: result,
+                                      },
+                                  };
                         dataRef.current = next;
                         return next;
                     });
@@ -149,11 +131,11 @@ export function useDashboard(
             }
         }
         return () => c.abort();
-    }, [globalKey, localKey, revision, retry]);
+    }, [globalKey, localKey, revision, retry, enabled, snapshotHint]);
     const globalUpdating =
         !data ||
         JSON.stringify(data.global) !== globalKey ||
-        pending.length === 6;
+        pending.length === 5;
     return {
         data,
         pending,

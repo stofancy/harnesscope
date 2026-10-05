@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
-    usePlotArea,
-    useXAxisInverseDataSnapScale,
-} from "recharts";
+import { usePlotArea, useXAxisInverseDataSnapScale } from "recharts";
 import type {
     Analysis,
     Delta,
@@ -20,28 +8,14 @@ import type {
     Member,
     Metric,
     Query,
-    SessionDetail,
     Values,
 } from "./types";
 import {
-    analyze,
-    demo,
-    refresh,
-    sessionDetail,
-    status,
-    type Status,
-} from "./api";
-import {
-    dateInput,
     deltaPercent,
     exactNumber,
-    timingLabel,
-    harnessLabel,
     formatMetric,
     formatNumber,
-    inputDate,
     metricLabels,
-    timeLabel,
 } from "./format";
 const dimensions: Record<Dimension, string> = {
     harness: "来源",
@@ -50,7 +24,7 @@ const dimensions: Record<Dimension, string> = {
     provider: "Provider",
     purpose: "用途",
     agent_type: "代理类型",
-    service_tier: "服务档位",
+    service_tier: "运行模式",
     session: "会话",
 };
 const metrics: Metric[] = [
@@ -62,12 +36,12 @@ const metrics: Metric[] = [
     "cache_rate",
 ];
 const colors = [
-    "#26766a",
-    "#6881b8",
-    "#b9814b",
-    "#9581a8",
-    "#71815b",
-    "#bcc4bf",
+    "var(--data-blue)",
+    "var(--data-teal)",
+    "var(--data-amber)",
+    "var(--data-coral)",
+    "var(--data-purple)",
+    "var(--data-other)",
 ];
 function displayedChange(
     change: Delta | undefined,
@@ -426,16 +400,16 @@ function Ledger({
             <div className="panel-title">
                 <div>
                     <h2>
-                        用量明细 <span>{rows.length} 项</span>
+                        用量汇总 <span>{rows.length} 项</span>
                     </h2>
                     <p className="muted tiny">
                         按{dimensions[q.dimension]}比较 ·
-                        点击名称查看详情，右侧筛选可联动所有面板
+                        点击名称进入逐次请求，筛选可联动所有面板
                     </p>
                 </div>
                 <input
                     className="table-search"
-                    placeholder="搜索当前明细…"
+                    placeholder="搜索当前汇总…"
                     value={search}
                     onChange={(e) => {
                         setSearch(e.target.value);
@@ -569,209 +543,6 @@ function Ledger({
         </section>
     );
 }
-function Detail({
-    member,
-    q,
-    onClose,
-    onFilter,
-    onSessions,
-}: {
-    member: Member;
-    q: Query;
-    onClose: () => void;
-    onFilter: (identity?: { harness: string; session_id: string }) => void;
-    onSessions: () => void;
-}) {
-    const [detail, setDetail] = useState<SessionDetail | null>(null),
-        [error, setError] = useState("");
-    const requestSequence = useRef(0);
-    async function loadSession(harness: string, id: string) {
-        const sequence = ++requestSequence.current;
-        setError("");
-        try {
-            const loaded = await sessionDetail(harness, id, q);
-            if (sequence === requestSequence.current) setDetail(loaded);
-        } catch (e) {
-            if (sequence === requestSequence.current)
-                setError((e as Error).message);
-        }
-    }
-    useEffect(() => {
-        setDetail(null);
-        setError("");
-        if (q.dimension === "session" && member.harness && member.session_id)
-            void loadSession(member.harness, member.session_id);
-        return () => {
-            requestSequence.current++;
-        };
-    }, [member.key, q]);
-    const shownValues = detail?.summary ?? member.values;
-    return (
-        <div className="drawer-backdrop" onClick={onClose}>
-            <aside className="drawer" onClick={(e) => e.stopPropagation()}>
-                <div className="panel-title">
-                    <span className="eyebrow">
-                        {dimensions[q.dimension]}详情
-                    </span>
-                    <button
-                        className="text-button"
-                        title="关闭详情"
-                        onClick={onClose}
-                    >
-                        ← 返回用量明细
-                    </button>
-                </div>
-                <h2 className="detail-name">
-                    {detail && detail.session_id !== member.session_id
-                        ? detail.session_id
-                        : member.label}
-                </h2>
-                <p className="muted">
-                    {timeLabel(q.since, q.timezone, true)} —{" "}
-                    {timeLabel(q.until, q.timezone, true)}
-                </p>
-                <div className="detail-metrics">
-                    {metrics.map((m) => (
-                        <div key={m}>
-                            <span>{metricLabels[m]}</span>
-                            <strong>
-                                {formatMetric(value(shownValues, m), m)}
-                            </strong>
-                        </div>
-                    ))}
-                </div>
-                {shownValues.unpriced > 0 && (
-                    <p className="notice">
-                        {shownValues.unpriced} 条记录缺价，费用仅含已知部分。
-                    </p>
-                )}
-                {
-                    <div className="drawer-actions">
-                        <button
-                            className="primary"
-                            onClick={() =>
-                                onFilter(
-                                    detail
-                                        ? {
-                                              harness: detail.harness,
-                                              session_id: detail.session_id,
-                                          }
-                                        : undefined,
-                                )
-                            }
-                        >
-                            筛选此{dimensions[q.dimension]}
-                        </button>
-                        {q.dimension !== "session" && (
-                            <button onClick={onSessions}>
-                                查看相关会话 <Icon name="arrow" />
-                            </button>
-                        )}
-                    </div>
-                }
-                {error && <p className="error-text">{error}</p>}
-                {detail && (
-                    <>
-                        <h3>速度与计时覆盖</h3>
-                        {detail.summary.tps?.length ? (
-                            detail.summary.tps.map((t) => (
-                                <div
-                                    className="call-row"
-                                    key={`${t.harness}:${t.kind}`}
-                                >
-                                    <span>
-                                        {harnessLabel(t.harness)} ·{" "}
-                                        {timingLabel(t.kind)}
-                                        <small>
-                                            {t.samples} 个完整样本 ·{" "}
-                                            {t.seconds.toFixed(1)} 秒
-                                        </small>
-                                    </span>
-                                    <b>
-                                        {t.tps == null
-                                            ? "—"
-                                            : `${t.tps.toFixed(1)} TPS`}
-                                    </b>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="muted">无可用计时样本</p>
-                        )}
-                        <h3>会话归属</h3>
-                        <p className="muted">
-                            项目：{detail.project ?? "未知"}
-                            <br />
-                            父会话：{detail.parent_session_id ?? "未记录"}
-                        </p>
-                        <h3>调用记录</h3>
-                        {detail.calls.map((c, i) => (
-                            <div className="call-row" key={i}>
-                                <span>
-                                    {timeLabel(c.timestamp, q.timezone)}
-                                    <small>
-                                        {c.model} · {c.purpose ?? "用途未知"}
-                                    </small>
-                                </span>
-                                <b>{formatMetric(c.values.cost, "cost")}</b>
-                            </div>
-                        ))}
-                        {detail.children.length > 0 && (
-                            <>
-                                <h3>子会话</h3>
-                                {detail.children.map((c) => (
-                                    <button
-                                        className="call-row child-session"
-                                        key={c.session_id}
-                                        onClick={() =>
-                                            void loadSession(
-                                                c.harness,
-                                                c.session_id,
-                                            )
-                                        }
-                                    >
-                                        <span>{c.session_id}</span>
-                                        <Icon name="arrow" />
-                                    </button>
-                                ))}
-                            </>
-                        )}
-                    </>
-                )}
-                {q.dimension !== "session" && (
-                    <>
-                        <h3>速度与计时覆盖</h3>
-                        {member.values.tps?.length ? (
-                            member.values.tps.map((t) => (
-                                <div
-                                    className="call-row"
-                                    key={`${t.harness}:${t.kind}`}
-                                >
-                                    <span>
-                                        {harnessLabel(t.harness)} ·{" "}
-                                        {timingLabel(t.kind)}
-                                        <small>
-                                            {t.samples} 个完整计时样本
-                                        </small>
-                                    </span>
-                                    <b>{t.tps?.toFixed(1) ?? "—"} TPS</b>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="muted">
-                                在相关会话详情中查看各来源计时样本。
-                            </p>
-                        )}
-                    </>
-                )}
-                <div className="detail-foot">
-                    本地日志计量 ·{" "}
-                    {shownValues.unpriced ? "费用覆盖部分未知" : "费用为估算值"}
-                </div>
-            </aside>
-        </div>
-    );
-}
-
 export {
     Icon,
     Facet,
@@ -779,7 +550,6 @@ export {
     BucketZoom,
     Comparison,
     Ledger,
-    Detail,
     dimensions,
     memberColor,
     ratio,

@@ -6,6 +6,7 @@ import type {
     PanelConfig,
     PanelId,
     ChartKind,
+    UsageView,
 } from "./types";
 export type TurnView = {
     metric: string;
@@ -14,6 +15,10 @@ export type TurnView = {
     order: "asc" | "desc";
 };
 export type Preferences = {
+    page: "dashboard" | "usage";
+    theme: "light" | "dark";
+    autoPeriod: number;
+    usageView: UsageView;
     global: GlobalQuery;
     timeSpec: TimeSpec;
     autoSeconds: number;
@@ -23,7 +28,7 @@ export type Preferences = {
     turnView: TurnView;
     history: { since: string; until: string; timeSpec: TimeSpec }[];
 };
-const storageKey = "usage-dashboard.preferences.v2";
+const storageKey = "usage-dashboard.preferences.v4";
 const dimensions = [
     "harness",
     "model",
@@ -68,7 +73,9 @@ const panelMetrics = {
 const buckets = [
     "auto",
     "second",
+    "5second",
     "10second",
+    "30second",
     "minute",
     "5minute",
     "15minute",
@@ -90,6 +97,18 @@ const windowValid = (q: { since?: string; until?: string }) =>
 export function defaults(): Preferences {
     const now = new Date();
     return {
+        page: "dashboard",
+        theme: matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light",
+        autoPeriod: 30,
+        usageView: {
+            group: "request",
+            sort: "time",
+            order: "desc",
+            offset: 0,
+            limit: 20,
+        },
         global: {
             since: new Date(now.getTime() - 7 * 86400000).toISOString(),
             until: now.toISOString(),
@@ -144,10 +163,33 @@ export function readPreferences(): Preferences {
     const fallback = defaults();
     try {
         const stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
-        if (!stored || stored.version !== 2) return fallback;
+        if (!stored || stored.version !== 4) return fallback;
         const p: Preferences = stored.preferences;
         if (
             !p ||
+            !["dashboard", "usage"].includes(p.page) ||
+            !["light", "dark"].includes(p.theme) ||
+            ![15, 30, 60, 300].includes(p.autoPeriod) ||
+            !p.usageView ||
+            !["request", "session", "turn", "model", "harness"].includes(
+                p.usageView.group,
+            ) ||
+            ![
+                "time",
+                "cost_usd",
+                "tokens",
+                "input_net",
+                "cache_read",
+                "cache_write",
+                "output",
+                "calls",
+                "response_tps",
+                "turn_tps",
+            ].includes(p.usageView.sort) ||
+            !["asc", "desc"].includes(p.usageView.order) ||
+            p.usageView.limit !== 20 ||
+            !Number.isSafeInteger(p.usageView.offset) ||
+            p.usageView.offset < 0 ||
             !windowValid(p.global) ||
             typeof p.global.timezone !== "string" ||
             !buckets.includes(p.global.bucket) ||
@@ -227,12 +269,21 @@ export function readPreferences(): Preferences {
         )
             return fallback;
         const resolved = resolveTime(p.timeSpec);
-        if (p.timeSpec.end === "now") p.global = { ...p.global, ...resolved };
+        if (
+            p.timeSpec.end === "now" ||
+            p.timeSpec.start.startsWith("-") ||
+            p.timeSpec.end.startsWith("-")
+        )
+            p.global = { ...p.global, ...resolved };
         return {
+            page: p.page,
+            theme: p.theme,
+            autoPeriod: p.autoPeriod,
+            usageView: p.usageView,
             global: {
                 since: p.global.since,
                 until: p.global.until,
-                timezone: p.global.timezone,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                 bucket: p.global.bucket,
                 filters: p.global.filters,
             },
@@ -274,7 +325,7 @@ export function savePreferences(preferences: Preferences) {
     try {
         localStorage.setItem(
             storageKey,
-            JSON.stringify({ version: 2, preferences }),
+            JSON.stringify({ version: 4, preferences }),
         );
     } catch {
         /* A denied or full local store does not prevent analysis. */

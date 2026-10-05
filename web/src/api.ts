@@ -15,6 +15,10 @@ import type {
     TurnsAnalysis,
     TurnRow,
     TurnDetail,
+    UsageAnalysis,
+    UsageView,
+    UsageDrill,
+    UsageRow,
 } from "./types";
 export const demo =
     import.meta.env?.DEV &&
@@ -42,12 +46,41 @@ const toolLabels: Record<string, string> = {
     omp: "OMP",
     dsh: "DSH",
 };
-const label = (s: string) =>
-    s === "Other"
+const harnessContext = (q: GlobalQuery) =>
+    q.filters.harness?.length === 1 ? q.filters.harness[0] : undefined;
+const label = (s: string, dimension?: string, harness?: string) => {
+    if (dimension === "service_tier") {
+        const mode = s.toLowerCase();
+        if (mode === "unknown" || !mode) return "未记录";
+        if (harness === "codex")
+            return (
+                (
+                    {
+                        priority: "Fast",
+                        fast: "Fast",
+                        default: "标准",
+                        standard: "标准",
+                    } as Record<string, string>
+                )[mode] ?? s
+            );
+        if (harness) return s;
+        return (
+            (
+                {
+                    priority: "Fast（Codex） / priority",
+                    fast: "Fast（Codex） / fast",
+                    default: "标准",
+                    standard: "标准",
+                } as Record<string, string>
+            )[mode] ?? s
+        );
+    }
+    return s === "Other"
         ? "其他"
-        : s === "Unknown" || s === ""
+        : s === "Unknown" || !s
           ? "未知归属"
           : (toolLabels[s] ?? s);
+};
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(path, {
         ...init,
@@ -73,6 +106,7 @@ export type RawMetrics = {
     throughput_tps?: number | null;
     rps?: number | null;
     seconds?: number;
+    input_net?: number | null;
     cache_write?: number | null;
     cost_usd: number;
     cost_complete: boolean;
@@ -171,6 +205,7 @@ export function normalizeMetrics(m: RawMetrics): Values {
         throughput_tps: m.throughput_tps ?? null,
         rps: m.rps ?? null,
         seconds: m.seconds,
+        input_net: m.input_net ?? null,
         cache_write: m.cache_write ?? null,
         cost: m.calls > 0 && m.priced_calls === 0 ? null : m.cost_usd,
         tokens: m.tokens,
@@ -232,7 +267,11 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
             const cmp = previous.get(m.key);
             return {
                 key: m.key,
-                label: label(m.label),
+                label: label(
+                    m.label,
+                    q.dimension,
+                    m.dimensions?.harness ?? harnessContext(q),
+                ),
                 values: normalizeMetrics(m.metrics),
                 previous: normalizeMetrics(cmp?.previous ?? m.metrics),
                 delta: cmp?.delta.cost_usd?.absolute ?? null,
@@ -249,7 +288,12 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
         }),
         series: raw.trend.members.map((m) => ({
             key: m.key,
-            label: label(m.label),
+            label: label(
+                m.label,
+                q.dimension,
+                raw.breakdown.find((b) => b.key === m.key)?.dimensions
+                    .harness ?? harnessContext(q),
+            ),
         })),
         trend: raw.trend.buckets.map((p) => ({
             start: p.start,
@@ -267,7 +311,10 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
         facets: Object.fromEntries(
             Object.entries(raw.facets).map(([k, values]) => [
                 k,
-                values.map((v) => ({ key: v, label: label(v) })),
+                values.map((v) => ({
+                    key: v,
+                    label: label(v, k, harnessContext(q)),
+                })),
             ]),
         ) as Analysis["facets"],
         coverage: {
@@ -468,6 +515,7 @@ export async function turns(
         sort: "start",
         order: "desc",
     },
+    includeRows = true,
 ): Promise<TurnsAnalysis> {
     if (demo) {
         const { fixture } = await import("./fixture");
@@ -536,6 +584,7 @@ export async function turns(
     p.set("limit", "20");
     p.set("sort", sorting.sort);
     p.set("order", sorting.order);
+    if (!includeRows) p.set("include_rows", "false");
     const raw = await request<RawTurns>(`/api/turns?${p}`, { signal });
     return {
         snapshot_id: String(raw.snapshot.id),
@@ -585,45 +634,85 @@ export async function turnDetail(
 export type Dashboard = {
     global: GlobalQuery;
     panels: Record<PanelId, Analysis>;
-    ledger: Analysis;
     turns: TurnsAnalysis;
     snapshot_id: string;
 };
 export async function dashboard(
     global: GlobalQuery,
     configs: Record<PanelId, PanelConfig>,
-    ledger: { dimension: Dimension; metric: Metric },
-    offset: number,
     signal: AbortSignal,
-    sorting: { sort: string; order: "asc" | "desc" } = {
-        sort: "start",
-        order: "desc",
-    },
 ): Promise<Dashboard> {
+    const ids = Object.keys(configs) as PanelId[];
     for (let attempt = 0; attempt < 4; attempt++) {
-        const ids = Object.keys(configs) as PanelId[];
-        const queries = ids.map((id) => ({ ...global, ...configs[id] }));
-        const [analyses, book, turnsResult] = await Promise.all([
-            Promise.all(queries.map((q) => analyze(q, signal))),
-            analyze({ ...global, ...ledger }, signal),
-            turns(global, offset, signal, sorting),
+        const [analyses, turnsResult] = await Promise.all([
+            Promise.all(
+                ids.map((id) => analyze({ ...global, ...configs[id] }, signal)),
+            ),
+            turns(global, 0, signal, undefined, false),
         ]);
         if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-        const snapshot = book.snapshot_id;
-        if (
-            [...analyses, turnsResult].every((r) => r.snapshot_id === snapshot)
-        ) {
+        const snapshot = analyses[0].snapshot_id;
+        if ([...analyses, turnsResult].every((r) => r.snapshot_id === snapshot))
             return {
                 global,
                 panels: Object.fromEntries(
                     ids.map((id, i) => [id, analyses[i]]),
                 ) as Record<PanelId, Analysis>,
-                ledger: book,
                 turns: turnsResult,
                 snapshot_id: snapshot,
             };
-        }
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error("扫描仍在更新数据。请等待扫描完成后重试查询。");
+    throw new Error("数据仍在更新，请稍后刷新。");
+}
+
+export async function usage(
+    q: GlobalQuery,
+    view: UsageView,
+    drill: UsageDrill | null,
+    signal?: AbortSignal,
+): Promise<UsageAnalysis> {
+    const p = globalParams(q);
+    p.set("group", view.group);
+    p.set("sort", view.sort);
+    p.set("order", view.order);
+    p.set("offset", String(view.offset));
+    p.set("limit", String(view.limit));
+    if (drill) {
+        const i = drill.identity;
+        if (i.harness != null) p.set("harness", i.harness);
+        if (i.session_id != null) p.set("session", i.session_id);
+        if (drill.group === "turn") p.set("turn_id", i.turn_id ?? "");
+        if (i.model != null) p.set("model", i.model);
+    }
+    type Raw = Omit<
+        UsageAnalysis,
+        "snapshot_id" | "summary" | "rows" | "facets"
+    > & {
+        snapshot: { id: string };
+        summary: RawMetrics;
+        rows: (Omit<UsageRow, "metrics"> & { metrics: RawMetrics })[];
+        facets: Record<FilterKey, string[]>;
+    };
+    const r = await request<Raw>(`/api/usage?${p}`, { signal });
+    return {
+        ...r,
+        query: q,
+        snapshot_id: String(r.snapshot.id),
+        summary: normalizeMetrics(r.summary),
+        rows: r.rows.map((row) => ({
+            ...row,
+            metrics: normalizeMetrics(row.metrics),
+        })),
+        facets: Object.fromEntries(
+            Object.entries(r.facets).map(([k, vs]) => [
+                k,
+                vs.map((v) => ({
+                    key: v,
+                    label: label(v, k, harnessContext(q)),
+                    count: 0,
+                })),
+            ]),
+        ) as unknown as Analysis["facets"],
+    };
 }

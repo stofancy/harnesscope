@@ -51,7 +51,7 @@ export function AbsoluteRanking({
                         key={m.key}
                         className="rank-row"
                         data-testid="rank-row"
-                        title={`筛选${m.label}并查看其轮次`}
+                        title={`筛选${m.label}并查看其请求`}
                         onClick={() => onSelect(m)}
                     >
                         <span className="rank-position">{i + 1}</span>
@@ -73,7 +73,7 @@ export function AbsoluteRanking({
                 ))}
             </div>
             {!rows.length && <p className="empty">当前范围没有已记录用量</p>}
-            <footer>{rows.length} 个主要对象 · 点击查看轮次</footer>
+            <footer>{rows.length} 个主要对象 · 点击查看请求</footer>
         </aside>
     );
 }

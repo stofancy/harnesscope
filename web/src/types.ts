@@ -26,6 +26,8 @@ export type Metric =
 export type Bucket =
     | "auto"
     | "second"
+    | "5second"
+    | "30second"
     | "10second"
     | "minute"
     | "5minute"
@@ -48,6 +50,7 @@ export type Values = {
     rpm?: number | null;
     throughput_tps?: number | null;
     rps?: number | null;
+    input_net?: number | null;
     cache_write?: number | null;
     timed_tps?: number | null;
     seconds?: number;
@@ -308,4 +311,52 @@ export type TurnDetail = {
         status?: string;
         relationship?: string;
     }[];
+};
+
+export type UsageGroup = "request" | "session" | "turn" | "model" | "harness";
+export type UsageView = {
+    group: UsageGroup;
+    sort: string;
+    order: "asc" | "desc";
+    offset: number;
+    limit: number;
+};
+export type UsageIdentity = {
+    harness?: string | null;
+    session_id?: string | null;
+    turn_id?: string | null;
+    model?: string | null;
+    event_key?: string | null;
+};
+export type UsageDrill = {
+    identity: UsageIdentity;
+    label: string;
+    group: UsageGroup;
+};
+export type UsageRow = {
+    key: string;
+    identity: UsageIdentity;
+    first: string;
+    last: string;
+    projects: string[];
+    harnesses: string[];
+    models: string[];
+    metrics: Values;
+    response_tps: number | null;
+    turn_tps: number | null;
+    timing: Timing[];
+};
+export type UsageAnalysis = {
+    snapshot_id: string;
+    query: GlobalQuery;
+    group: UsageGroup;
+    sort: string;
+    order: "asc" | "desc";
+    summary: Values;
+    coverage: Analysis["coverage"];
+    facets: Analysis["facets"];
+    rows: UsageRow[];
+    total: number;
+    offset: number;
+    limit: number;
 };

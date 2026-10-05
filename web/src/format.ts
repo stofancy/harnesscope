@@ -91,7 +91,9 @@ export const intervalLabel = (bucket: string) =>
     ({
         auto: "自动",
         second: "每秒",
+        "5second": "每5秒",
         "10second": "每10秒",
+        "30second": "每30秒",
         minute: "每分钟",
         "5minute": "每5分钟",
         "15minute": "每15分钟",
