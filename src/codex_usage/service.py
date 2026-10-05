@@ -19,6 +19,9 @@ class UsageService:
         self.adapters = list(adapters)
         self._query = query
         self._lock = threading.Lock()
+        # SQLite row materialization contends across simultaneous Python queries.
+        # Keep the scan/status lock independent so refresh progress stays responsive.
+        self._query_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._refreshing = False
         self._cancel = threading.Event()
@@ -88,16 +91,21 @@ class UsageService:
         return self._query
 
     def analytics(self, request):
-        return self._queries().analytics(request)
+        with self._query_lock:
+            return self._queries().analytics(request)
 
     def sessions(self, request, offset: int = 0, limit: int = 50):
-        return self._queries().sessions(request, offset=offset, limit=limit)
+        with self._query_lock:
+            return self._queries().sessions(request, offset=offset, limit=limit)
 
     def session_detail(self, harness: str, sid: str, request=None):
-        return self._queries().session_detail(harness, sid, request)
+        with self._query_lock:
+            return self._queries().session_detail(harness, sid, request)
 
     def turns(self, request, offset: int = 0, limit: int = 50, sort: str = 'start', order: str = 'desc'):
-        return self._queries().turns(request, offset=offset, limit=limit, sort=sort, order=order)
+        with self._query_lock:
+            return self._queries().turns(request, offset=offset, limit=limit, sort=sort, order=order)
 
     def turn_detail(self, harness: str, sid: str, turn_id: str, request=None):
-        return self._queries().turn_detail(harness, sid, turn_id, request)
+        with self._query_lock:
+            return self._queries().turn_detail(harness, sid, turn_id, request)
