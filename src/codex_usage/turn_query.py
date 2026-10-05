@@ -8,6 +8,26 @@ from .query import (UTC, COLUMN, QueryRequest, _us, _iso, _summary,
 
 DIRECT_FILTERS = {'harness': 'harness', 'session': 'session_id', 'project': 'project', 'agent_type': 'agent_type'}
 CALL_FILTERS = {'model', 'provider', 'purpose', 'service_tier'}
+TURN_SORTS = ('start', 'cost_usd', 'tokens', 'duration', 'calls', 'tool_calls')
+
+
+def _sort_turns(rows, sort, order):
+    def value(row):
+        if sort == 'start':
+            return row['start_us']
+        if sort == 'duration':
+            return row['duration_seconds']
+        if sort == 'tool_calls':
+            return row['tool_calls_known']
+        metrics = row['window_metrics']
+        if sort == 'cost_usd' and not metrics['priced_calls']:
+            return None
+        return metrics[sort]
+    def key(row):
+        amount = value(row)
+        return (amount is None, (-amount if order == 'desc' else amount) if amount is not None else 0,
+                row['harness'], row['session_id'], row['turn_id'], row['key'])
+    return sorted(rows, key=key)
 
 
 def _identity(row):
@@ -115,7 +135,13 @@ class TurnQuery:
                     'tokens': sum(row['full_metrics']['tokens'] for row in recorded) / len(recorded)
                     if recorded and all(row['full_metrics']['cache_write_complete'] for row in recorded) else None,
                     'cost_usd': sum(row['full_metrics']['cost_usd'] for row in recorded) / len(recorded)
-                    if recorded and all(row['full_metrics']['cost_complete'] for row in recorded) else None}
+                    if recorded and all(row['full_metrics']['cost_complete'] for row in recorded) else None,
+                    'tokens_known_mean': sum(row['full_metrics']['tokens'] for row in recorded) / len(recorded) if recorded else None,
+                    'cost_usd_known_mean': sum(row['full_metrics']['cost_usd'] for row in recorded) / len(recorded)
+                    if recorded and any(row['full_metrics']['priced_calls'] for row in recorded) else None,
+                    'tokens_complete_samples': sum(row['full_metrics']['cache_write_complete'] for row in recorded),
+                    'cost_complete_samples': sum(row['full_metrics']['cost_complete'] for row in recorded),
+                    'cost_priced_samples': sum(row['full_metrics']['priced_calls'] > 0 for row in recorded)}
         return {'turns': len(rows), 'status_counts': dict(Counter(row['status'] for row in rows)),
                 'metrics': _summary(events, seconds), 'tool_calls_known': len(tools),
                 'tool_calls': len(tools) if complete_tools else None,
@@ -138,9 +164,11 @@ class TurnQuery:
         return {'coverage': 'complete' if rows and all(row['tool_coverage'] == 'complete' for row in rows) else 'partial',
                 'scope': 'selected_turns', 'status_counts': dict(Counter(t['status'] for t in tools)), 'rows': values}
 
-    def turns(self, request, offset=0, limit=50):
+    def turns(self, request, offset=0, limit=50, sort='start', order='desc'):
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError('offset must be nonnegative and limit must be 1..200')
+        if sort not in TURN_SORTS or order not in ('asc', 'desc'):
+            raise ValueError('invalid turn sort or order')
         query = self.query
         with query.index.read_snapshot() as conn:
             start, end = query._window(conn, request)
@@ -168,7 +196,8 @@ class TurnQuery:
                         'truncated_turns': sum(not row['full_window'] for row in rows),
                         'usage_quality': dict(Counter(event['quality'] for event in events)),
                         'unassigned_calls': unassigned, 'usage_scope': _scope(request.filters)}
-            return {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end),
+            rows = _sort_turns(rows, sort, order)
+            return {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end), 'sort': sort, 'order': order,
                     'summary': self._summary(rows, events, tools, (end-start).total_seconds()),
                     'trend': {'buckets': trend}, 'tools': self._tools(rows, tools), 'rows': rows[offset:offset+limit],
                     'total': len(rows), 'offset': offset, 'limit': limit, 'coverage': coverage}

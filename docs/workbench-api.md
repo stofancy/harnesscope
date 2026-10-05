@@ -76,8 +76,12 @@ coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 
 无样本时 null。完整落入分析窗的样本按完成时间分配到一个桶，分母保留该样本完整耗时，
 完成时间正好等于桶尾时归入该桶。不同 harness/kind 分开绘制，summary.tps 保留原有定义。
 
-`GET /api/turns` 复用 QueryRequest 与 offset/limit（0/50、最大 200），按 start 降序分页。
-返回 `{snapshot,query,summary,trend,tools,rows,total,offset,limit,coverage}`。
+`GET /api/turns` 复用 QueryRequest 与 offset/limit（0/50、最大 200），支持
+`sort=start|cost_usd|tokens|duration|calls|tool_calls` 与 `order=asc|desc`，默认 start/desc。
+完整筛选结果先排序再分页；null 始终靠后，同值按 harness/session_id/turn_id/key 升序稳定排序。
+start 使用开始时间；cost_usd/tokens/calls 使用窗内已记录小计（无任何定价记录的费用排序值为 null）；
+duration 使用起止时间差，未闭合为 null；tool_calls 使用已记录工具数量。非法值或重复参数响应 400。
+返回 `{snapshot,query,sort,order,summary,trend,tools,rows,total,offset,limit,coverage}`。
 
 - `rows` 每项包含原始 TurnRecord 元数据、start/end、status、duration_seconds、full_window、
   recorded_usage_available、usage_scope、window_metrics、full_metrics、tool_calls_known、tool_calls、tool_coverage。
@@ -93,7 +97,12 @@ coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 
   tool_calls、tools_per_turn、duration_p50/duration_p95、duration_samples、full_turns、per_turn。
   per_turn 使用完整落窗、已结束且有已记录调用的轮次，含 samples/calls/tokens/cost_usd/scope/boundary_quality；
   scope=recorded_usage，模型筛选下为匹配调用的每轮值，保留 exact/inferred 样本数量。
-  输入组成未知时 per_turn.tokens=null，缺价时 per_turn.cost_usd=null。耗时分位数使用完整闭合且有起止时间的
+  输入组成未知时 per_turn.tokens=null，缺价时 per_turn.cost_usd=null。另提供 tokens_known_mean 与
+  cost_usd_known_mean：使用相同 samples 作分母，将样本的已记录 tokens/已知估算费用小计合计后除以样本数。
+  tokens_complete_samples/cost_complete_samples/cost_priced_samples 分别标出输入组成完整、所有调用有价、
+  至少一条调用有价的样本数量；这些覆盖数少于 samples 时，已记录均值应显示“部分”。
+  全部样本没有可计价调用时 cost_usd_known_mean=null，已知零价调用可以为 0。均值覆盖明确保留缺价，
+  不表达未定价调用免费。耗时分位数使用完整闭合且有起止时间的
   轮次，以秒返回，采用线性插值；duration_boundary_quality 显示 exact/inferred 样本数量。
   tool_coverage 任一为 partial/unknown 时 tool_calls/tools_per_turn=null，known 小计持续可见。
 - trend 为 `{buckets}`；每桶包含 start/end/window_start/window_end/seconds、metrics、turns、status_counts、
@@ -111,5 +120,5 @@ coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 
 recorded_metrics 标为整轮已记录小计，完整性取决于边界与日志质量，保留缺价信息。
 related_turns 仅返回有依据的 root_turn_id 关联，parent_session_id 单独保留为元数据，未知轮次关系保持未知。
 
-Python 新增 `AnalyticsQuery.turns(request,offset=0,limit=50)`、
+Python 新增 `AnalyticsQuery.turns(request,offset=0,limit=50,sort='start',order='desc')`、
 `AnalyticsQuery.turn_detail(harness,sid,turn_id,request=None)`，详情不存在或被筛选排除时返回 None。

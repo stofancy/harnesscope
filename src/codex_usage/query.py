@@ -240,9 +240,9 @@ class AnalyticsQuery:
             self._price_matches[model] = _lookup_hit(pricing, model)
         return self._price_matches[model]
 
-    def turns(self, request, offset=0, limit=50):
+    def turns(self, request, offset=0, limit=50, sort='start', order='desc'):
         from .turn_query import TurnQuery
-        return TurnQuery(self).turns(request, offset=offset, limit=limit)
+        return TurnQuery(self).turns(request, offset=offset, limit=limit, sort=sort, order=order)
 
     def turn_detail(self, harness, sid, turn_id, request=None):
         from .turn_query import TurnQuery

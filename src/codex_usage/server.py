@@ -149,7 +149,13 @@ def create_app(service=None, *, static_dir: Path | None = None,
         try:
             query = query_request(request)
             offset, limit = pagination(request)
-            result = await run_in_threadpool(service.turns, query, offset=offset, limit=limit)
+            options = {}
+            for name, default in (('sort', 'start'), ('order', 'desc')):
+                values = request.query_params.getlist(name)
+                if len(values) > 1:
+                    raise ValueError(f'{name} 需要单个值')
+                options[name] = values[0] if values else default
+            result = await run_in_threadpool(service.turns, query, offset=offset, limit=limit, **options)
             return JSONResponse(result)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)

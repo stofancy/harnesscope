@@ -96,8 +96,8 @@ class UsageService:
     def session_detail(self, harness: str, sid: str, request=None):
         return self._queries().session_detail(harness, sid, request)
 
-    def turns(self, request, offset: int = 0, limit: int = 50):
-        return self._queries().turns(request, offset=offset, limit=limit)
+    def turns(self, request, offset: int = 0, limit: int = 50, sort: str = 'start', order: str = 'desc'):
+        return self._queries().turns(request, offset=offset, limit=limit, sort=sort, order=order)
 
     def turn_detail(self, harness: str, sid: str, turn_id: str, request=None):
         return self._queries().turn_detail(harness, sid, turn_id, request)
