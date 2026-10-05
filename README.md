@@ -68,7 +68,8 @@ range-return control restores it. Choose light or dark mode in the header; the b
 remembers the selection.
 
 Inline time fields support relative expressions such as `-18h` and `-2days`, a fixed
-start **until now**, and fixed historical start/end times. Display and bucketing use
+start **until now**, and fixed historical start/end times. Choose absolute time to
+pick both dates and times with second precision, then apply the range. Display and bucketing use
 the local timezone; segmented buttons select the chart interval directly. Rolling
 ranges resolve again after refresh; historical ranges and chart zooms remain fixed.
 An explicit automatic-refresh switch and interval control scan source changes before

@@ -272,6 +272,18 @@ code {
     color: var(--text);
     font-variant-numeric: tabular-nums;
 }
+.inline-time input[type="datetime-local"] {
+    width: 244px;
+}
+.time-mode {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+}
+.time-mode button {
+    font-size: 11px;
+    padding: 4px 7px;
+}
 .time-arrow {
     color: var(--muted);
 }

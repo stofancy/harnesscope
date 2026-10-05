@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Added an explicit relative/absolute time switch and local date/time pickers with
+  second precision; fixed ranges persist across reload, refresh and page changes.
 - Condensed the daily-use Dashboard around first-screen totals, a consumption trend and
   absolute contributor ranking. A separate usage ledger handles request/session/turn/model/harness
   records with shared time/filter context, visible identities and full-result sorting.
