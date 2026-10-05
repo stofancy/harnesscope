@@ -108,6 +108,13 @@ def create_app(service=None, *, static_dir: Path | None = None,
         params = {key: request.query_params.getlist(key) for key in request.query_params}
         return QueryRequest.from_params(params)
 
+    def pagination(request: Request) -> tuple[int, int]:
+        offset = int(request.query_params.get("offset", "0"))
+        limit = int(request.query_params.get("limit", "50"))
+        if offset < 0 or not 1 <= limit <= 200:
+            raise ValueError("offset 须非负，limit 须在 1 到 200 之间")
+        return offset, limit
+
     async def analytics(request: Request) -> Response:
         try:
             query = query_request(request)
@@ -119,10 +126,7 @@ def create_app(service=None, *, static_dir: Path | None = None,
     async def sessions(request: Request) -> Response:
         try:
             query = query_request(request)
-            offset = int(request.query_params.get("offset", "0"))
-            limit = int(request.query_params.get("limit", "50"))
-            if offset < 0 or not 1 <= limit <= 200:
-                raise ValueError("offset 须非负，limit 须在 1 到 200 之间")
+            offset, limit = pagination(request)
             result = await run_in_threadpool(service.sessions, query, offset=offset, limit=limit)
             return JSONResponse(result)
         except ValueError as exc:
@@ -137,6 +141,31 @@ def create_app(service=None, *, static_dir: Path | None = None,
             )
             if result is None:
                 return JSONResponse({"error": "会话不存在"}, status_code=404)
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async def turns(request: Request) -> Response:
+        try:
+            query = query_request(request)
+            offset, limit = pagination(request)
+            result = await run_in_threadpool(service.turns, query, offset=offset, limit=limit)
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    async def turn_detail(request: Request) -> Response:
+        try:
+            identifiers = []
+            for name in ("harness", "session_id", "turn_id"):
+                values = request.query_params.getlist(name)
+                if len(values) != 1 or not values[0]:
+                    raise ValueError(f"{name} 需要单个非空标识")
+                identifiers.append(values[0])
+            query = query_request(request)
+            result = await run_in_threadpool(service.turn_detail, *identifiers, request=query)
+            if result is None:
+                return JSONResponse({"error": "轮次不存在"}, status_code=404)
             return JSONResponse(result)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
@@ -169,6 +198,8 @@ def create_app(service=None, *, static_dir: Path | None = None,
         Route("/api/analytics", analytics, methods=["GET"]),
         Route("/api/sessions", sessions, methods=["GET"]),
         Route("/api/sessions/{harness}/{sid}", detail, methods=["GET"]),
+        Route("/api/turns", turns, methods=["GET"]),
+        Route("/api/turns/detail", turn_detail, methods=["GET"]),
         Route("/{path:path}", static, methods=["GET"]),
     ], lifespan=lifespan)
     app.add_middleware(LocalOnlyMiddleware)
