@@ -332,11 +332,10 @@ export function TimeChart({
 }
 const panelLabels: Record<
     PanelId,
-    { title: string; subtitle: string; metrics: Metric[]; number: string }
+    { title: string; metrics: Metric[]; number: string }
 > = {
     consumption: {
         title: "消耗与构成",
-        subtitle: "找到用量集中的时段，再比较模型、来源或项目。",
         metrics: [
             "cost",
             "tokens",
@@ -350,19 +349,16 @@ const panelLabels: Record<
     },
     rate: {
         title: "请求强度",
-        subtitle: "观察请求集中程度；每分钟与每秒速率包含空闲时间。",
         metrics: ["tpm", "rpm", "throughput_tps", "rps"],
         number: "02",
     },
     cache: {
         title: "缓存效率",
-        subtitle: "查看缓存复用是否随时间变化。",
         metrics: ["cache_rate", "cache_read", "cache_write"],
         number: "03",
     },
     speed: {
         title: "执行速度",
-        subtitle: "比较执行输出速度；每种来源与计时方式分别显示。",
         metrics: ["timed_tps", "throughput_tps", "rps"],
         number: "04",
     },
@@ -447,14 +443,9 @@ export function AnalyticPanel({
                         : formatMetric(selectedValue, chartMetric)}
                 </strong>
             </header>
-            <p className="panel-description">
-                {id === "speed" && config.metric !== "timed_tps"
-                    ? "含空闲时间的平均吞吐；选择执行输出速度可查看计时样本。"
-                    : desc.subtitle}
-            </p>
             <div className="panel-controls">
                 <label>
-                    <span>看什么</span>
+                    <span>指标</span>
                     <select
                         data-testid={`metric-${id}`}
                         aria-label={`${desc.title}指标`}
@@ -476,7 +467,7 @@ export function AnalyticPanel({
                     </select>
                 </label>
                 <label>
-                    <span>按谁对比</span>
+                    <span>分组</span>
                     <select
                         data-testid={`group-${id}`}
                         aria-label={`${desc.title}分组`}
@@ -617,31 +608,19 @@ export function AnalyticPanel({
             <footer className="panel-foot">
                 <span>
                     {timed
-                        ? "无完整计时记录的时段显示 —"
+                        ? "按来源与计时类型"
                         : config.share
                           ? config.metric === "cost"
-                              ? "已知估算费用内部构成占比"
-                              : "各时段对象构成占比"
+                              ? "费用占比"
+                              : "构成占比"
                           : data.query.members?.length
                             ? "所选成员与其他"
-                            : "窗口前 5 名＋其他"}{" "}
+                            : "前 5 名＋其他"}{" "}
                     · {intervalLabel(data.bucket_resolved ?? global.bucket)}
                     一个点
                 </span>
-                <span>点击时段或拖动底部选区，查看局部</span>
+
             </footer>
-            <details className="statistics-method">
-                <summary>计算方式与未知值</summary>
-                <p>
-                    {id === "rate" || (id === "speed" && !timed)
-                        ? "速率使用已记录用量除以实际时段长度，包含空闲时间；不足一个完整间隔的时段按真实秒数计算。"
-                        : id === "cache"
-                          ? "缓存命中率为缓存读取占全部输入 Tokens 的比例，缓存写入计入输入。输入组成缺失时保持未知；不同对象的比例分别计算。"
-                          : timed
-                            ? "执行输出速度使用完整计时记录的输出 Tokens 除以完整耗时，按完成时间展示。轮次全程包含工具等等待，模型响应仅使用模型计时；两种方式分别呈现，无样本时显示 —。"
-                            : "费用依据公开或自定义价目估算，缺价调用不计入已知小计；每调用与每百万 Token 费用在缺价时保持未知。Tokens 为日志已记录小计，输入组成缺失时保留提示。"}
-                </p>
-            </details>
             {timed && data.summary.tps?.length ? (
                 <details className="timing-explanation">
                     <summary>查看计时方式与样本</summary>

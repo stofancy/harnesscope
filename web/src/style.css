@@ -2270,3 +2270,12 @@ table,
     white-space: nowrap;
     overflow: hidden;
 }
+
+.metric-help {
+    width: min(640px, calc(100vw - 64px));
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.metric-help dl { margin: 24px 0 0; }
+.metric-help dt { color: var(--text); font-weight: 600; margin-top: 18px; }
+.metric-help dd { margin: 6px 0 0; color: var(--muted); line-height: 1.6; }

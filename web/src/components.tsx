@@ -393,12 +393,12 @@ function MetricStrip({ data }: { data: Analysis }) {
                                 {m === "cost"
                                     ? data.summary.unpriced
                                         ? `缺价 ${formatNumber(data.summary.unpriced)} 条调用`
-                                        : "已知估算 · USD"
+                                        : "USD"
                                     : m === "tokens"
                                       ? `${data.summary.input_complete === false ? "已记录小计 · " : ""}输入 ${formatNumber(data.summary.input)} · 输出 ${formatNumber(data.summary.output)}`
                                       : m === "calls"
                                         ? `${formatNumber(data.summary.sessions)} 个会话`
-                                        : "按已测输入 Tokens 加权"}
+                                        : data.summary.cache_rate == null ? "输入数据不完整" : ""}
                             </span>
                             <span className="change">
                                 {displayedChange(
@@ -496,13 +496,7 @@ function Comparison({
                     {formatMetric(previous, metric)} →{" "}
                     {formatMetric(current, metric)}
                 </span>
-                <small>
-                    {knownMode
-                        ? "已知费用小计的成员变化 · 完整费用变化未知"
-                        : ratio(metric)
-                          ? "成员效率变化"
-                          : "变化由这些成员推动"}
-                </small>
+                {knownMode && <small title="部分调用缺少价格，变化仅对应已计价部分。">部分费用</small>}
             </div>
             <div className="contributions">
                 {changes.map(({ m, delta }) => (
@@ -523,7 +517,7 @@ function Comparison({
                     <span className="muted">
                         {metric === "cost" &&
                         data.knownCostChange?.absolute != null
-                            ? `已知小计变化 ${data.knownCostChange.absolute >= 0 ? "+" : "−"}${formatMetric(Math.abs(data.knownCostChange.absolute), "cost")}；完整费用变化未知。`
+                            ? `已知小计变化 ${data.knownCostChange.absolute >= 0 ? "+" : "−"}${formatMetric(Math.abs(data.knownCostChange.absolute), "cost")}`
                             : "没有可比较的已知数据"}
                     </span>
                 )}
@@ -693,7 +687,7 @@ function Ledger({
                 )}
             </div>
             <div className="table-bottom">
-                <span>未知数值显示 — · * 费用为已知小计</span>
+                <span>{rows.length} 项</span>
                 <div>
                     <button
                         disabled={currentPage === 0}

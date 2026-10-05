@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Simplified the dashboard surface: removed repeated methodology notes and walkthrough prose; metric definitions open from one header action, with concise data-quality indicators beside relevant values.
+
 ### Added
 
 - Unified PC Dashboard with a single global range/timezone/slice control, parallel

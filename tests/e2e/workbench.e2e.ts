@@ -47,6 +47,12 @@ async function hoverBucket(browser: Browser, id: string, bucket: 0 | 1) {
 // No API-only tests, mocked responses, model calls or business function imports.
 test('user journey: overview, trend period, source contribution, turn tools, context restoration', async ({ browser, screen, app }) => {
   await openDashboard(browser, screen);
+  await expect(byId(browser, 'metric-help')).toHaveCount(0);
+  await expect(browser.locator('.statistics-method')).toHaveCount(0);
+  await byId(browser, 'open-metric-help').click();
+  await expect(byId(browser, 'metric-help')).toBeVisible();
+  await screen.getByRole('button', { name: '关闭指标说明' }).click();
+  await expect(byId(browser, 'metric-help')).toHaveCount(0);
   await expect(byId(browser, 'global-query')).toHaveCount(1);
   await expect(byId(browser, 'time-range')).toHaveCount(1);
   await expect(byId(browser, 'timezone')).toHaveCount(1);

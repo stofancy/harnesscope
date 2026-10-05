@@ -108,6 +108,7 @@ export default function App() {
         [refreshing, setRefreshing] = useState(false),
         [moreFilters, setMoreFilters] = useState(false),
         [sourcesOpen, setSourcesOpen] = useState(false),
+        [helpOpen, setHelpOpen] = useState(false),
         [history, setHistory] = useState<
             { since: string; until: string; relativeDays: number | null }[]
         >([]),
@@ -321,6 +322,7 @@ export default function App() {
                                 ? `数据扫描于 ${timeLabel(scanStatus.updated_at, global.timezone)}`
                                 : "尚未取得扫描状态"}
                         </span>
+                        <button data-testid="open-metric-help" onClick={() => setHelpOpen(true)}>指标说明</button>
                         <button onClick={() => setSourcesOpen(!sourcesOpen)}>
                             数据来源
                         </button>
@@ -351,16 +353,16 @@ export default function App() {
                     aria-label="用量分析路径"
                 >
                     <a href="#overview">
-                        <b>1</b> 概览 <span>本期用了多少</span>
+                        概览
                     </a>
                     <a href="#trends">
-                        <b>2</b> 趋势 <span>找到异常时段</span>
+                        趋势
                     </a>
                     <a href="#contributors">
-                        <b>3</b> 对象 <span>比较变化来源</span>
+                        变化来源
                     </a>
                     <a href="#turns">
-                        <b>4</b> 轮次 <span>查看消耗与工具</span>
+                        轮次
                     </a>
                     <a href="#ledger">明细</a>
                     {history.length > 0 && (
@@ -406,13 +408,13 @@ export default function App() {
                     <div className="global-query-heading">
                         <span className="scope-label">
                             <Icon name="filter" />
-                            分析范围 · 所有图表与明细共同使用
+                            筛选
                         </span>
                         <span className="global-snapshot">
                             {current
                                 ? relativeDays
-                                    ? "最近时段 · 扫描后更新至当下"
-                                    : "固定时段 · 扫描后保留范围"
+                                    ? "最近时段"
+                                    : "固定时段"
                                 : "正在查询当前范围"}
                         </span>
                     </div>
@@ -433,7 +435,7 @@ export default function App() {
                             }}
                         />
                         <label className="slice-label">
-                            <span>图中每个点代表</span>
+                            <span>统计间隔</span>
                             <select
                                 data-testid="time-slice"
                                 aria-label="全局统计间隔"
@@ -622,69 +624,9 @@ export default function App() {
                 {current && counts && (
                     <>
                         <section id="overview" className="overview-section">
-                            <div className="section-heading">
-                                <div>
-                                    <span className="eyebrow">本期用量</span>
-                                    <h2>选定期间，花了多少、用了多少</h2>
-                                </div>
-                                <span
-                                    className={`coverage-pill ${counts.summary.unpriced || scanStatus?.scanning ? "partial" : ""}`}
-                                >
-                                    {scanStatus?.scanning
-                                        ? "正在扫描 · 数字尚未齐备"
-                                        : counts.summary.unpriced
-                                          ? "费用仅含已知部分"
-                                          : counts.summary.calls
-                                            ? "已记录调用均有价格"
-                                            : "当前范围没有调用记录"}
-                                </span>
-                            </div>
                             <MetricStrip data={counts} />
-                            <details
-                                className="coverage-explanation"
-                                data-testid="coverage-explanation"
-                            >
-                                <summary>
-                                    {counts.summary.unpriced
-                                        ? `${formatNumber(counts.summary.unpriced)} 次调用缺价`
-                                        : "费用按公开 / 自定义价目估算"}
-                                    {counts.coverage.sources.some(
-                                        (s) =>
-                                            s.state === "partial" ||
-                                            s.state === "error",
-                                    )
-                                        ? " · 来源有记录缺口"
-                                        : " · 仅统计本地已记录用量"}{" "}
-                                    <span>查看统计说明</span>
-                                </summary>
-                                <p>
-                                    费用为估算，真实账单未知。Tokens
-                                    与调用仅包含已读取记录；未记录的调用无法由本地日志证明。没有价格或完整计时记录时显示
-                                    —。
-                                </p>
-                                {counts.coverage.warnings.map((w) => (
-                                    <p key={w}>{w}</p>
-                                ))}
-                                <button
-                                    className="text-button"
-                                    onClick={() => {
-                                        setSourcesOpen(true);
-                                        setNavigationTarget("sources");
-                                    }}
-                                >
-                                    查看各来源状态
-                                </button>
-                            </details>
                         </section>
-                        <div id="trends" className="section-heading">
-                            <div>
-                                <span className="eyebrow">找时段</span>
-                                <h2>从趋势里找到用量峰值</h2>
-                            </div>
-                            <p>
-                                点击异常时段，或拖动图下方选区；所有图表与明细会一起缩小范围。
-                            </p>
-                        </div>
+                        <div id="trends" className="section-heading"><h2>用量趋势</h2></div>
                         <div className="dashboard-grid">
                             {(
                                 [
@@ -713,8 +655,7 @@ export default function App() {
                         >
                             <div className="section-heading">
                                 <div>
-                                    <span className="eyebrow">找对象</span>
-                                    <h2>哪些对象推动了变化</h2>
+                                    <h2>变化来源</h2>
                                 </div>
                                 <div className="angle-shortcuts">
                                     {(
@@ -748,9 +689,6 @@ export default function App() {
                                     ))}
                                 </div>
                             </div>
-                            <p className="section-description">
-                                比较消耗图当前指标与上一等长时间范围。选择一个对象，继续查看它的轮次与工具调用。
-                            </p>
                             <Comparison
                                 data={current.panels.consumption}
                                 metric={current.panels.consumption.query.metric}
@@ -835,9 +773,6 @@ export default function App() {
                                     ))}
                                 </select>
                             </label>
-                            <span className="scope-label">
-                                同一全局分析范围
-                            </span>
                         </div>
                         <Ledger
                             data={current.ledger}
@@ -847,7 +782,7 @@ export default function App() {
                         />
                         <footer className="dashboard-footer">
                             <span>
-                                本地已记录用量 · 公开 / 自定义价目估算 · USD
+                                USD
                             </span>
                             <span>
                                 图表按
@@ -869,6 +804,24 @@ export default function App() {
                     </div>
                 )}
             </main>
+            {helpOpen && (
+                <div className="modal-backdrop" onClick={() => setHelpOpen(false)}>
+                    <section className="time-dialog metric-help" role="dialog" aria-label="指标说明" data-testid="metric-help" onClick={(e) => e.stopPropagation()}>
+                        <div className="panel-title">
+                            <h2>指标说明</h2>
+                            <button className="icon-button" aria-label="关闭指标说明" onClick={() => setHelpOpen(false)}><Icon name="close" /></button>
+                        </div>
+                        <dl>
+                            <dt>费用</dt><dd>按公开或自定义价格估算，单位 USD。缺价调用不计入费用小计。</dd>
+                            <dt>Tokens 与调用</dt><dd>来自本地日志。字段缺失显示 —；来源读取情况见“数据来源”。</dd>
+                            <dt>TPM / RPM · 每秒吞吐 / RPS</dt><dd>用量或调用数除以所选时段实际长度，包含空闲时间。</dd>
+                            <dt>缓存命中率</dt><dd>缓存读取占全部输入 Tokens 的比例，缓存写入计入输入。</dd>
+                            <dt>执行输出速度</dt><dd>输出 Tokens 除以计时样本耗时。模型响应与包含工具等待的轮次全程分别统计。</dd>
+                            <dt>每轮均值</dt><dd>使用完全落在所选时段内的已结束轮次；推定边界和工具缺失在相关记录中标注。</dd>
+                        </dl>
+                    </section>
+                </div>
+            )}
             {selectedMember && current && (
                 <Detail
                     member={selectedMember}

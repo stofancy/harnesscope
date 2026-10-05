@@ -95,9 +95,6 @@ export function TurnWorkbench({
                     <span className="panel-index">05</span>
                     <h2>轮次开销与工具使用</h2>
                 </div>
-                <span className="scope-label">
-                    从轮次查到模型消耗与工具结果 · 保留当前筛选
-                </span>
             </header>
             <div className="turn-summary">
                 <article>
@@ -112,7 +109,7 @@ export function TurnWorkbench({
                     </small>
                 </article>
                 <article>
-                    <span>每轮已记录 Tokens</span>
+                    <span>平均 Tokens / 轮</span>
                     <b>
                         {data.summary.per_turn?.tokens == null
                             ? "—"
@@ -120,18 +117,18 @@ export function TurnWorkbench({
                     </b>
                     <small>
                         {data.summary.per_turn?.samples ?? 0}{" "}
-                        个完整落窗的已记录轮次
+                        轮样本
                         {data.summary.per_turn?.boundary_quality?.inferred
                             ? ` · ${data.summary.per_turn.boundary_quality.inferred} 个推定边界`
                             : ""}
                     </small>
                 </article>
                 <article>
-                    <span>每轮已记录费用</span>
+                    <span>平均费用 / 轮</span>
                     <b>
                         {formatMetric(data.summary.per_turn?.cost_usd, "cost")}
                     </b>
-                    <small>缺价保留未知</small>
+
                 </article>
                 <article>
                     <span>工具调用</span>
@@ -152,7 +149,7 @@ export function TurnWorkbench({
                         {sec(data.summary.duration_p95)}
                     </b>
                     <small>
-                        {data.summary.duration_samples} 个完整闭合样本
+                        {data.summary.duration_samples} 个样本
                         {data.summary.duration_boundary_quality
                             ? ` · ${data.summary.duration_boundary_quality.inferred ?? 0} 个推定边界`
                             : ""}
@@ -163,7 +160,7 @@ export function TurnWorkbench({
                 <div>
                     <div className="panel-controls">
                         <label>
-                            <span>看什么</span>
+                            <span>指标</span>
                             <select
                                 aria-label="轮次趋势指标"
                                 data-testid="metric-turns"
@@ -217,12 +214,7 @@ export function TurnWorkbench({
                     <div className="member-title">
                         工具类型与状态<span>{data.tools.rows.length} 类</span>
                     </div>
-                    <p className="muted tiny">
-                        {data.tools.coverage === "complete"
-                            ? "记录完整"
-                            : "工具记录有覆盖缺口"}{" "}
-                        · 所选轮次已记录小计
-                    </p>
+                    {data.tools.coverage !== "complete" && <span className="muted tiny" title="部分轮次的工具记录缺失，以下显示已读取的调用。">部分记录</span>}
                     <div className="tool-status-total">
                         {Object.entries(data.tools.status_counts).map(
                             ([s, n]) => (
@@ -269,9 +261,6 @@ export function TurnWorkbench({
             </div>
             <div className="turn-table-heading">
                 <h3>轮次明细</h3>
-                <p className="muted tiny">
-                    点击轮次名称，查看消耗与工具结果；关闭详情即可返回这里。
-                </p>
             </div>
             <div className="table-scroll">
                 <table className="turn-table">
@@ -494,7 +483,7 @@ export function TurnDrawer({
                             {detail.usage_scope === "filtered_calls"
                                 ? "保持全局模型等条件筛选"
                                 : "所有已记录调用"}
-                            ，价格与缺字段保持未知。
+
                         </p>
                         <h3>模型调用</h3>
                         {detail.calls.map((c) => (
@@ -581,9 +570,6 @@ export function TurnDrawer({
                         )}
                     </>
                 )}
-                <div className="detail-foot">
-                    仅计量元数据 · 不包含聊天或工具正文 · 真实账单未知
-                </div>
             </aside>
         </div>
     );
