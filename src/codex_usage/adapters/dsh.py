@@ -4,11 +4,13 @@ import json
 import os
 from pathlib import Path
 import re
+from typing import Any
 
 import zstandard
 
 from ..domain import ParseBatch, SourceFile, TimingSample, UsageEvent, timestamp_us
 from .common import count, lines
+from .conversation import ConversationLedger
 
 _LOG = re.compile(r"^session(?:\.v([1-9][0-9]*))?\.jsonl(?:\.zstd)?$")
 _MAX_DECODED = 256 * 1024 * 1024
@@ -48,7 +50,7 @@ class DshAdapter:
         self.root = Path(root or os.environ.get("DSH_HOME") or Path.home() / ".dsh")
 
     def discover(self):
-        directories = {}
+        directories: dict[Path, list[tuple[int, Path]]] = {}
         for path in (self.root / "sessions").rglob("session*.jsonl*"):
             match = _LOG.fullmatch(path.name)
             if match and path.is_file():
@@ -96,7 +98,7 @@ class DshAdapter:
             if info.get("parentSession"):
                 inherited = count(info.get("seedLength"), 0) - 1
         else:
-            cuts = [r.get("seq") for r in records if r.get("type") == "session/end-seed"
+            cuts = [int(r["seq"]) for r in records if r.get("type") == "session/end-seed"
                     and r.get("data", {}).get("inherited") is True and count(r.get("seq")) is not None]
             if info.get("isSeeded") is True and not cuts:
                 batch.warnings.append("Seeded DSH session has no inherited-prefix boundary")
@@ -108,10 +110,12 @@ class DshAdapter:
         provider = None
         model = "unknown"
         current_turn = 0
-        slots = {}
+        slots: dict[tuple, int] = {}
         observations = {}
         settled = set()
-        turns = {}
+        turns: dict[int, dict[str, Any]] = {}
+        ledger = ConversationLedger(self.harness, path)
+        tool_steps: dict[tuple, set[str]] = {}
         auxiliary_without_usage = set()
         for record in records:
             kind = record.get("type")
@@ -132,8 +136,38 @@ class DshAdapter:
                 current_turn = data.get("turn", current_turn)
                 turns[current_turn] = {"start": when, "models": set(), "output": 0,
                                        "complete": True}
+                if when is not None:
+                    ledger.start(
+                        sid, str(current_turn), when, parent=info.get("parentSession"),
+                        project=info.get("cwd"), agent_type=info.get("origin") or
+                        ("subagent" if info.get("delegationDepth", 0) > 0 else "main"),
+                        quality="exact")
             turn, step = data.get("turn", current_turn), data.get("step", 0)
             coordinate = (turn, step)
+            turn_id = str(turn) if count(turn) is not None else None
+            if kind == "turn/end":
+                reason = data.get("reason")
+                reason_kind = reason.get("kind") if isinstance(reason, dict) else reason
+                status = ("completed" if reason_kind == "completed" else
+                          "aborted" if reason_kind in {"aborted", "interrupted", "forked"} else
+                          "error" if reason_kind == "error" else "unknown")
+                ledger.finish(sid, turn_id, when, status)
+            if kind == "tool/call":
+                call_id = data.get("callId")
+                ledger.call(sid, call_id, data.get("name"), when, turn_id)
+                if call_id:
+                    tool_steps.setdefault(coordinate, set()).add(call_id)
+            elif kind == "tool/result":
+                message = data.get("message") or {}
+                call_id = message.get("toolCallId") or data.get("callId")
+                if not call_id:
+                    # Some historical records only carry step coordinates. A
+                    # unique pending invocation is the sole unambiguous match.
+                    pending = [identity for identity in tool_steps.get(coordinate, ()) if
+                               ledger.tools.get(f"{sid}:tool:{identity}", {}).get("end_us") is None]
+                    call_id = pending[0] if len(pending) == 1 else None
+                ledger.result(sid, call_id, when,
+                              bool(message.get("isError") or data.get("error")), turn_id)
             if kind == "llm/retry-started":
                 slots[coordinate] = slots.get(coordinate, 0) + 1
                 settled.discard(coordinate)
@@ -171,7 +205,7 @@ class DshAdapter:
             source = (data.get("message") or {}).get("source") or {}
             observations[key] = UsageEvent(
                 key=key, timestamp_us=when, harness=self.harness, session_id=sid,
-                source_file=path, parent_session_id=info.get("parentSession"),
+                source_file=path, parent_session_id=info.get("parentSession"), turn_id=turn_id,
                 provider=source.get("provider") or provider, model=source.get("model") or model,
                 project=info.get("cwd"), agent_type=info.get("origin") or
                 ("subagent" if info.get("delegationDepth", 0) > 0 else "main"),
@@ -194,16 +228,21 @@ class DshAdapter:
             reason = data.get("reason")
             if not isinstance(reason, dict) or reason.get("kind") != "completed":
                 continue
-            turn = data.get("turn")
-            timing = turns.get(turn)
+            if count(data.get("turn")) is None:
+                continue
+            turn = int(data["turn"])
+            turn_timing = turns.get(turn)
             end = timestamp_us(record.get("time"))
-            if (timing and timing["complete"] and timing["start"] is not None and end is not None
-                    and end > timing["start"] and len(timing["models"]) == 1):
-                route = next(iter(timing["models"]))
+            if (turn_timing and turn_timing["complete"] and turn_timing["start"] is not None
+                    and end is not None and end > turn_timing["start"]
+                    and len(turn_timing["models"]) == 1):
+                route = next(iter(turn_timing["models"]))
                 batch.timing_samples.append(TimingSample(
                     key=f"{sid}:turn:{turn}", harness=self.harness, session_id=sid,
-                    model=route[1], provider=route[0], start_us=timing["start"], end_us=end,
-                    output=timing["output"], source_file=path))
+                    model=route[1], provider=route[0], start_us=turn_timing["start"], end_us=end,
+                    output=turn_timing["output"], source_file=path, turn_id=str(turn)))
+        ledger.flush(batch, structurally_complete=not any(
+            "Invalid JSON" in item or "Incomplete final" in item for item in batch.warnings))
         batch.state = {"format_version": version, "session_id": sid}
         for kind in sorted(auxiliary_without_usage):
             batch.warnings.append(f"Auxiliary {kind} metadata has no persisted usage accounting")
