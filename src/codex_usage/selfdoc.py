@@ -23,6 +23,7 @@ EPILOG = """\
   codex-usage --help        人读帮助（/?, -?, help 等价）
   codex-usage --schema      机器可读自描述（选项、字段、语义、退出码的 JSON）
   codex-usage --doctor      环境自检（数据源、定价表、真图能力、终端档位）
+  codex-usage --web         本机四源用量工作台（默认 http://127.0.0.1:8765）
 
 示例:
   codex-usage                                      今天各会话明细（含子代理，每会话一行）
@@ -35,6 +36,8 @@ EPILOG = """\
   codex-usage --json --since 20260910              机器可读：每会话一行 JSON
   codex-usage --schema                             机器可读自描述（本文档的 JSON 版）
   codex-usage --doctor                             环境自检：数据源、定价、真图能力
+  codex-usage --web --port 8765                    Codex / Claude / OMP / DSH 用量工作台
+  codex-usage --analytics --query 'harness=codex&metric=tokens'  共享分析 JSON
 
 语义约定:
   聚合 --by-day/--by-model  决定行粒度，可组合成「天×模型」
@@ -53,11 +56,17 @@ EPILOG = """\
 数据源与环境变量:
   会话      ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl   CODEX_USAGE_SESSIONS_DIR
   归档      ~/.codex/archived_sessions                     CODEX_USAGE_ARCHIVE_DIR
+  Web Codex CODEX_HOME（默认 ~/.codex），含 sessions 与 archived_sessions
+  Web Claude CLAUDE_CONFIG_DIR（默认 ~/.claude）下的 projects
+  Web OMP   OMP_SESSIONS_DIR；否则 PI_CODING_AGENT_DIR/sessions（默认 ~/.omp/agent/sessions）
+  Web DSH   DSH_HOME（默认 ~/.dsh）下的 sessions
   定价      内置表 → 用户缓存 → 自定义文件，后者优先       CODEX_USAGE_PRICING_FILE
             刷新：codex-usage --update-pricing（可选 --pricing-source litellm）
   图表档位  CODEX_USAGE_IMAGE_MODE=auto|tgp|sixel|halfcell|ascii（默认 auto 自动探测）
 
-联网说明: 只有 --update-pricing 会联网（拉公开定价表）；统计与出图全程只读本地文件。
+Web 与共享分析: 查询参数见 docs/workbench-api.md；默认全部可用事件，时间窗 [start,end)。
+Web 仅监听 127.0.0.1；首次后台扫描，之后点击刷新显式重扫；GET 只读取本机索引。
+联网说明: 只有 --update-pricing 访问外部网络（拉公开定价表）；Web 在本机提供服务。
 """
 
 _CONVENTIONS = {
@@ -160,6 +169,9 @@ _DATA_SOURCES = {
 }
 
 _EXAMPLES = [
+    {"command": "codex-usage --web", "description": "启动本机四源用量工作台"},
+    {"command": "codex-usage --analytics --query 'harness=codex&metric=tokens'",
+     "description": "四源共享分析 JSON，可按 API 参数筛选和分组"},
     {"command": "codex-usage --by-model", "description": "按模型聚合（每模型一行，含会话数）"},
     {"command": "codex-usage --by-day --since 20260904", "description": "按天聚合，紧凑时间写法"},
     {"command": "codex-usage --by-day --by-model --metric total", "description": "天×模型"},
@@ -203,7 +215,7 @@ def schema(parser: argparse.ArgumentParser) -> dict:
         "schema_version": SCHEMA_VERSION,
         "name": "codex-usage",
         "version": __version__,
-        "summary": "解析 ~/.codex/sessions 的 rollout 文件，按会话/子代理/天/模型聚合 token 与成本",
+        "summary": "本机 Codex / Claude / OMP / DSH 用量工作台；兼容原 Codex 终端统计",
         "usage": parser.format_usage().removeprefix("usage: ").strip(),
         "options": _options(parser),
         "conventions": _CONVENTIONS,
@@ -228,6 +240,28 @@ def schema(parser: argparse.ArgumentParser) -> dict:
                        "uv tool install \"git+https://github.com/stofancy/codex-usage[image]\"；需 Python ≥3.12）",
         },
         "data_sources": _DATA_SOURCES,
+        "workbench": {
+            "command": "codex-usage --web [--port 8765]",
+            "listen": "127.0.0.1",
+            "sources": {
+                "codex": {"env": "CODEX_HOME", "default": "~/.codex",
+                          "directories": ["sessions", "archived_sessions"]},
+                "claude": {"env": "CLAUDE_CONFIG_DIR", "default": "~/.claude",
+                           "directories": ["projects"]},
+                "omp": {"env": "OMP_SESSIONS_DIR", "default": "~/.omp/agent/sessions",
+                        "fallback_env": "PI_CODING_AGENT_DIR (append /sessions)"},
+                "dsh": {"env": "DSH_HOME", "default": "~/.dsh",
+                        "directories": ["sessions"]},
+            },
+            "api": ["GET /api/status", "GET /api/analytics", "GET /api/sessions",
+                    "GET /api/sessions/{harness}/{sid}", "POST /api/refresh"],
+            "query_contract": "docs/workbench-api.md",
+            "analytics_command": "codex-usage --analytics [--query URL_QUERY]",
+            "analytics_output": "one JSON object; same query and metrics as GET /api/analytics",
+            "default_window": "全部已索引事件；显式时间窗口 [start,end)，ISO 时间须含 offset",
+            "refresh": "启动后台扫描；GET 无扫描副作用；POST application/json 显式刷新",
+            "security": "本机 Host、严格同源 Origin、禁止跨站请求；本机进程可访问，无登录凭据",
+        },
         "exit_codes": _EXIT_CODES,
         "examples": _EXAMPLES,
     }
@@ -258,6 +292,12 @@ def doctor() -> dict:
     except Exception:
         price_cov = {}
     render = imgcharts.describe()
+    from .adapters import get_adapters
+    workbench_sources = [
+        {"harness": adapter.harness, "path": str(adapter.root),
+         "exists": adapter.root.is_dir()}
+        for adapter in get_adapters()
+    ]
 
     hints, notes = [], []
     if not os.path.isdir(sessions):
@@ -289,6 +329,7 @@ def doctor() -> dict:
         "platform": platform.platform(),
         "executable": shutil.which("codex-usage") or sys.argv[0],
         "data": {
+            "workbench_sources": workbench_sources,
             "sessions_dir": {"path": sessions, "exists": os.path.isdir(sessions),
                              "rollout_files": n_sessions, "newest_mtime": newest},
             "archive_dir": {"path": archive, "exists": os.path.isdir(archive),
@@ -350,6 +391,11 @@ def format_doctor(d: dict) -> str:
                 if price.get("cache_read_missing") else ""),
              f"图表渲染   {render['tier']}{detail}",
              f"中文字体   {render['cjk_font'] or '未找到'}"]
+    if data.get("workbench_sources"):
+        lines += ["", "Web 数据源（路径发现；格式与扫描状态请查看工作台）:"]
+        lines += [f"  {source['harness']}  {source['path']}  "
+                  f"{'存在' if source['exists'] else '不存在'}"
+                  for source in data["workbench_sources"]]
     if d["hints"]:
         lines += ["", "需要注意:"] + [f"  - {h}" for h in d["hints"]]
     else:

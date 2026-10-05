@@ -10,9 +10,19 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolated_user_pricing(tmp_path, monkeypatch):
-    """所有测试与子进程使用临时配置，避免本机 Fast 设置影响合成价格。"""
+    """测试与子进程使用临时来源和配置，避免读取个人日志或本机价格。"""
     from codex_usage import pricing
 
+    for variable, relative in {
+        "CODEX_HOME": "codex",
+        "CODEX_USAGE_SESSIONS_DIR": "codex/sessions",
+        "CODEX_USAGE_ARCHIVE_DIR": "codex/archived_sessions",
+        "CLAUDE_CONFIG_DIR": "claude",
+        "OMP_SESSIONS_DIR": "omp/sessions",
+        "PI_CODING_AGENT_DIR": "omp",
+        "DSH_HOME": "dsh",
+    }.items():
+        monkeypatch.setenv(variable, str(tmp_path / relative))
     monkeypatch.setenv("CODEX_USAGE_CODEX_CONFIG", str(tmp_path / "config.toml"))
     monkeypatch.setenv("CODEX_USAGE_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("CODEX_USAGE_PRICING_FILE", str(tmp_path / "prices.json"))

@@ -1,3 +1,3 @@
-"""codex-usage — Codex 本地用量统计：按会话/子代理/天/模型聚合，终端表格与图表。"""
+"""Local multi-harness usage analytics, browser workbench and Codex CLI reports."""
 
 __version__ = "0.4.0"

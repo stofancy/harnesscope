@@ -9,7 +9,9 @@
                 （终端+image extras 出真图，--ascii/管道/未装依赖回退字符画）
   --schema      机器可读自描述（命令契约、字段、退出码的 JSON 版帮助）
   --doctor      环境自检（数据源、定价表、真图能力、终端档位）
-  --update-pricing  唯一联网动作：从公开渠道刷新本地定价缓存（用户显式触发）
+  --update-pricing  访问公网：从公开渠道刷新本地定价缓存（用户显式触发）
+  --web         本机多源用量工作台（只监听 127.0.0.1）
+  --analytics   与 Web 共用查询的多源 JSON 输出
   无 --by-*     行 = 实体（会话或文件）明细
 
 帮助入口：-h / --help / /? / -? / help
@@ -33,7 +35,8 @@ from .render import charts, imgcharts, tables
 KNOWN_FLAGS = {"--since", "--until", "--by-day", "--family", "--raw", "--by-model",
                "--type", "--parent", "--session", "--model", "--archived", "--json",
                "--chart", "--metric", "--ascii", "--schema", "--doctor",
-               "--update-pricing", "--pricing-source", "--version", "--help"}
+               "--update-pricing", "--pricing-source", "--version", "--help",
+               "--web", "--port", "--analytics", "--query"}
 
 
 def _fix_single_dash(argv: list[str]) -> list[str]:
@@ -78,6 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="自描述: 输出机器可读契约 JSON（选项、字段、语义、退出码）")
     ap.add_argument("--doctor", action="store_true",
                     help="自检: 报告数据源/定价表/真图能力/终端档位（配 --json 输出结构化）")
+    workbench = ap.add_mutually_exclusive_group()
+    workbench.add_argument("--web", action="store_true", help="启动本机四源用量 Web 工作台")
+    workbench.add_argument("--analytics", action="store_true",
+                           help="输出四源共享分析 JSON（可用 --query 指定 API 查询参数）")
+    ap.add_argument("--port", type=int, default=None, help="Web 端口（默认 8765，仅监听 127.0.0.1）")
+    ap.add_argument("--query", default=None,
+                    help="--analytics 的 URL 查询参数，例如 'harness=codex&metric=tokens'")
     ap.add_argument("--update-pricing", action="store_true",
                     help="定价: 从公开渠道拉取定价写入本地缓存（随后自动使用；默认 models.dev）")
     ap.add_argument("--pricing-source", choices=("models.dev", "litellm"), default="models.dev",
@@ -236,7 +246,7 @@ def main():
 
 
 def _update_pricing(args) -> None:
-    """--update-pricing：从公开渠道刷新本地定价缓存（唯一的联网动作，仅用户显式触发）。
+    """--update-pricing：从公开渠道刷新本地定价缓存（访问公网，仅用户显式触发）。
 
     延迟导入：定价同步是可选路径，不该拖慢每次启动，也不该让整个 CLI 依赖它。
     """
@@ -259,6 +269,11 @@ def _main():
     sys.argv = [sys.argv[0]] + _fix_single_dash(argv)
     args = build_parser().parse_args()
 
+    if args.port is not None and (not args.web or not 1 <= args.port <= 65535):
+        raise SystemExit("--port 需要 --web，且须在 1 到 65535 之间")
+    if args.query is not None and not args.analytics:
+        raise SystemExit("--query 需要 --analytics")
+
     if args.schema:                                # 自描述与自检先于数据扫描
         print(json.dumps(selfdoc.schema(build_parser()), ensure_ascii=False, indent=2))
         return
@@ -269,6 +284,13 @@ def _main():
         return
     if args.update_pricing:                        # 定价刷新先于数据扫描
         _update_pricing(args)
+        return
+    if args.web:
+        from .server import DEFAULT_PORT, serve
+        serve(args.port if args.port is not None else DEFAULT_PORT)
+        return
+    if args.analytics:
+        _analytics(args)
         return
     if args.chart:
         # 参数冲突先于数据扫描与依赖探测报出，避免无数据时静默通过
@@ -308,6 +330,32 @@ def _main():
         tables.view_families(recs, pricing, args.by_model, args.by_day)
     else:
         tables.view_flat(recs, pricing)
+
+
+def _analytics(args) -> None:
+    """Expose the same query and aggregation used by the web workbench."""
+    from urllib.parse import parse_qs
+    from .query import QueryRequest
+    from .service import UsageService
+
+    legacy_filters = (args.since, args.until, args.typ, args.parent, args.session, args.model,
+                      args.archived, args.raw, args.family, args.by_day, args.by_model,
+                      args.chart, args.ascii)
+    if any(legacy_filters):
+        raise SystemExit("--analytics 请通过 --query 使用共享 API 时间、筛选与分组参数")
+    try:
+        query = QueryRequest.from_params(parse_qs(args.query or "", keep_blank_values=True))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    service = UsageService()
+    try:
+        service.refresh(background=False)
+        result = service.analytics(query)
+        print(json.dumps(result, ensure_ascii=False))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    finally:
+        service.close()
 
 
 if __name__ == "__main__":

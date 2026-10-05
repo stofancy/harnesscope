@@ -17,11 +17,13 @@
 models.dev   provider.models[id].cost.input       → inputCostPerMillion        ($/M)
              provider.models[id].cost.output      → outputCostPerMillion       ($/M)
              provider.models[id].cost.cache_read  → cacheReadCostPerMillion    ($/M)
-             provider.models[id].cost.cache_write → （无对应字段，见“已知局限”）
+             provider.models[id].cost.cache_write → cacheWriteCostPerMillion   ($/M)
 
 LiteLLM      input_cost_per_token                 → inputCostPerMillion        ($/M = $/token × 1e6)
              output_cost_per_token                → outputCostPerMillion       ($/M)
              cache_read_input_token_cost          → cacheReadCostPerMillion    ($/M)
+             cache_creation_input_token_cost      → cacheWriteCostPerMillion   ($/M)
+             cache_creation_input_token_cost_above_1hr → cacheWrite1hCostPerMillion ($/M)
 ```
 
 ## 2. 内置表
@@ -251,8 +253,8 @@ cc-switch 的 `~/.cc-switch/model-pricing.json` 仍是**最高优先级的覆盖
   不能反映用户实际走的渠道加价；需要精确账单请把自己的 cc-switch 表放进
   `CODEX_USAGE_PRICING_FILE`（同名项会覆盖内置价）。
 - **未计价格档位**：渠道的 context 阶梯价（`tiers` / `context_over_200k`，注意这个
-  `tiers` 是上下文分档，与 service tier 无关）与 `cache_write`（缓存写）仍未纳入，
-  成本按首档基础价估算；priority/Fast/Flex 见第 6 节。
+  `tiers` 是上下文分档，与 service tier 无关）仍未纳入，成本按首档基础价估算；
+  priority/Fast/Flex 见第 6 节，缓存写见第 11 节。
 - **cache read 回退是上界**：缺 cache read 价的模型按 input 价计（见第 5 节），会高估
   这些模型的成本；这是“宁多算不少算”的取舍，精确值可在自己的定价表里补。
 - **档位覆盖率与归因缺口**：实测 09-11 起仍有 435.5M tokens 落在 `unknown`（按
@@ -263,3 +265,26 @@ cc-switch 的 `~/.cc-switch/model-pricing.json` 仍是**最高优先级的覆盖
 - **公开渠道没有的名字才不会算价**：内置表来自 models.dev / LiteLLM 及官方 OpenAI 公开价格；
   本机出现过但公开渠道未收录、且别名表未映射的名字（如 `gpt-reserve`）保持 `$0.00*`，
   可按需写进自己的 `CODEX_USAGE_PRICING_FILE` 覆盖层。
+
+
+## 11. 多源工作台缓存写计价
+
+工作台复用 `model_cost_detail(..., cache_write=总写入, cache_write_1h=1小时写入子集)`，
+按净输入、缓存读、5 分钟缓存写、1 小时缓存写、输出分别计价。写入总量减去 1 小时分项
+得到 5 分钟分项；reasoning 保留为输出子集。缓存写数量未知，或实际使用的写入分项缺价时，
+该调用成本为未知，工作台展示其他已定价调用的小计与缺价覆盖。
+
+2026-10-05 核实 Anthropic 官方 [Pricing](https://platform.claude.com/docs/en/about-claude/pricing)
+和 [Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)：
+5 分钟缓存写为基础输入价的 1.25 倍，1 小时为 2 倍；默认 TTL 是 5 分钟，
+`cache_creation_input_tokens` 等于 `ephemeral_5m_input_tokens` 与 `ephemeral_1h_input_tokens` 之和。
+
+现有模型匹配命中基础价后，官方页收录的 Claude 模型缺少写入价格字段时，
+计价函数按上述官方倍率补充，明细保留 `cache_write_rule=anthropic-official-2026-10-05`。
+例如 Sonnet 4.6 输入价 $3/M，对应 5 分钟写入 $3.75/M、1 小时 $6/M。
+补价在本次计算的记录副本上完成；显式配置的写入价格（包括零价）优先，显式无效字段
+仍视为缺价。未命中模型基础价、未收录型号、其他模型缺写入价时保持未知。
+旧日志只有缓存写总量时按默认 5 分钟估算；有 TTL 分项时逐项计价。
+
+这是标准 API 等价估算。上下文阶梯、区域加价、批处理折扣、订阅额度和真实渠道账单
+保持现有建模范围；OMP 日志来源金额按 source_cost_kind 独立展示。

@@ -432,9 +432,6 @@ def test_archived_duplicate_not_double_counted(tmp_path):
     assert recs[0].models["gpt-x"][0] == 100                  # 不是 200
 
 
-@pytest.mark.xfail(reason="已知缺口：collect() 只扫 [since,until] 日期目录，含窗口内事件的"
-                          "早日期目录文件被漏掉；详见 docs/metering-verification.md 第 6.1 节",
-                   strict=False)
 def test_cross_day_dir_file_with_in_window_event_is_scanned(tmp_path):
     """文件落在 09-10 目录但含 09-11 的轮次时，应被计入 09-11 窗口。"""
     name = "rollout-2026-09-10T23-50-00-01a09a5f-a44e-75e1-ba40-000000000020.jsonl"

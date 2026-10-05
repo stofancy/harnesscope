@@ -19,12 +19,14 @@
 """
 
 import json
+import math
 import os
 import re
 import tempfile
 import urllib.request
 from datetime import datetime, timezone
 from functools import lru_cache
+from typing import Callable
 
 from . import config
 
@@ -114,6 +116,34 @@ _ALIASES = {
     "gpt-5.1-codex-latest": "gpt-5.1-codex",
     "gpt-5-codex-latest": "gpt-5-codex",
 }
+
+# Official pricing/prompt-caching docs, checked 2026-10-05. This supplements
+# cache-write rates only after the existing model lookup has found a base price.
+# Explicit user/channel cache prices take precedence; unknown models stay unknown.
+CLAUDE_CACHE_MODELS = frozenset({
+    'claude-fable-5-1', 'claude-fable-5', 'claude-mythos-5-1', 'claude-mythos-5',
+    'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7',
+    'claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4',
+    'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-6',
+    'claude-sonnet-4-5', 'claude-sonnet-4', 'claude-haiku-4-5',
+    'claude-3-5-haiku', 'claude-haiku-3-5',
+})
+
+
+def _claude_cache_record(key: str, record: dict) -> tuple[dict, list[str]]:
+    canonical = normalize_model(key).replace('.', '-')
+    if canonical not in CLAUDE_CACHE_MODELS:
+        return record, []
+    base = _as_price(record.get('inputCostPerMillion'))
+    if base is None:
+        return record, []
+    supplemented = dict(record)
+    fallbacks = []
+    for field, multiplier in (('cacheWriteCostPerMillion', 1.25), ('cacheWrite1hCostPerMillion', 2.0)):
+        if field not in record:
+            supplemented[field] = base * multiplier
+            fallbacks.append(field)
+    return supplemented, fallbacks
 
 
 @lru_cache(maxsize=8192)
@@ -507,7 +537,8 @@ def load_pricing(path: str | None = None) -> dict[str, dict]:
     return _resolve(path)[0]
 
 
-def _cost_from_record(record: dict, net_in: int, cached: int, out: int) -> tuple[float | None, list[str]]:
+def _cost_from_record(record: dict, net_in: int, cached: int, out: int,
+                      cache_write: int = 0, cache_write_1h: int = 0) -> tuple[float | None, list[str]]:
     """按一条价格记录算成本 → (cost, fallbacks)；缺 input 价 → (None, [])。"""
     input_price = _as_price(record.get("inputCostPerMillion"))
     if input_price is None:                      # 缺 input 价 = 无定价
@@ -518,8 +549,17 @@ def _cost_from_record(record: dict, net_in: int, cached: int, out: int) -> tuple
         cache_price = input_price
         fallbacks.append("cacheReadCostPerMillion")
     output_price = _as_price(record.get("outputCostPerMillion")) or 0.0
+    write_price = _as_price(record.get("cacheWriteCostPerMillion"))
+    write_1h_price = _as_price(record.get("cacheWrite1hCostPerMillion"))
+    if cache_write_1h > max(0, cache_write):
+        return None, []
+    short_write = max(0, cache_write - cache_write_1h)
+    if (short_write and write_price is None) or (cache_write_1h and write_1h_price is None):
+        return None, []
     cost = (max(0, net_in) * input_price
             + max(0, cached) * cache_price
+            + short_write * (write_price or 0.0)
+            + max(0, cache_write_1h) * (write_1h_price or 0.0)
             + max(0, out) * output_price) / 1e6
     return cost, fallbacks
 
@@ -535,6 +575,8 @@ def _scaled_record(record: dict, multiplier: float) -> dict:
     return {"modelId": record.get("modelId"),
             "inputCostPerMillion": scaled("inputCostPerMillion"),
             "cacheReadCostPerMillion": scaled("cacheReadCostPerMillion"),
+            "cacheWriteCostPerMillion": scaled("cacheWriteCostPerMillion"),
+            "cacheWrite1hCostPerMillion": scaled("cacheWrite1hCostPerMillion"),
             "outputCostPerMillion": scaled("outputCostPerMillion")}
 
 
@@ -562,7 +604,9 @@ def tier_multiplier(pricing: dict[str, dict], model: str, tier: str | None = Non
 
 
 def model_cost_detail(pricing: dict[str, dict], model: str, net_in: int, cached: int, out: int,
-                      *, tier: str | None = None, config_tier: str | None = None) -> dict | None:
+                      *, tier: str | None = None, config_tier: str | None = None,
+                      cache_write: int = 0, cache_write_1h: int = 0,
+                      _lookup: Callable | None = None) -> dict | None:
     """`model_cost` 的明细版：成本 + 命中的定价 key + 档位/别名/回退诊断。
 
     返回 ``{"model", "matched", "cost_usd", "fallbacks", "standard_cost_usd", "tier",
@@ -578,11 +622,13 @@ def model_cost_detail(pricing: dict[str, dict], model: str, net_in: int, cached:
     - **回退**：表里没有 cache read 价或显式为 0 → 缓存读按 input 价计（保守上界），
       记入 ``fallbacks``；input 价缺失/非法/为负 → 整行无定价返回 None；负 token 分量按 0。
     """
-    hit = _lookup_hit(pricing, model)
+    hit = (_lookup or _lookup_hit)(pricing, model)
     if hit is None:
         return None
     key, record, alias = hit
-    standard_cost, fallbacks = _cost_from_record(record, net_in, cached, out)
+    record, cache_fallbacks = _claude_cache_record(key, record)
+    standard_cost, fallbacks = _cost_from_record(record, net_in, cached, out,
+                                               cache_write, cache_write_1h)
     if standard_cost is None:                    # 缺 input 价 = 无定价
         return None
 
@@ -594,7 +640,8 @@ def model_cost_detail(pricing: dict[str, dict], model: str, net_in: int, cached:
         tkey = key.strip().lower()
         tier_record = data.get(effective, {}).get(tkey)
         if tier_record:
-            priced, priced_fallbacks = _cost_from_record(tier_record, net_in, cached, out)
+            priced, priced_fallbacks = _cost_from_record(tier_record, net_in, cached, out,
+                                                        cache_write, cache_write_1h)
             if priced is not None:
                 cost, cost_fallbacks = priced, priced_fallbacks
                 tier_priced = True
@@ -603,7 +650,7 @@ def model_cost_detail(pricing: dict[str, dict], model: str, net_in: int, cached:
             mult = data["multipliers"].get(tkey)
             if mult:
                 priced, priced_fallbacks = _cost_from_record(
-                    _scaled_record(record, mult), net_in, cached, out)
+                    _scaled_record(record, mult), net_in, cached, out, cache_write, cache_write_1h)
                 if priced is not None:
                     cost, cost_fallbacks = priced, priced_fallbacks
                     tier_priced = True
@@ -618,6 +665,9 @@ def model_cost_detail(pricing: dict[str, dict], model: str, net_in: int, cached:
         "tier": effective,
         "tier_priced": tier_priced,
     }
+    if cache_fallbacks and cache_write:
+        detail['cache_write_rule'] = 'anthropic-official-2026-10-05'
+        detail['fallbacks'] = list(dict.fromkeys(cost_fallbacks + cache_fallbacks))
     if tier_confidence:
         detail["tier_confidence"] = tier_confidence
     if alias is not None:
@@ -627,14 +677,16 @@ def model_cost_detail(pricing: dict[str, dict], model: str, net_in: int, cached:
 
 
 def model_cost(pricing: dict[str, dict], model: str, net_in: int, cached: int, out: int,
-               *, tier: str | None = None, config_tier: str | None = None) -> float | None:
+               *, tier: str | None = None, config_tier: str | None = None,
+               cache_write: int = 0, cache_write_1h: int = 0) -> float | None:
     """单模型成本（USD）；无定价模型返回 None（调用方按 $0 计并标注 *）。
 
     ``tier`` 给 ``priority``/``fast``/``flex`` 时按对应档位价计（默认标准价）；
     诊断（是否回退、是否别名映射、档位价置信度）用 ``model_cost_detail()``。
     """
     detail = model_cost_detail(pricing, model, net_in, cached, out,
-                               tier=tier, config_tier=config_tier)
+                               tier=tier, config_tier=config_tier,
+                               cache_write=cache_write, cache_write_1h=cache_write_1h)
     return detail["cost_usd"] if detail else None
 
 
@@ -716,7 +768,7 @@ def _as_price(value) -> float | None:
         price = float(value)
     except (TypeError, ValueError):
         return None
-    return price if price >= 0 else None
+    return price if math.isfinite(price) and price >= 0 else None
 
 
 def _is_non_text(model_id: str, mode=None) -> bool:
@@ -736,7 +788,8 @@ def clean_model_id(model_id: str) -> str:
     return s
 
 
-def _record(model_id: str, input_price, output_price, cache_read) -> dict | None:
+def _record(model_id: str, input_price, output_price, cache_read,
+            cache_write=None, cache_write_1h=None) -> dict | None:
     pin, pout = _as_price(input_price), _as_price(output_price)
     if pin is None or pout is None:
         return None
@@ -744,12 +797,18 @@ def _record(model_id: str, input_price, output_price, cache_read) -> dict | None
         return None
     if _is_non_text(model_id):
         return None
-    return {
+    record = {
         "modelId": model_id,
         "inputCostPerMillion": round(pin, 6),
         "cacheReadCostPerMillion": round(_as_price(cache_read) or 0.0, 6),
         "outputCostPerMillion": round(pout, 6),
     }
+    for field, value in (("cacheWriteCostPerMillion", cache_write),
+                         ("cacheWrite1hCostPerMillion", cache_write_1h)):
+        parsed = _as_price(value)
+        if parsed is not None:
+            record[field] = round(parsed, 6)
+    return record
 
 
 def _sort_key(provider_id: str) -> tuple[int, str]:
@@ -765,7 +824,7 @@ def records_from_modelsdev(raw) -> list[dict]:
     """models.dev/api.json → cc-switch 兼容记录（按 provider 权威度去重，$/M tokens）。
 
     字段映射：``cost.input`` → inputCostPerMillion、``cost.output`` → outputCostPerMillion、
-    ``cost.cache_read`` → cacheReadCostPerMillion；``cost.cache_write`` 无对应字段（不参与成本口径）。
+    ``cost.cache_read`` → cacheReadCostPerMillion；``cost.cache_write`` → cacheWriteCostPerMillion。
     """
     if not isinstance(raw, dict):
         return []
@@ -792,7 +851,8 @@ def records_from_modelsdev(raw) -> list[dict]:
                 outputs = modalities.get("output")
                 if isinstance(outputs, list) and outputs and "text" not in outputs:
                     mode = "image"          # 只出图/只出音频 → 非文本生成
-            rec = _record(key, cost.get("input"), cost.get("output"), cost.get("cache_read"))
+            rec = _record(key, cost.get("input"), cost.get("output"), cost.get("cache_read"),
+                          cost.get("cache_write"))
             if rec is None or _is_non_text(key, mode):
                 continue
             seen.add(key)
@@ -832,7 +892,9 @@ def records_from_litellm(raw) -> list[dict]:
         rec = _record(key,
                       _per_million(model.get("input_cost_per_token")),
                       _per_million(model.get("output_cost_per_token")),
-                      _per_million(model.get("cache_read_input_token_cost")))
+                      _per_million(model.get("cache_read_input_token_cost")),
+                      _per_million(model.get("cache_creation_input_token_cost")),
+                      _per_million(model.get("cache_creation_input_token_cost_above_1hr")))
         if rec is None or _is_non_text(key, model.get("mode")):
             continue
         seen.add(key)

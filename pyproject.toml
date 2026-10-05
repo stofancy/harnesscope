@@ -6,12 +6,12 @@ build-backend = "hatchling.build"
 name = "codex-usage"
 # 未做过正式发布，开源首发从 0.x 起步：允许在 1.0 之前做破坏性调整
 version = "0.4.0"
-description = "Local Codex usage analytics: token and cost breakdown by session, subagent, day and model, with terminal charts"
+description = "Local Codex, Claude, OMP and DSH usage workbench with token, cost and session analytics"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "stofancy" }]
-keywords = ["codex", "openai", "usage", "terminal", "cli", "token", "cost", "tui"]
+keywords = ["codex", "claude", "omp", "dsh", "usage", "analytics", "token", "cost", "cli"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -30,9 +30,13 @@ dependencies = [
     "rich>=13.0",
     "plotext==5.2.8",
     "termcharts>=1.1.2",
+    "starlette>=0.41,<1",
+    "uvicorn>=0.30,<1",
+    "zstandard>=0.23",
 ]
 
 [project.optional-dependencies]
+test = ["pytest>=8", "httpx>=0.27,<1"]
 # 图表真图渲染：支持图形协议的终端显示 PNG，其余自动落回半块/字符画
 image = [
     "matplotlib>=3.8",
@@ -57,12 +61,18 @@ include = [
     "tests",
     "docs",
     "tools",
+    "web",
     "README.md",
     "README.zh-CN.md",
     "CHANGELOG.md",
     "LICENSE",
     "pyproject.toml",
 ]
+
+[tool.hatch.build]
+# npm build generates these files before release/CI packaging. Include the same
+# immutable bundle in wheels and sdists, independent of .gitignore.
+artifacts = ["src/codex_usage/web_static/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

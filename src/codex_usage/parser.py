@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+from .domain import ParseBatch, TimingSample, UsageEvent, timestamp_us as _timestamp_us
+
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 TYPE_SHORT = {"user": "user", "subagent": "subagent", "guardian_review": "guardian",
               "voice_chat": "voice", "chatgpt_handoff": "handoff",
@@ -146,34 +148,77 @@ def parse_rollout(path: str, window: tuple[datetime, datetime] | None = None) ->
       * 缺 total_token_usage 时同样回退 last_token_usage，不丢数据。
     `last_token_usage` 的累加值保留在 `delta_sum` 供交叉校验。
     """
+    rec, _batch = _parse_rollout(path, window)
+    return rec
+
+
+def parse_codex_file(path: str, offset: int = 0, state: dict | None = None) -> ParseBatch:
+    """Read complete appended lines using the same metering algorithm as the CLI.
+
+    Persist ``next_offset`` and ``state`` together. An unfinished final line remains
+    unread until its newline is written. Query windows are applied after extraction.
+    """
+    _rec, batch = _parse_rollout(path, offset=offset, state=state, capture=True)
+    return batch
+
+
+def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *,
+                   offset: int = 0, state: dict | None = None,
+                   capture: bool = False) -> tuple[Session | None, ParseBatch]:
+    state = dict(state or {})
+    batch = ParseBatch(next_offset=offset, state=state)
     uuids = UUID_RE.findall(os.path.basename(path))
     if not uuids:
-        return None
+        return None, batch
     rec = Session(file=path, sid=uuids[0], uuids=uuids)
+    for key in ("sid", "type", "parent", "agent", "start", "cwd"):
+        if key in state:
+            setattr(rec, key, state[key])
+    provider = state.get("provider")
+    agent_type = state.get("agent_type")
+    web_session_id = state.get("web_session_id") or rec.sid
+    native_owners = set(state.get("native_owners") or [])
+    native_mirror_pending = state.get("native_mirror_pending", False)
+    owner_settings = dict(state.get("owner_settings") or {})
+    seen_responses = set(state.get("seen_responses") or [])
+    web_turn_outputs: dict[str, int] = dict(state.get("web_turn_outputs") or {})
+    web_turn_session = state.get("web_turn_session") or rec.sid
     per_model: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])
-    prev_total: list[int] | None = None          # 上一事件的累计快照
-    turn_start: datetime | None = None
-    turn_id = None
-    turn_outputs: dict[str, int] = {}
-    turn_in_window = True
-    current_model = "unknown"
-    current_tier = "unknown"                     # 没有任何 thread_settings 时按 unknown
+    prev_total: list[int] | None = state.get("prev_total")
+    turn_start = to_local(state.get("turn_started_at"))
+    turn_start_us = _timestamp_us(state.get("turn_started_at"))
+    turn_started_at = state.get("turn_started_at")
+    turn_id = state.get("turn_id")
+    turn_outputs: dict[str, int] = dict(state.get("turn_outputs") or {})
+    turn_in_window = state.get("turn_in_window", True)
+    current_model = state.get("current_model", "unknown")
+    current_tier = state.get("current_tier", "unknown")
     try:
-        fh = open(path, errors="replace")
+        fh = open(path, "rb")
     except OSError:
-        return None
+        return None, batch
     with fh:
-        for line in fh:
+        fh.seek(offset)
+        while True:
+            line_offset = fh.tell()
+            raw_line = fh.readline()
+            if not raw_line or (capture and not raw_line.endswith(b"\n")):
+                break
+            batch.next_offset = fh.tell()
+            batch.records_read += 1
+            line = raw_line.decode("utf-8", errors="replace")
             tag = line[:200]
             try:
                 if '"session_meta"' in tag:
                     p = json.loads(line).get("payload", {})
                     rec.start = p.get("timestamp") or rec.start
                     rec.cwd = p.get("cwd")
+                    provider = p.get("model_provider") or provider
                     ts = p.get("thread_source")
                     rec.type = TYPE_SHORT.get(ts, ts)
                     if len(uuids) >= 2 and ts == "subagent":
                         rec.sid = uuids[1]
+                    web_session_id = p.get("id") or rec.sid
                     src = p.get("source")
                     if isinstance(src, dict):
                         spawn = (src.get("subagent") or {}).get("thread_spawn") or {}
@@ -181,25 +226,37 @@ def parse_rollout(path: str, window: tuple[datetime, datetime] | None = None) ->
                             rec.parent = spawn.get("parent_thread_id") or uuids[0]
                             nick = spawn.get("agent_nickname") or "?"
                             role = spawn.get("agent_role") or spawn.get("agent_path") or ""
+                            agent_type = spawn.get("agent_role") or None
                             rec.agent = f"{nick}({role})" if role else nick
                 elif '"turn_context"' in tag:
-                    mm = json.loads(line).get("payload", {}).get("model")
+                    context = json.loads(line).get("payload", {})
+                    mm = context.get("model")
                     if mm:
                         current_model = mm
+                    if context.get("cwd"):
+                        rec.cwd = context["cwd"]
                 elif '"thread_settings_applied"' in tag:
                     # 每次线程设置变更带 service_tier（default / priority / fast …）；
                     # 顺带用其中的 model 兜底 turn_context 缺失的会话。
-                    st = (json.loads(line).get("payload", {}) or {}).get("thread_settings") or {}
+                    settings_payload = json.loads(line).get("payload", {}) or {}
+                    st = settings_payload.get("thread_settings") or {}
+                    settings_owner = settings_payload.get("thread_id") or st.get("thread_id") or web_session_id
+                    owner_settings[settings_owner] = st
                     tier = st.get("service_tier")
                     if tier:
                         current_tier = str(tier)
                     if st.get("model") and current_model == "unknown":
                         current_model = st["model"]
+                    provider = st.get("model_provider_id") or provider
                 elif '"task_started"' in tag:
                     obj = json.loads(line)
                     turn_start = to_local(obj.get("timestamp"))
+                    turn_started_at = obj.get("timestamp")
+                    turn_start_us = _timestamp_us(turn_started_at)
                     turn_id = obj.get("payload", {}).get("turn_id")
                     turn_outputs = {}
+                    web_turn_outputs = {}
+                    web_turn_session = web_session_id
                     turn_in_window = (window is None or (turn_start is not None
                                       and window[0] <= turn_start <= window[1]))
                 elif '"task_complete"' in tag:
@@ -218,8 +275,64 @@ def parse_rollout(path: str, window: tuple[datetime, datetime] | None = None) ->
                             sample = rec.timing.setdefault(model, [0.0, 0.0])
                             sample[0] += output
                             sample[1] += seconds
+                    end_us = _timestamp_us(obj.get("timestamp"))
+                    if (capture and turn_start_us is not None and end_us is not None
+                            and end_us > turn_start_us and turn_id is not None
+                            and payload.get("turn_id") == turn_id and len(web_turn_outputs) == 1):
+                        model, output = next(iter(web_turn_outputs.items()))
+                        batch.timing_samples.append(TimingSample(
+                            key=f"{web_turn_session}:{turn_id}:turn", harness="codex",
+                            session_id=web_turn_session, model=model, start_us=turn_start_us,
+                            end_us=end_us, output=output, source_file=path, provider=provider))
                     turn_start = None
+                    turn_started_at = None
+                    turn_start_us = None
+                    turn_id = None
                     turn_outputs = {}
+                    web_turn_outputs = {}
+                elif '"token_usage_record"' in tag and capture:
+                    obj = json.loads(line)
+                    payload = obj.get("payload") or {}
+                    usage = payload.get("usage")
+                    if not isinstance(usage, dict):
+                        continue
+                    owner = payload.get("thread_id") or payload.get("session_id") or web_session_id
+                    native_owners.add(owner)
+                    native_mirror_pending = True
+                    # Native response identity survives archived/copied conversation histories.
+                    response_id = payload.get("response_id")
+                    if response_id and response_id in seen_responses:
+                        continue
+                    event_us = _timestamp_us(obj.get("timestamp"))
+                    if event_us is None:
+                        batch.warnings.append(f"Missing native usage timestamp at byte {line_offset}")
+                        continue
+                    if response_id:
+                        seen_responses.add(response_id)
+                    gross = _token(usage, "input_tokens")
+                    cached = _token(usage, "cached_input_tokens")
+                    written = _token(usage, "cache_write_input_tokens")
+                    output = _token(usage, "output_tokens")
+                    own_settings = owner_settings.get(owner) or {}
+                    batch.events.append(UsageEvent(
+                        key=f"response:{response_id}" if response_id else f"{path}:{line_offset}",
+                        timestamp_us=event_us, harness="codex", session_id=owner,
+                        source_file=path,
+                        parent_session_id=rec.parent if owner == web_session_id else None,
+                        provider=own_settings.get("model_provider_id") or provider,
+                        model=current_model, project=rec.cwd,
+                        agent_type=agent_type if owner == web_session_id else None,
+                        agent_label=rec.agent if owner == web_session_id else None,
+                        purpose=rec.type if owner == web_session_id else None,
+                        service_tier=own_settings.get("service_tier") or current_tier,
+                        input_net=gross - cached - written, cache_read=cached,
+                        cache_write=written, output=output,
+                        reasoning=_token(usage, "reasoning_output_tokens"),
+                        source_total=_token(usage, "total_tokens")
+                        if "total_tokens" in usage else gross + output))
+                    if turn_start is not None and payload.get("turn_id") == turn_id:
+                        web_turn_session = owner
+                        web_turn_outputs[current_model] = web_turn_outputs.get(current_model, 0) + output
                 elif '"token_count"' in tag:
                     obj = json.loads(line)
                     info = obj.get("payload", {}).get("info") or {}
@@ -242,6 +355,9 @@ def parse_rollout(path: str, window: tuple[datetime, datetime] | None = None) ->
                     if last_v[0] or last_v[2]:                  # 旧口径对照（毛输入 + 输出）
                         rec.delta_sum += last_v[0] + last_v[2]
                     total = info.get("total_token_usage")
+                    mirrored_native = native_mirror_pending and (last_obj is not None or bool(total))
+                    if mirrored_native:
+                        native_mirror_pending = False
                     if total:
                         cur = [_token(total, "input_tokens"), _token(total, "cached_input_tokens"),
                                _token(total, "output_tokens"),
@@ -281,17 +397,47 @@ def parse_rollout(path: str, window: tuple[datetime, datetime] | None = None) ->
                         tslot[4] += 1
                         for i in range(4):
                             tslot[i] += max(0, delta[i])
+                        if capture and web_session_id not in native_owners and not mirrored_native:
+                            timestamp_us = _timestamp_us(obj.get("timestamp"))
+                            if timestamp_us is None:
+                                batch.warnings.append(f"Missing usage timestamp at byte {line_offset}")
+                            else:
+                                gross, cached, output, reasoning = delta
+                                batch.events.append(UsageEvent(
+                                    key=f"{path}:{line_offset}", timestamp_us=timestamp_us,
+                                    harness="codex", session_id=web_session_id, source_file=path,
+                                    parent_session_id=rec.parent, provider=provider,
+                                    model=current_model, project=rec.cwd, agent_type=agent_type,
+                                    agent_label=rec.agent, purpose=rec.type,
+                                    service_tier=current_tier, input_net=gross - cached,
+                                    cache_read=cached, cache_write=0, output=output, reasoning=reasoning,
+                                    source_total=gross + output))
+                                if turn_start is not None:
+                                    web_turn_outputs[current_model] = web_turn_outputs.get(current_model, 0) + output
             except (json.JSONDecodeError, AttributeError, TypeError):
                 continue
+    batch.state = {
+        **{key: getattr(rec, key) for key in ("sid", "type", "parent", "agent", "start", "cwd")},
+        "provider": provider, "agent_type": agent_type, "prev_total": prev_total,
+        "current_model": current_model, "current_tier": current_tier,
+        "turn_started_at": turn_started_at, "turn_id": turn_id,
+        "turn_outputs": turn_outputs, "turn_in_window": turn_in_window,
+        "metering_mode": "native" if web_session_id in native_owners else "legacy",
+        "web_session_id": web_session_id, "native_owners": sorted(native_owners),
+        "native_mirror_pending": native_mirror_pending,
+        "owner_settings": owner_settings,
+        "seen_responses": sorted(seen_responses),
+        "web_turn_outputs": web_turn_outputs, "web_turn_session": web_turn_session,
+    }
     # 只保留有 token 消耗的模型槽位：calls 槽不计入，否则「无 turn_context + 零 token」
     # 的 token_count 事件会带出一个全 0 的 unknown 模型行（旧版口径按 token 分量过滤）
     active = {k: v for k, v in per_model.items() if sum(v[:4]) > 0}
     if not active:
-        return None
+        return None, batch
     rec.models = dict(active)
     rec.primary_model = max(active, key=lambda k: sum(active[k][:3]))
     rec.multi_model = len(active) > 1
-    return rec
+    return rec, batch
 
 
 def collect(sessions_dir: str, since: datetime, until: datetime,
