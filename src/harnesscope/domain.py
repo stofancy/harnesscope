@@ -33,6 +33,8 @@ class UsageEvent:
     quality: str = "exact"
     extra_tokens: dict[str, int] = field(default_factory=dict)
     turn_id: str | None = None
+    credential_ref: str | None = None
+    account_ref: str | None = None
 
 
 @dataclass(frozen=True)

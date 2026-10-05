@@ -11,6 +11,7 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
+from .accounts import ACCOUNT_SCHEMA, project_accounts, store_snapshot
 from .domain import (
     ParseBatch, SourceFile, TimingSample, ToolCall, TurnRecord, UsageAdapter, UsageEvent,
 )
@@ -18,7 +19,7 @@ from .domain import (
 from .names import native_title
 from .source_warnings import merge as merge_warnings, source_details, stored as stored_warnings, summarize as summarize_warnings
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 EVENT_COLUMNS = tuple(f.name for f in fields(UsageEvent))
 TIMING_COLUMNS = tuple(f.name for f in fields(TimingSample))
 TURN_COLUMNS = tuple(f.name for f in fields(TurnRecord))
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS events (
     input_net INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER,
     output INTEGER NOT NULL, reasoning INTEGER, source_total INTEGER,
     source_cost_usd TEXT, source_cost_kind TEXT, quality TEXT NOT NULL,
-    extra_tokens TEXT NOT NULL DEFAULT '{}', turn_id TEXT, PRIMARY KEY (harness, key)
+    extra_tokens TEXT NOT NULL DEFAULT '{}', turn_id TEXT, credential_ref TEXT, account_ref TEXT,
+    PRIMARY KEY (harness, key)
 );
 CREATE INDEX IF NOT EXISTS events_time ON events(timestamp_us);
 CREATE INDEX IF NOT EXISTS events_harness_time ON events(harness, timestamp_us);
@@ -110,7 +112,7 @@ CREATE TABLE IF NOT EXISTS tool_sources (
     PRIMARY KEY(harness,key,source_file)
 );
 CREATE INDEX IF NOT EXISTS tool_sources_file ON tool_sources(source_file);
-"""
+""" + ACCOUNT_SCHEMA
 
 
 def _now_us() -> int:
@@ -144,7 +146,7 @@ class SQLiteIndex:
             if "warning_details" not in file_columns:
                 conn.execute("ALTER TABLE files ADD COLUMN warning_details TEXT NOT NULL DEFAULT '[]'")
             version = conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
-            if version and version[0] not in ("1", "2", SCHEMA_VERSION):
+            if version and version[0] not in ("1", "2", "3", SCHEMA_VERSION):
                 raise ValueError("Usage index schema changed; remove the rebuildable usage.sqlite3 cache")
             if version and version[0] == "1":
                 conn.execute("INSERT OR IGNORE INTO event_sources SELECT harness,key,source_file FROM events")
@@ -158,6 +160,12 @@ class SQLiteIndex:
                 # Keep old usage visible until each source is successfully reparsed.
                 conn.execute("UPDATE files SET adapter_version='turn-metadata-v3'")
                 conn.execute("UPDATE metadata SET value=? WHERE key='schema_version'", (SCHEMA_VERSION,))
+            event_columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
+            for column in ("credential_ref", "account_ref"):
+                if column not in event_columns:
+                    conn.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT")
+            if version and version[0] == "3":
+                conn.execute("UPDATE metadata SET value=? WHERE key='schema_version'", (SCHEMA_VERSION,))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('schema_version', ?)",
                          (SCHEMA_VERSION,))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('revision', '0')")
@@ -166,7 +174,9 @@ class SQLiteIndex:
                          "ON events(harness,session_id,turn_id,timestamp_us)")
             conn.execute("CREATE INDEX IF NOT EXISTS timing_turn "
                          "ON timing_samples(harness,session_id,turn_id)")
-            if version and version[0] in ("1", "2"):
+            conn.execute("CREATE INDEX IF NOT EXISTS events_account ON events(account_ref,timestamp_us)")
+            conn.execute("CREATE INDEX IF NOT EXISTS events_credential ON events(credential_ref)")
+            if version and version[0] in ("1", "2", "3"):
                 self._bump(conn)
         os.chmod(self.path, 0o600)
 
@@ -264,6 +274,15 @@ class SQLiteIndex:
             if before != after:
                 self._bump(conn)
 
+    def _refresh_native_accounts(self, adapter):
+        reader = getattr(adapter, "read_account_metadata", None)
+        if reader is None:
+            return
+        snapshot = reader()
+        with self._write_lock, self._transaction() as conn:
+            if store_snapshot(conn, snapshot):
+                self._bump(conn)
+
     def _store(self, source: SourceFile, stat: os.stat_result, batch: ParseBatch,
                rebuild: bool, adapter_version: str) -> int:
         if batch.next_offset < 0 or batch.next_offset > stat.st_size:
@@ -309,6 +328,8 @@ class SQLiteIndex:
                 conn.executemany(
                     f"INSERT OR IGNORE INTO {owners}(harness,key,source_file) VALUES (?,?,?)",
                     [(row["harness"], row["key"], source.path) for row in rows])
+            if source.harness == "omp":
+                project_accounts(conn, source.harness, source.path)
             self._store_titles(conn, source.path, stat.st_mtime_ns, batch.session_titles)
             count = conn.execute("SELECT count(*) FROM event_sources WHERE source_file=?",
                                  (source.path,)).fetchone()[0]
@@ -430,6 +451,11 @@ class SQLiteIndex:
                 except Exception as exc:
                     # Label availability is independent of metering completeness.
                     source_status[adapter.harness]["label_error"] = type(exc).__name__
+                try:
+                    self._refresh_native_accounts(adapter)
+                except Exception as exc:
+                    # Native account availability never changes token coverage.
+                    source_status[adapter.harness]["account_error"] = type(exc).__name__
         with self._write_lock, self._transaction() as conn:
             previous = json.loads(conn.execute("SELECT value FROM metadata WHERE key='sources'").fetchone()[0])
             previous.update(source_status)

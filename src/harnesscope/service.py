@@ -94,6 +94,10 @@ class UsageService:
         with self._query_lock:
             return self._queries().analytics(request)
 
+    def accounts(self):
+        with self._query_lock:
+            return self._queries().accounts()
+
     def sessions(self, request, offset: int = 0, limit: int = 50):
         with self._query_lock:
             return self._queries().sessions(request, offset=offset, limit=limit)

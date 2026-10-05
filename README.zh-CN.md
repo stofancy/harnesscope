@@ -83,6 +83,16 @@ Dashboard 首屏显示估算费用、Tokens、模型调用和轮次。主消耗�
 费用、Tokens 和调用卡提供同窗口微趋势。Token 构成条展示未缓存输入、缓存命中、输出和缓存写入，
 缓存写入缺失时保留已记录小计与未知范围。
 
+账号与用量周期选择器读取 **OMP 离线元数据**，分别标识订阅账号与 API 凭证。选定已观测的
+额度窗口并应用后，全局时间、Provider 与账号同步切换；模型及其他筛选继续可用，现有总览、
+图表和用量明细展示该周期内的已记录用量。当前周期截至查看时刻，再次应用可推进截止时间；
+起止边界缺失时不能应用。额度百分比保留原生共享 / 模型范围与观测时间，过期快照明确标记。
+API 凭证缺少额度记录时仍可按普通时间范围统计。该功能不调用服务商额度接口。
+
+账号归属当前依赖新版 OMP 请求的凭证 ID 与配对的本机 agent 数据库；其他来源、旧版或无法
+匹配的请求保留“账号未知”。账号名称可能包含原生邮箱或账号标识。配置的会话根与数据库应属于
+同一来源；导入日志的元数据不足以核对其原 auth-store。详细边界见 [SECURITY.md](SECURITY.md)。
+
 全局时间可直接输入 `-18h`、`-2days` 等相对表达式、固定起点**截至现在**，以及固定历史起止。
 起止输入各自支持表达式和具体时间，也可点击各自的日历图标选择日期时间，精确到秒；输入失焦或按 Enter 即生效，日历选择直接生效，“应用”按钮可选。
 显示与分桶采用本机时区，禁止应用未来时间，统计间隔通过分段按钮直接切换。滚动范围在页面刷新、浏览器重载及范围返回时按当前实际时间重新计算，
@@ -101,7 +111,7 @@ Dashboard 首屏显示估算费用、Tokens、模型调用和轮次。主消耗�
 用途条件，更多条件包含代理类型、运行模式与会话。Codex 模式显示标准、Fast 或未记录。
 局部图表调整与明细翻页只重载相关数据。
 
-**用量明细** 是独立入口，可切换逐次请求或按会话、轮次、模型、Harness 汇总，展示输入
+**用量明细** 是独立入口，可切换逐次请求或按会话、轮次、模型、Harness、Provider、账号汇总，展示输入
 （未缓存）、缓存命中、输出、缓存写入、估算费用与可靠计时。响应 TPS 和轮次 TPS 分开，
 缺失计时保留为空。分组前先按请求发生时间入选，排序覆盖全部匹配结果后再分页。
 会话筛选、排行、明细与详情显示来源原生会话名称；缺少名称时显示项目、首次请求时间与“未命名会话”。项目显示目录名称，同名项目按完整路径分别筛选；完整路径和 ID 可在 tooltip 查看。名称随来源刷新更新，身份与计量保持原值。名称可能包含任务描述，属于本机统计索引的工作元数据；详情见 [SECURITY.md](SECURITY.md)。下钻保持筛选上下文。来源未记录的结束时间
@@ -130,7 +140,7 @@ compact stream 与带 usage 的 assistant attempt；title/search 请求日志缺
 覆盖状态显示扫描结果、解析警告 / 错误与缺价范围；部分覆盖保留可用统计并说明未计记录。
 DSH interrupted / error turn 的已记录 tokens 保留，计时排除出完整 turn TPS；Claude 本地
 全零 `<synthetic>` 消息不计为 API 调用。来源记录的成本仍属估值，真实账单未知。
-父子关系与复制历史按实际来源证据处理；索引与 API 不含会话正文、prompt 和凭据。
+父子关系与复制历史按实际来源证据处理；索引与 API 不含会话正文、prompt 和凭据正文。
 
 ### 共享分析 JSON
 
@@ -147,18 +157,18 @@ harnesscope --analytics --query 'harness=codex&group_by=model&metric=tokens'
 | `timezone` | 分桶的 IANA 时区，默认 `UTC` |
 | `bucket` | `auto`、`second`、`5second`、`10second`、`30second`、`minute`、`5minute`、`15minute`、`hour`、`day`、`week`、`month` |
 | `group_by` | 1–3 个逗号分隔的维度 |
-| 维度 / 筛选 | `harness`、`model`、`provider`、`project`、`agent_type`、`purpose`、`service_tier`、`session`；同维度重复传值表示任选其一 |
+| 维度 / 筛选 | `harness`、`model`、`provider`、`project`、`agent_type`、`purpose`、`service_tier`、`session`、`account`；同维度重复传值表示任选其一 |
 | `metric` | `cost_usd`、`tokens`、`calls`、`input`、`output`、`cache_read`、`cache_write`、`cache_hit_rate`、`cost_per_call`、`cost_per_mtok`、`tpm`、`rpm`、`throughput_tps`、`rps` |
 | `member` | 可重复，指定当前分组中的趋势成员 |
 
-八个维度包含代理类型与服务档位。来源自报总量及其覆盖单列展示，并保留与已记录 token
+九个维度包含代理类型、服务档位和账号。来源自报总量及其覆盖单列展示，并保留与已记录 token
 分量总计的差异；额外分量和 TTL / reasoning 子集不重复累加。
 
 所选调用有缺价时，每调用成本和每百万 tokens 成本返回未知；缓存写入量未知时，
 缓存命中率返回未知。用量按已记录分量统计，无事件桶与缺失数据分别表达。
 TPS 按 harness 与计时定义分别提供。完整响应与比较语义见[工作台 API 文档](docs/workbench-api.md)。
 
-本机 API 提供 GET `/api/status`、`/api/analytics`、`/api/sessions`、
+本机 API 提供 GET `/api/status`、`/api/accounts`、`/api/analytics`、`/api/usage`、`/api/sessions`、
 `/api/sessions/{harness}/{sid}`、`/api/turns`。单轮详情使用
 `/api/turns/detail?harness=...&session_id=...&turn_id=...`，每个参数值须 URL 编码。
 会话与轮次列表支持 `offset`、`limit`（1–200）。轮次支持
@@ -190,9 +200,9 @@ POST `/api/refresh` 携带 `Content-Type: application/json`，显式启动后台
 日志的调用与费用已完整捕获。
 
 工具统计只保留名称、调用身份、状态与时间戳，按身份去重。覆盖 partial / unknown 时
-保留已记录小计，总调用数与每轮比率保持未知。模型 / provider / 用途 / 档位筛选选中匹配
+保留已记录小计，总调用数与每轮比率保持未知。模型 / provider / 账号 / 用途 / 档位筛选选中匹配
 模型调用及其轮次，工具仍描述这些轮次已记录的工具调用。详情标明调用在全局窗口内外，
-并保留缺价信息；索引与 API 不含工具参数、结果正文、聊天正文或凭据。
+并保留缺价信息；索引与 API 不含工具参数、结果正文、聊天正文或凭据正文。
 
 ## Codex CLI 使用
 

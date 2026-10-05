@@ -67,6 +67,39 @@ async function vector(b: Browser, expected: number[]) {
   expect(actual).toEqual(expected);
 }
 
+type NativeAccount = {account_ref:string;harness:string;provider:string;kind:string;label:string};
+type NativePeriod = {id:string;account_ref:string;label:string;start:string|null;end:string|null;observed_at:string;
+  used_fraction:number|null;scope:{model:string|null;shared:boolean|null}};
+type NativeDirectory = {snapshot:{id:string|number};accounts:NativeAccount[];periods:NativePeriod[]};
+const accountWindow = {start:'2025-05-01T00:00:00Z',end:'2025-05-01T05:00:00Z'};
+function fixtureRoot() {
+  return JSON.parse(readFileSync(new URL('../../.e2e/fixture-state.json',import.meta.url),'utf8')).root as string;
+}
+async function accountCatalog(b:Browser) {
+  await reveal(b,'account-periods');
+  await expect(byId(b,'account-select')).toBeEnabled();
+}
+async function chooseAccountPeriod(b:Browser,directory:NativeDirectory,email:string,label:string) {
+  await accountCatalog(b);
+  const account=directory.accounts.find(a=>a.label.includes(email));
+  if(!account) throw new Error(`Missing fixture account ${email}`);
+  const period=directory.periods.find(p=>p.account_ref===account.account_ref&&p.label===label);
+  if(!period) throw new Error(`Missing fixture period ${label}`);
+  await byId(b,'account-select').selectOption({value:account.account_ref});
+  await byId(b,'account-period-select').selectOption({value:period.id});
+  return {account,period};
+}
+async function openAccountWindow(b:Browser) {
+  await b.goto('/',{waitUntil:'networkidle'}); await ready(b);
+  // The engine requires an open page before registering a response wait.
+  const response=b.waitForResponse(/\/api\/accounts(?:\?|$)/);
+  await b.reload(); await ready(b);
+  const directory=await (await response).json<NativeDirectory>();
+  await range(b,accountWindow.start,accountWindow.end);
+  await expect(byId(b,'summary-tokens')).toHaveText('660');
+  return directory;
+}
+
 // Browser actions and rendered assertions against synthetic source logs and the
 // actual Python service. Network observation passes every response unchanged.
 test('dashboard journey: shared time, rates, cache, speeds, plots, ranking and return', async ({ browser: b, app }) => {
@@ -575,6 +608,122 @@ test('calendar dashboard: light and dark calendar, composition and microtrends r
     }
     await b.reload(); await ready(b); await expect(byId(b,'workbench')).toHaveAttribute('data-theme',theme);
   }
+});
+
+// Account logs live in May 2025, with a separate project. Only quota metadata
+// uses the current clock; no recent usage append or original ledger is changed.
+test('account periods: native directory, refresh and fixed current-period cutoff', async ({browser:b,app}) => {
+  const requests:URL[]=[];
+  await b.route(/\/api\//,async r=>{requests.push(new URL(r.request.url));await r.continue();});
+  const directory=await openAccountWindow(b);
+  await expect(byId(b,'account-attribution')).toContainText('已知 6 次调用');
+  await expect(byId(b,'account-attribution')).toContainText('未知 1 次调用');
+  await chooseAccountPeriod(b,directory,'fixture-a@example.invalid','Fixture ended 5 Hour');
+  await expect(byId(b,'account-info')).toContainText('订阅');
+  await expect(byId(b,'account-info')).toContainText('周期已结束');
+  await expect(byId(b,'account-quota-fraction')).toHaveText('25%');
+  await expect(byId(b,'account-quota')).toContainText('e2e-known');
+  await chooseAccountPeriod(b,directory,'fixture-a@example.invalid','Fixture missing start');
+  await expect(byId(b,'apply-account-period')).toBeDisabled();
+  for(const kind of ['api_key','gateway_credential']) {
+    await byId(b,'account-select').selectOption({value:directory.accounts.find(a=>a.kind===kind)!.account_ref});
+    await expect(byId(b,'account-period-select')).toBeDisabled();
+    await expect(byId(b,'apply-account')).toBeEnabled();
+    await expect(byId(b,'account-info')).toContainText(kind==='api_key'?'API':'网关');
+  }
+  await chooseAccountPeriod(b,directory,'fixture-b@example.invalid','Fixture stale active 5 Hour');
+  await expect(byId(b,'account-period-boundaries')).toContainText('已失效');
+  await expect(byId(b,'account-info')).not.toContainText('周期已结束');
+  await chooseAccountPeriod(b,directory,'fixture-a@example.invalid','Fixture ended 5 Hour');
+  execFileSync('python3',[new URL('./fixture_logs.py',import.meta.url).pathname,'--append',fixtureRoot(),'--update-account-metadata']);
+  await refresh(b);
+  await expect(byId(b,'account-quota-fraction')).toHaveText('55%');
+  await expect(byId(b,'account-period-select')).toContainText('Fixture ended 5 Hour refreshed');
+  await expect(byId(b,'summary-tokens')).toHaveText('660');
+  await expect(byId(b,'value-consumption')).toHaveText('$0.003025');
+  await b.setViewport({width:1024,height:1100});
+  await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r()))));
+  expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  expect(await b.evaluate(()=>[...document.querySelectorAll('.dashboard-chart .recharts-surface')]
+    .every(n=>n.getBoundingClientRect().width>0))).toBe(true);
+  const height=await b.evaluate(()=>{scrollTo(0,0);return Math.max(1100,document.documentElement.scrollHeight);});
+  await b.setViewport({width:1024,height}); await app.screenshot('account-periods-dashboard-1024');
+  await b.setViewport({width:1600,height:1100});
+  const {period}=await chooseAccountPeriod(b,directory,'fixture-a@example.invalid','Fixture current 5 Hour');
+  const before=Date.now(); await byId(b,'apply-account-period').click(); await ready(b); const after=Date.now();
+  const latest=()=>requests.filter(q=>q.pathname==='/api/analytics').at(-1)!;
+  const fixed=latest().searchParams.get('end')!;
+  expect(Date.parse(latest().searchParams.get('start')!)).toBe(Date.parse(period.start!));
+  expect(Date.parse(fixed)>=before&&Date.parse(fixed)<=after).toBe(true);
+  expect(Date.parse(fixed)<Date.parse(period.end!)).toBe(true);
+  await refresh(b); expect(latest().searchParams.get('end')).toBe(fixed);
+  await b.reload(); await ready(b); expect(latest().searchParams.get('end')).toBe(fixed);
+});
+
+test('account periods: native boundaries, unified statistics and model/provider/account drill return', async ({browser:b}) => {
+  const requests:URL[]=[];
+  await b.route(/\/api\//,async r=>{requests.push(new URL(r.request.url));await r.continue();});
+  const directory=await openAccountWindow(b);
+  await page(b,'usage');
+  for(const [name,count] of [['model',2],['provider',2],['account',5]] as const) {
+    await group(b,name); await expect(byId(b,'usage-row')).toHaveCount(count);
+    await expect(byId(b,'usage-total-tokens')).toHaveText('660');
+    await expect(byId(b,'usage-total-cost')).toHaveText('$0.003025'); await vector(b,[7,280,50,40,290]);
+  }
+  await expect(byId(b,'usage-table')).toContainText('fixture-a@example.invalid');
+  await expect(byId(b,'usage-table')).toContainText('fixture-b@example.invalid');
+  await expect(byId(b,'usage-table')).toContainText('账号未知');
+  await b.locator('tr[data-testid="usage-row"]:has-text("账号未知") [data-testid="usage-row-open"]').click(); await ready(b);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('100'); await vector(b,[1,60,0,0,40]);
+  expect(requests.filter(q=>q.pathname==='/api/usage').at(-1)!.searchParams.getAll('account')).toEqual(['']);
+  await byId(b,'usage-drill-back').click(); await ready(b);
+  const a=directory.accounts.find(a=>a.label.includes('fixture-a@'))!;
+  await row(b,a.account_ref,'[data-testid="usage-row-open"]').click(); await ready(b);
+  await expect(byId(b,'usage-total-tokens')).toHaveText('240'); await vector(b,[3,60,30,40,110]);
+  expect(requests.filter(q=>q.pathname==='/api/usage').at(-1)!.searchParams.getAll('account')).toEqual([a.account_ref]);
+  await byId(b,'usage-drill-back').click(); await ready(b);
+  await expect(byId(b,'usage-group-account')).toHaveAttribute('class','selected');
+  await expect(byId(b,'usage-total-tokens')).toHaveText('660');
+  await page(b,'dashboard');
+  await b.locator('[data-testid="filter-project"] .facet-trigger').click();
+  await b.locator('[data-testid="filter-project"] label[title*="/synthetic/accounts"] input').check();
+  await b.locator('[data-testid="filter-project"] .dismiss').click(); await ready(b);
+  await b.locator('[data-testid="filter-model"] .facet-trigger').click();
+  await byId(b,'filter-model').getByLabel('e2e-known',{exact:true}).check();
+  await b.locator('[data-testid="filter-model"] .dismiss').click(); await ready(b);
+  const ended=directory.periods.find(p=>p.account_ref===a.account_ref&&p.start&&Date.parse(p.end!)===Date.parse(accountWindow.end))!;
+  await accountCatalog(b); await byId(b,'account-select').selectOption({value:a.account_ref});
+  await byId(b,'account-period-select').selectOption({value:ended.id});
+  await byId(b,'apply-account-period').click(); await ready(b);
+  await expect(byId(b,'summary-tokens')).toHaveText('180'); await expect(byId(b,'summary-calls')).toHaveText('2');
+  await expect(byId(b,'value-consumption')).toHaveText('$0.000910');
+  const latest=()=>requests.filter(q=>q.pathname==='/api/analytics').at(-1)!;
+  let query=latest();
+  expect(Date.parse(query.searchParams.get('start')!)).toBe(Date.parse(accountWindow.start));
+  expect(Date.parse(query.searchParams.get('end')!)).toBe(Date.parse(accountWindow.end));
+  for(const [key,value] of [['account',a.account_ref],['provider','anthropic'],['harness','omp'],['model','e2e-known'],['project','/synthetic/accounts']])
+    expect(query.searchParams.getAll(key)).toEqual([value]);
+  await byId(b,'account-period-select').selectOption({value:directory.periods.find(p=>p.label==='Fixture ended 7 Day')!.id});
+  await byId(b,'apply-account-period').click(); await ready(b);
+  await expect(byId(b,'summary-tokens')).toHaveText('2.2K');
+  await expect(byId(b,'summary-tokens')).toHaveAttribute('title','Tokens 2,180');
+  await byId(b,'account-period-select').selectOption({value:ended.id});
+  await byId(b,'apply-account-period').click(); await ready(b);
+  await expect(byId(b,'summary-tokens')).toHaveText('180');
+  const selectedB=await chooseAccountPeriod(b,directory,'fixture-b@example.invalid','Fixture B ended 5 Hour');
+  await byId(b,'apply-account-period').click(); await ready(b);
+  await expect(byId(b,'summary-tokens')).toHaveText('120'); await expect(byId(b,'value-consumption')).toHaveText('$0.000570');
+  expect(latest().searchParams.getAll('account')).toEqual([selectedB.account.account_ref]);
+  await byId(b,'rank-group-account').click();
+  await b.locator('[data-testid="absolute-ranking"] button[title*="fixture-b@example.invalid"]').click(); await ready(b);
+  await page(b,'usage'); await group(b,'account'); await expect(byId(b,'usage-total-tokens')).toHaveText('120');
+  await byId(b,'usage-row-open').click(); await ready(b);
+  await group(b,'model'); await expect(byId(b,'usage-table')).toContainText('fixture-b@example.invalid');
+  await byId(b,'usage-row-open').click(); await ready(b); await vector(b,[1,40,20,0,60]);
+  await byId(b,'usage-row-open').click(); await expect(byId(b,'usage-request-detail')).toContainText('fixture-b@example.invalid');
+  await byId(b,'usage-drill-back').click(); await ready(b); await b.reload(); await ready(b);
+  await expect(byId(b,'usage-group-account')).toHaveAttribute('class','selected');
+  await expect(byId(b,'usage-total-tokens')).toHaveText('120');
 });
 
 test('refresh: incremental dedup, completed metadata, unknown and empty windows, live zoom restoration', async ({ browser: b, app }) => {

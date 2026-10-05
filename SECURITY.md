@@ -14,14 +14,14 @@ its own statistics index and listens on loopback.
 
 | Aspect | Behaviour |
 |---|---|
-| Source data | Codex, Claude, OMP and DSH local usage logs and native session-title metadata, including Codex's state database; existing terminal reports continue to use Codex rollout files |
+| Source data | Codex, Claude, OMP and DSH local usage logs and native session-title metadata, including Codex's state database; OMP account identifiers, credential types and quota observations from its paired local agent database; existing terminal reports continue to use Codex rollout files |
 | Source overrides | Web: `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OMP_SESSIONS_DIR` / `PI_CODING_AGENT_DIR`, `DSH_HOME`; legacy Codex report paths retain `HARNESCOPE_SESSIONS_DIR` / `HARNESCOPE_ARCHIVE_DIR` |
 | Index path | `~/.cache/harnesscope/usage.sqlite3` (`HARNESCOPE_CACHE_DIR` overrides the directory) |
 | Pricing reads | Bundled public prices, the tool's pricing cache and optional user overrides |
 | External network | No external access for ordinary analysis; public prices are downloaded only by explicit `--update-pricing` |
 | Local HTTP | `--web` starts a loopback server serving bundled assets and statistical JSON |
 | Writes | Rebuildable SQLite index, explicit price cache, browser preferences, and the tool's own lifecycle configuration/state/logs. Optional service installation writes this user's Harnesscope systemd unit. Source logs, harness settings and user pricing overrides are never modified |
-| Stored/output fields | Usage metadata, token counts, price basis, source identities, native session titles, project names and recorded session relationships; tool statistics are limited to name, identity, status and timestamps. The statistics index and API exclude conversation bodies, prompts, tool arguments, tool result bodies and credentials |
+| Stored/output fields | Usage metadata, token counts, price basis, source identities, native session titles, project names, non-secret account labels and quota observations, and recorded session relationships; tool statistics are limited to name, identity, status and timestamps. The statistics index and API exclude conversation bodies, prompts, tool arguments, tool result bodies and credential secrets |
 | Charts | Legacy terminal charts are rendered in memory and sent to the terminal |
 | Telemetry | None; no analytics, crash reporting or remote usage upload |
 | Lifetime | `start` runs a managed background instance; `stop` releases its port. An optional systemd user service starts on login. `--web` runs in the foreground until Ctrl-C. Closing a tab leaves the process running |
@@ -56,6 +56,24 @@ including current WAL records. Database and WAL contents remain unchanged; SQLit
 update reader-coordination marks in the existing `-shm` file during a read. Ordinary
 log parsing and harness configuration remain read-only. Title projections live in the
 rebuildable statistics index and change on a source refresh.
+
+OMP account reads select native credential row IDs, provider, credential type and
+non-secret identity keys. They do not read `auth_credentials.data`, access tokens,
+API keys, response headers or raw quota payloads. Account labels can include native
+email or account identifiers and are local work metadata visible through the same
+loopback HTTP boundary. Quota projection retains only the fields needed to describe
+the account, window, scope, amount and observation time. Queries read this projection
+from the index; source refresh performs the native database reads. No quota API is
+called, and no credentials are created or changed.
+
+The configured OMP session root and agent database are treated as a paired local
+source. Native session headers do not identify their original auth store; an imported
+log whose numeric credential ID matches a different local store cannot be detected
+reliably. Keep imported logs paired with their original metadata, or leave their
+account metadata unavailable. Explicit source overrides do not silently fall back to
+the real home directory for a missing paired database. Database reads use `mode=ro`
+and `query_only`; database and WAL content remain unchanged, while SQLite can update
+existing `-shm` reader-coordination marks as described above.
 
 ### Explicit external download: `--update-pricing`
 

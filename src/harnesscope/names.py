@@ -78,6 +78,8 @@ def labelled(conn, result):
                        'project': project,
                        'first': datetime.fromtimestamp(stamp / 1e6, timezone.utc).isoformat().replace('+00:00', 'Z')
                        if stamp is not None else None})
-    result['labels'] = {'sessions': labels, 'projects': [{'path': path, 'name': project_name(path)}
+    from .accounts import indexed_account_labels
+    result['labels'] = {'sessions': labels, 'accounts': indexed_account_labels(conn),
+                       'projects': [{'path': path, 'name': project_name(path)}
                                                        for path in sorted(projects)]}
     return result

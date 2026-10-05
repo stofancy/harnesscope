@@ -7,6 +7,8 @@ import type {
     PanelId,
     PanelConfig,
     UsageDrill,
+    Account,
+    AccountPeriod,
 } from "./types";
 import { demo, refresh, status, type Status } from "./api";
 import {
@@ -23,6 +25,7 @@ import { AbsoluteRanking } from "./ranking";
 import { TimeControl } from "./TimeControl";
 import { SourceHealth } from "./SourceHealth";
 import { UsageCalendar, calendarYearRange } from "./UsageCalendar";
+import { AccountPeriods } from "./AccountPeriods";
 import { TokenComposition } from "./TokenComposition";
 import { advanceTime, type TimeSpec } from "./time";
 import { readPreferences, savePreferences } from "./preferences";
@@ -34,6 +37,7 @@ const filters: FilterKey[] = [
     "model",
     "project",
     "provider",
+    "account",
     "purpose",
 ];
 const extra: FilterKey[] = ["agent_type", "service_tier", "session"];
@@ -258,6 +262,25 @@ export default function App() {
         } else changeFilter(dimension, [m.key]);
         setUsageView((v) => ({ ...v, group: "request", offset: 0 }));
         setPage("usage");
+    }
+    function applyAccount(account: Account, period?: AccountPeriod) {
+        const filters = {
+            ...global.filters,
+            account: [account.account_ref],
+            provider: [period?.provider ?? account.provider ?? ""],
+            harness: [account.harness],
+        };
+        if (period) {
+            const end = Math.min(Date.parse(period.end ?? ""), Date.now());
+            const start = Date.parse(period.start ?? "");
+            if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return;
+            const since = new Date(start).toISOString(), until = new Date(end).toISOString();
+            setTimeSpec({ start: since, end: until });
+            setGlobal((g) => ({ ...g, since, until, bucket: "auto", filters }));
+            setHistory([]);
+            setConsumptionView("trend");
+        } else setGlobal((g) => ({ ...g, filters }));
+        setConfigs(c => Object.fromEntries(Object.entries(c).map(([key, value]) => [key, { ...value, members: [] }])) as unknown as Record<PanelId, PanelConfig>);
     }
     async function scan() {
         if (refreshLock.current || refs.current.scanStatus?.scanning || refs.current.editing) return;
@@ -574,11 +597,17 @@ export default function App() {
                         : "正在加载当前范围…"}
                 </div>
             )}
+            {page === "dashboard" && <AccountPeriods snapshot={snapshot} revision={revision}
+                timezone={global.timezone} onApply={applyAccount} />}
             {page === "dashboard" && current && counts && (
                 <div
                     className={`data-region ${d.globalUpdating ? "is-updating" : ""}`}
                     inert={d.globalUpdating || !!d.errors.global}
                 >
+                    {counts.summary.account_known_calls !== undefined && <div className="account-attribution" data-testid="account-attribution">
+                        账号归属 · 已知 {counts.summary.account_known_calls.toLocaleString()} 次调用
+                        {" · "}未知 {(counts.summary.account_unknown_calls ?? 0).toLocaleString()} 次调用
+                    </div>}
                     <MetricStrip
                         data={counts}
                         turnCount={current.turns.summary.turns}
@@ -719,7 +748,9 @@ export default function App() {
                                 Object.entries(row.identity).filter(
                                     ([key, value]) =>
                                         value != null ||
-                                        (key === "turn_id" && row.group === "turn"),
+                                        (key === "turn_id" && row.group === "turn") ||
+                                        (key === "account_ref" && row.group === "account") ||
+                                        (key === "provider" && row.group === "provider"),
                                 ),
                             );
                             setDrill({

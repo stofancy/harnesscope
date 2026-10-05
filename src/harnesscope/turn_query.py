@@ -8,7 +8,7 @@ from .query import (UTC, COLUMN, QueryRequest, _us, _iso, _summary,
                     _bucket_edges, _bucket_seconds)
 
 DIRECT_FILTERS = {'harness': 'harness', 'session': 'session_id', 'project': 'project', 'agent_type': 'agent_type'}
-CALL_FILTERS = {'model', 'provider', 'purpose', 'service_tier'}
+CALL_FILTERS = {'model', 'provider', 'purpose', 'service_tier', 'account'}
 TURN_SORTS = ('start', 'cost_usd', 'tokens', 'duration', 'calls', 'tool_calls')
 
 

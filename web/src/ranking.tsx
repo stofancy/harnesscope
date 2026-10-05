@@ -32,7 +32,7 @@ export function AbsoluteRanking({
                 <span>当前时段</span>
             </header>
             <div className="rank-dimensions">
-                {(["model", "harness", "project"] as Dimension[]).map((d) => (
+                {(["model", "harness", "project", "account"] as Dimension[]).map((d) => (
                     <button
                         key={d}
                         data-testid={`rank-group-${d}`}

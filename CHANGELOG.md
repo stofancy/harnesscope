@@ -55,6 +55,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Offline OMP account attribution from native per-request credential IDs and non-secret
+  metadata, with separate subscription/API credential labels and unknown-account coverage.
+  Shared analytics and usage records support account filters and provider/account grouping.
+- Observed quota-window selection with native scope, observation time, expiry and boundary
+  quality. Applying a known window updates the shared usage range and account filters;
+  current periods stop at the viewing time. Missing periods and other-source attribution
+  remain unknown, and ordinary analysis makes no authenticated provider requests.
+
 - Yearly usage calendar with daily Tokens, estimated cost and model-call intensity,
   shared year selection, day drilldown and range return. Empty, partial, unknown and
   future dates retain distinct states.

@@ -97,6 +97,22 @@ or unknown costs keep explicit coverage labels. The cost, token and call cards i
 sparklines for the same window. A composition bar shows uncached input, cache hits,
 output and cache writes, preserving unknown write coverage.
 
+The account and usage-period selector reads **offline OMP metadata**. Subscription
+accounts and API credentials have separate labels. Choose an observed quota window,
+then apply it to the shared range, provider and account filters; model and other
+filters remain available. The existing totals, charts and usage ledger then show
+recorded usage in that period. Current windows stop at the viewing time, and applying
+the window again advances that cutoff. Missing boundaries cannot be applied.
+Quota percentages retain their native shared/model scope and observation time;
+expired snapshots remain marked. API credentials without quota records still support
+ordinary time-range accounting. No provider quota API is called.
+
+Account attribution currently relies on newer OMP request credential IDs and the
+paired local agent database. Other sources and older or unmatched requests retain an
+unknown-account group. Account names can include native email or account identifiers.
+The configured session root and database must belong together; imported logs do not
+carry enough metadata to verify their original auth store. See [SECURITY.md](SECURITY.md).
+
 Inline time fields support relative expressions such as `-18h` and `-2days`, a fixed
 start **until now**, and fixed historical start/end times. Each field accepts an
 expression or a concrete time and has a calendar picker with second precision;
@@ -132,7 +148,7 @@ agent type, run mode and session. Codex modes display Standard, Fast or Not reco
 Local chart changes and ledger pagination reload their own data.
 
 The separate **用量明细** view lists individual requests or groups them by session,
-turn, model or harness. It shows uncached input, cache hits, output, cache writes,
+turn, model, harness, provider or account. It shows uncached input, cache hits, output, cache writes,
 estimated cost and reliable timing. Response and turn TPS remain separate; missing
 timing stays unknown. Request timestamps determine membership before grouping;
 sorting applies to all matching rows before pagination. Session filters, rankings, records
@@ -173,7 +189,7 @@ error turns retain recorded tokens while being excluded from complete-turn TPS; 
 local all-zero `<synthetic>` messages are excluded from API-call counts. Usage cost recorded
 by a source is an estimate; it is not a provider invoice. Parent relationships and copied
 history are used only where the source supplies evidence. The index and API exclude
-conversation bodies, prompts and credentials.
+conversation bodies, prompts and credential secrets.
 
 ### Shared analytics JSON
 
@@ -191,11 +207,11 @@ browser and emits JSON. Specify its filters through `--query`; legacy `--since`,
 | `timezone` | IANA timezone for buckets; default `UTC` |
 | `bucket` | `auto`, `second`, `5second`, `10second`, `30second`, `minute`, `5minute`, `15minute`, `hour`, `day`, `week`, `month` |
 | `group_by` | One to three comma-separated dimensions |
-| Dimensions / filters | `harness`, `model`, `provider`, `project`, `agent_type`, `purpose`, `service_tier`, `session`; repeated values select alternatives within a dimension |
+| Dimensions / filters | `harness`, `model`, `provider`, `project`, `agent_type`, `purpose`, `service_tier`, `session`, `account`; repeated values select alternatives within a dimension |
 | `metric` | `cost_usd`, `tokens`, `calls`, `input`, `output`, `cache_read`, `cache_write`, `cache_hit_rate`, `cost_per_call`, `cost_per_mtok`, `tpm`, `rpm`, `throughput_tps`, `rps` |
 | `member` | Repeat to select trend members from the current grouping |
 
-Eight dimensions include agent type and service tier. Source-reported totals and their
+Nine dimensions include agent type, service tier and account. Source-reported totals and their
 coverage are listed separately from the sum of recorded token components; extra components
 and TTL/reasoning subsets are not added twice.
 
@@ -205,7 +221,7 @@ use recorded components; zero-event buckets and missing data remain distinct. TP
 are separated by harness and timing definition. Complete response semantics and comparison
 rules are documented in [the workbench API](docs/workbench-api.md).
 
-The local API exposes GET `/api/status`, `/api/analytics`, `/api/sessions`,
+The local API exposes GET `/api/status`, `/api/accounts`, `/api/analytics`, `/api/usage`, `/api/sessions`,
 `/api/sessions/{harness}/{sid}`, and `/api/turns`. A turn is located through
 `/api/turns/detail?harness=...&session_id=...&turn_id=...`; URL-encode each parameter value. Session and turn lists accept `offset` and `limit` (1–200). Turn lists also accept
 `sort=start|cost_usd|tokens|duration|calls|tool_calls` and `order=asc|desc`;
@@ -242,10 +258,10 @@ provider calls or charges were fully captured.
 
 Tools expose only name, call identity, status and timestamps. Counts are deduplicated;
 partial/unknown tool coverage keeps the known subtotal and leaves total counts and
-per-turn ratios unknown. Model/provider/purpose/tier filters select matching model calls
+per-turn ratios unknown. Model/provider/account/purpose/tier filters select matching model calls
 and their turns; tools still describe all recorded tool calls of those selected turns.
 Turn details label calls inside/outside the global window and preserve missing prices.
-No tool arguments, result bodies, conversation text or credentials enter the index/API.
+No tool arguments, result bodies, conversation text or credential secrets enter the index/API.
 
 ## Codex CLI usage
 

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ..accounts import credential_ref, read_omp_accounts
 from ..domain import ParseBatch, SourceFile, TimingSample, UsageEvent, timestamp_us
 from ..names import SessionTitle
 from .common import count, finite, header, lines
@@ -39,15 +40,27 @@ def usage_identity(record):
 
 class OmpAdapter:
     harness = "omp"
-    version = "2"
+    version = "3"
 
-    def __init__(self, root: str | Path | None = None):
+    def __init__(self, root: str | Path | None = None, agent_db: str | Path | None = None):
         default = Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / ".omp/agent")
         self.root = Path(root or os.environ.get("OMP_SESSIONS_DIR") or default / "sessions")
+        if agent_db is not None:
+            self.agent_db = Path(agent_db)
+        elif os.environ.get("PI_CODING_AGENT_DIR"):
+            self.agent_db = default / "agent.db"
+        elif root is not None or os.environ.get("OMP_SESSIONS_DIR"):
+            # A custom transcript root never falls back to a personal auth store.
+            self.agent_db = self.root.parent / "agent.db"
+        else:
+            self.agent_db = default / "agent.db"
         self._headers: dict[str, dict[str, Any]] = {}
         self._paths: dict[str, str] = {}
         self._ancestors: dict[str, tuple[str | None, dict[str, str]]] = {}
         self._ancestor_entries: dict[str, set[str]] = {}
+
+    def read_account_metadata(self):
+        return read_omp_accounts(self.agent_db)
 
     def discover(self):
         self._ancestors.clear()
@@ -206,6 +219,7 @@ class OmpAdapter:
                 key=key, timestamp_us=when, harness=self.harness,
                 session_id=owner, source_file=path, parent_session_id=parent if owner == sid else None,
                 turn_id=turn_id,
+                credential_ref=credential_ref(self.agent_db, message.get("credentialId")),
                 provider=message.get("provider"), model=message.get("model") or "unknown",
                 project=project, agent_type="main" if owner == root_sid else agent_type,
                 agent_label=Path(path).stem if agent_type != "main" else None,

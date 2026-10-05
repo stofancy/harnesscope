@@ -3,6 +3,7 @@ export type Dimension =
     | "model"
     | "project"
     | "provider"
+    | "account"
     | "purpose"
     | "agent_type"
     | "service_tier"
@@ -46,6 +47,8 @@ export type Timing = {
 };
 export type Delta = { absolute: number | null; relative: number | null };
 export type Values = {
+    account_known_calls?: number;
+    account_unknown_calls?: number;
     tpm?: number | null;
     rpm?: number | null;
     throughput_tps?: number | null;
@@ -130,12 +133,50 @@ export type FilterKey =
     | "model"
     | "project"
     | "provider"
+    | "account"
     | "purpose"
     | "agent_type"
     | "service_tier"
     | "session";
 export type Filters = Partial<Record<FilterKey, string[]>>;
+export type Account = {
+    account_ref: string;
+    harness: string;
+    provider: string | null;
+    kind: "subscription" | "api_key" | "gateway_credential" | "unknown";
+    label: string;
+};
+export type AccountPeriod = {
+    id: string;
+    account_ref: string;
+    provider: string | null;
+    limit_id: string;
+    label: string;
+    observed_at: string | null;
+    start: string | null;
+    end: string | null;
+    boundary_quality: "reported" | "inferred" | "unknown";
+    duration_ms: number | null;
+    expires_at: string | null;
+    unit: string | null;
+    used: number | null;
+    limit: number | null;
+    remaining: number | null;
+    used_fraction: number | null;
+    scope: { model?: string | null; shared?: boolean | null; org?: string; project?: string; tier?: string; window_id?: string };
+};
+export type AccountDirectory = {
+    snapshot: { id: string | number };
+    accounts: Account[];
+    periods: AccountPeriod[];
+    coverage: {
+        sources?: { harness: string; available: boolean; status: string; error: string | null;
+            observed_at: string | null; retained?: boolean; counts?: Record<string, number> }[];
+        assigned_calls?: number; unknown_calls?: number; total_calls?: number; with_credential_ref_calls?: number;
+    };
+};
 export type DisplayLabels = {
+    accounts?: Account[];
     sessions: {
         harness: string;
         session_id: string;
@@ -345,7 +386,7 @@ export type TurnDetail = {
     }[];
 };
 
-export type UsageGroup = "request" | "session" | "turn" | "model" | "harness";
+export type UsageGroup = "request" | "session" | "turn" | "model" | "harness" | "provider" | "account";
 export type UsageView = {
     group: UsageGroup;
     sort: string;
@@ -354,6 +395,8 @@ export type UsageView = {
     limit: number;
 };
 export type UsageIdentity = {
+    provider?: string | null;
+    account_ref?: string | null;
     harness?: string | null;
     session_id?: string | null;
     turn_id?: string | null;
@@ -373,6 +416,8 @@ export type UsageRow = {
     projects: string[];
     harnesses: string[];
     models: string[];
+    providers?: string[];
+    accounts?: string[];
     metrics: Values;
     response_tps: number | null;
     turn_tps: number | null;

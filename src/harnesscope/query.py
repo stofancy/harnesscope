@@ -14,8 +14,8 @@ from .names import labelled
 from .pricing import _lookup_hit, load_pricing, model_cost_detail
 
 UTC = utc_timezone.utc
-DIMENSIONS = ('harness', 'model', 'provider', 'project', 'agent_type', 'purpose', 'service_tier', 'session')
-COLUMN = {d: ('session_id' if d == 'session' else d) for d in DIMENSIONS}
+DIMENSIONS = ('harness', 'model', 'provider', 'project', 'agent_type', 'purpose', 'service_tier', 'session', 'account')
+COLUMN = {d: {'session': 'session_id', 'account': 'account_ref'}.get(d, d) for d in DIMENSIONS}
 ADDITIVE = ('cost_usd', 'tokens', 'calls', 'input', 'output', 'cache_read', 'cache_write')
 RATE_METRICS = ('tpm', 'rpm', 'throughput_tps', 'rps')
 METRICS = ADDITIVE + ('cache_hit_rate', 'cost_per_call', 'cost_per_mtok') + RATE_METRICS
@@ -195,6 +195,8 @@ def _summary(events, seconds=None):
             'cost_per_call': cost / calls if calls and cost_complete else None,
             'cost_per_mtok': cost / (inp + output) * 1e6 if inp + output and cost_complete and complete_write else None,
             'sessions': len({(e['harness'], e['session_id']) for e in events}),
+            'account_known_calls': sum(bool(e.get('account_ref')) for e in events),
+            'account_unknown_calls': sum(not e.get('account_ref') for e in events),
             'source_cost_usd': source_costs.get('api_estimate', 0.0),
             'source_cost_calls': sum(e.get('source_cost_usd') is not None and e.get('source_cost_kind') == 'api_estimate' for e in events),
             'source_cost_by_kind': dict(source_costs),
@@ -245,6 +247,11 @@ class AnalyticsQuery:
         if model not in self._price_matches:
             self._price_matches[model] = _lookup_hit(pricing, model)
         return self._price_matches[model]
+
+    def accounts(self):
+        from .accounts import indexed_accounts
+        with self.index.read_snapshot() as conn:
+            return {**indexed_accounts(conn), 'snapshot': self._snapshot(conn)}
 
     def turns(self, request, offset=0, limit=50, sort='start', order='desc', include_rows=True):
         from .turn_query import TurnQuery
@@ -476,7 +483,9 @@ class AnalyticsQuery:
                 events = self._events(conn, start, end, filters)
                 row = {'harness': key['harness'], 'session_id': key['session_id'], 'first': _iso(datetime.fromtimestamp(events[0]['timestamp_us']/1e6, UTC)),
                        'last': _iso(datetime.fromtimestamp(events[-1]['timestamp_us']/1e6, UTC)), 'metrics': _summary(events, (end-start).total_seconds())}
-                for dimension in DIMENSIONS[1:-1]:
+                for dimension in DIMENSIONS:
+                    if dimension in ('harness', 'session'):
+                        continue
                     row[dimension] = sorted({str(e[COLUMN[dimension]] or '') for e in events})
                 result.append(row)
             return labelled(conn, {'snapshot': self._snapshot(conn), 'query': self._query(request, start, end), 'total': total,

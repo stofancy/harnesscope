@@ -20,6 +20,7 @@ import type {
     UsageDrill,
     UsageRow,
     DisplayLabels,
+    AccountDirectory,
 } from "./types";
 import { displayNames } from "./names";
 export const demo =
@@ -111,6 +112,8 @@ export type RawMetrics = {
     input_net?: number | null;
     cache_write?: number | null;
     cache_write_known?: number | null;
+    account_known_calls?: number;
+    account_unknown_calls?: number;
     cost_usd: number;
     cost_complete: boolean;
     cache_write_complete?: boolean;
@@ -204,11 +207,13 @@ export type RawAnalysis = {
             delta: Record<string, Delta>;
         }[];
     };
-    facets: Record<FilterKey, string[]>;
+    facets: Partial<Record<FilterKey, string[]>>;
     coverage: { sources: RawSource[]; missing_price_models: string[] };
 };
 export function normalizeMetrics(m: RawMetrics): Values {
     return {
+        account_known_calls: m.account_known_calls,
+        account_unknown_calls: m.account_unknown_calls,
         tpm: m.tpm ?? null,
         rpm: m.rpm ?? null,
         throughput_tps: m.throughput_tps ?? null,
@@ -268,7 +273,9 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
     const previous = new Map(raw.comparison.members.map((m) => [m.key, m]));
     const names = displayNames(raw.labels, q.timezone);
     const memberLabel = (m: { label: string; dimensions?: Record<string, string> }) =>
-        q.dimension === "project"
+        q.dimension === "account"
+            ? m.label === "Other" && !m.dimensions?.account ? "其他" : names.account(m.dimensions?.account ?? m.label)
+            : q.dimension === "project"
             ? names.project(m.dimensions?.project ?? m.label)
             : q.dimension === "session"
               ? names.session(m.dimensions?.harness ?? harnessContext(q) ?? "", m.dimensions?.session ?? m.label)
@@ -331,6 +338,7 @@ export function normalize(raw: RawAnalysis, q: Query, scan?: Status): Analysis {
                 [...new Set([...values, ...(q.filters[k as FilterKey] ?? [])])].map((v) => ({
                     key: v,
                     label: k === "project" ? names.project(v)
+                        : k === "account" ? names.account(v)
                         : k === "session" ? names.facetSession(v, harnessContext(q))
                         : label(v, k, harnessContext(q)),
                     tooltip: v,
@@ -705,6 +713,8 @@ export async function usage(
     if (drill) {
         const i = drill.identity;
         if (i.harness != null) p.set("harness", i.harness);
+        if ("provider" in i) p.set("provider", i.provider ?? "");
+        if ("account_ref" in i) p.set("account", i.account_ref ?? "");
         if (i.session_id != null) p.set("session", i.session_id);
         if ("turn_id" in i) p.set("turn_id", i.turn_id ?? "");
         if (i.model != null) p.set("model", i.model);
@@ -716,7 +726,7 @@ export async function usage(
         snapshot: { id: string };
         summary: RawMetrics;
         rows: (Omit<UsageRow, "metrics"> & { metrics: RawMetrics })[];
-        facets: Record<FilterKey, string[]>;
+        facets: Partial<Record<FilterKey, string[]>>;
     };
     const r = await request<Raw>(`/api/usage?${p}`, { signal });
     const names = displayNames(r.labels, q.timezone);
@@ -735,6 +745,7 @@ export async function usage(
                 [...new Set([...vs, ...(q.filters[k as FilterKey] ?? [])])].map((v) => ({
                     key: v,
                     label: k === "project" ? names.project(v)
+                        : k === "account" ? names.account(v)
                         : k === "session" ? names.facetSession(v, harnessContext(q))
                         : label(v, k, harnessContext(q)),
                     tooltip: v,
@@ -743,4 +754,8 @@ export async function usage(
             ]),
         ) as unknown as Analysis["facets"],
     };
+}
+
+export function accountDirectory(signal?: AbortSignal) {
+    return request<AccountDirectory>("/api/accounts", { signal });
 }

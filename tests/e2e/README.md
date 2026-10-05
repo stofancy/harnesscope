@@ -256,5 +256,85 @@ npm --prefix web run test:e2e -- --grep 'calendar dashboard|dashboard journey|us
 ```
 
 It uses the same real HTTP service, isolated sources/cache/pricing and disabled
-telemetry as the existing suite. Account billing/quota periods are outside this
-first calendar batch.
+telemetry as the existing suite. Account billing/quota periods are covered by the
+separate batch below.
+
+## Offline accounts and native observed periods
+
+The account scenarios use an actual disposable OMP `omp/agent/agent.db`, with
+the native `auth_credentials`, `usage_history` and `cache` tables. Four credentials
+represent two independent Anthropic subscription accounts, one Anthropic API key
+and one OpenRouter gateway credential. An additional request has no `credentialId`.
+Credential `data`, cache `raw` and cache `headers` contain a public fake secret
+sentinel for the data-source author's isolated whitelist/read-only proof. Browser
+tests reuse this native schema without repeating the lower-level security checks.
+They never read a personal database.
+
+All account usage belongs to `/synthetic/accounts` in **May 2025**. It therefore
+does not change the October 1 1300-token ledger, the filtered calendar 460-token
+ledger, or the sequence of synthetic recent appends. Only current quota metadata
+uses the actual clock; it adds no recent usage. Prices for `e2e-known` and
+`e2e-account-other` are input $2, cache read $0.50, cache write $3 and output $8
+per million tokens.
+
+The shared historical window is **2025-05-01 00:00 ≤ request < 05:00 UTC**:
+
+| Account / model | Net input | Cache read | Cache write | Output | Tokens | Calls | Cost USD |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Subscription A / known at start | 10 | 20 | 30 | 40 | 100 | 1 | 0.000440 |
+| Subscription A / known inside | 20 | 0 | 10 | 50 | 80 | 1 | 0.000470 |
+| Subscription A / other model | 30 | 10 | 0 | 20 | 60 | 1 | 0.000225 |
+| Subscription B / known | 40 | 20 | 0 | 60 | 120 | 1 | 0.000570 |
+| API key / known | 50 | 0 | 0 | 50 | 100 | 1 | 0.000500 |
+| Unknown account / known | 60 | 0 | 0 | 40 | 100 | 1 | 0.000440 |
+| Gateway credential / known | 70 | 0 | 0 | 30 | 100 | 1 | 0.000380 |
+| **Total** | **280** | **50** | **40** | **290** | **660** | **7** | **0.003025** |
+
+Subscription A additionally has a 1000-output-token request one second before
+the start and a 2000-output-token request exactly at the end. Neither belongs in
+the five-hour window. A's five-hour period has 240 tokens / 3 calls / $0.001135;
+preserving the known-model filter leaves 180 / 2 / $0.000910. Its seven-day window
+includes the end-boundary call, yielding 2180 known-model tokens. Switching back
+to five hours restores 180; quota windows are never added together.
+
+Native observations include a completed five-hour window, a completed seven-day
+window, a current five-hour window, a stale but still-active window, and a
+history-only observation without a start boundary. API/gateway credentials have
+no period. Current-period application must resolve its end to the click time,
+freeze that value across refresh/reload, and update it only on a subsequent apply.
+
+Two complete browser paths cover:
+
+- Directory types, missing-start disablement, stale vs ended, native metadata
+  update through the existing refresh action, and current-period application
+  with a fixed click-time cutoff across refresh/reload. One 1024-pixel screenshot
+  shows the populated directory and actual Dashboard charts without overflow.
+- The hand-counted totals through model/provider/account grouping, independent
+  subscriptions and unknown identity, applying a native cycle while preserving
+  model/project filters, then account/model drill, detail, back and saved context.
+
+Browser network observations continue requests unchanged. The account response
+is used to select opaque account/period identifiers, not to derive numeric
+expectations. No test calls an API directly or imports business query code.
+Native identity projection, secret exclusion, source hashes, read-only metadata
+GET, complex credential namespaces and absent-store fallback use the backend
+agents' already completed isolated HTTP evidence rather than duplicate browser
+assertions. The old Dashboard journey is the one necessary main-path regression.
+
+After the coordinating session gives the implementation GO:
+
+```bash
+npm --prefix web run typecheck
+npm --prefix web run build
+npm --prefix web run test:e2e -- --grep 'account periods|dashboard journey'
+```
+
+Preserve the runner report, native browser traces and the 1024 screenshot under ignored
+`.e2e/evidence/account-periods/` before another run clears transient artifacts.
+
+This batch passed: the two new account-period paths (15.85 seconds including
+startup) and the existing Dashboard journey (5.92 seconds). A test-helper response
+wait initially ran before opening the browser page; after correcting that order,
+only the two new paths were rerun. No application fix or larger suite was needed.
+The official new-path report, traces and one inspected 1024-pixel screenshot are
+retained in `.e2e/evidence/account-periods/`; its README records both run IDs.

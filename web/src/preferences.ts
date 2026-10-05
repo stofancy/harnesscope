@@ -45,6 +45,7 @@ const dimensions = [
     "model",
     "project",
     "provider",
+    "account",
     "purpose",
     "agent_type",
     "service_tier",
@@ -184,7 +185,7 @@ export function readPreferences(): Preferences {
             !["light", "dark"].includes(p.theme) ||
             ![15, 30, 60, 300].includes(p.autoPeriod) ||
             !p.usageView ||
-            !["request", "session", "turn", "model", "harness"].includes(
+            !["request", "session", "turn", "model", "harness", "provider", "account"].includes(
                 p.usageView.group,
             ) ||
             ![

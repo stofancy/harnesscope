@@ -24,6 +24,7 @@ const dimensions: Record<Dimension, string> = {
     model: "模型",
     project: "项目",
     provider: "Provider",
+    account: "账号",
     purpose: "用途",
     agent_type: "代理类型",
     service_tier: "运行模式",
@@ -147,7 +148,7 @@ function Facet({
         ...options,
         ...selected
             .filter((k) => !options.some((v) => v.key === k))
-            .map((key) => ({ key, label: name === "session" ? "未命名会话" : name === "project" ? "未记录项目名称" : key || "未知归属", tooltip: key })),
+            .map((key) => ({ key, label: name === "session" ? "未命名会话" : name === "project" ? "未记录项目名称" : name === "account" && !key ? "账号未知" : key || "未知归属", tooltip: key })),
     ];
     return (
         <div className="facet" data-testid={`filter-${name}`}>

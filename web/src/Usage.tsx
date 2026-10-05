@@ -66,6 +66,8 @@ const groupLabels: Record<UsageGroup, string> = {
     turn: "轮次",
     model: "模型",
     harness: "Harness",
+    provider: "Provider",
+    account: "账号",
 };
 const columns = [
     ["time", "最近请求"],
@@ -108,6 +110,8 @@ export function UsageTable({
         [data.snapshot_id, JSON.stringify(view), JSON.stringify(data.query)],
     );
     function name(r: UsageRow) {
+        if (view.group === "account") return names.account(r.identity.account_ref);
+        if (view.group === "provider") return r.identity.provider || "Provider 未记录";
         if (view.group === "model") return r.identity.model || "未记录模型";
         if (view.group === "harness")
             return harnessLabel(r.identity.harness || "");
@@ -224,6 +228,11 @@ export function UsageTable({
                                 name={name(r)}
                                 view={view}
                                 timezone={data.query.timezone}
+                                accountLabel={view.group === "request" || view.group === "account"
+                                    ? names.account(r.identity.account_ref)
+                                    : r.accounts?.length
+                                      ? [...new Set(r.accounts)].map(names.account).join(" / ")
+                                      : "账号归属未记录"}
                                 projectLabel={r.projects.map(names.project).join(" / ") || "未记录项目"}
                                 expanded={expanded === r.key}
                                 onClick={() => {
@@ -290,6 +299,7 @@ function Rows({
     view,
     timezone,
     projectLabel,
+    accountLabel,
     expanded,
     onClick,
 }: {
@@ -298,6 +308,7 @@ function Rows({
     view: UsageView;
     timezone: string;
     projectLabel: string;
+    accountLabel: string;
     expanded: boolean;
     onClick: () => void;
 }) {
@@ -371,13 +382,15 @@ function Rows({
                                 <b title={r.projects.join("\n")} data-testid="detail-project-name">{projectLabel}</b>
                             </span>
                             {Object.entries(r.identity)
-                                .filter(([, v]) => v != null)
+                                .filter(([k, v]) => v != null || k === "account_ref")
                                 .map(([k, v]) => (
                                     <span key={k}>
                                         {
                                             (
                                                 {
                                                     harness: "Harness",
+                                                    provider: "Provider",
+                                                    account_ref: "账号",
                                                     session_id: "会话",
                                                     turn_id: "轮次",
                                                     event_key: "请求",
@@ -387,6 +400,7 @@ function Rows({
                                         }{" "}
                                         <b title={v ?? undefined} data-testid={`detail-${k}`}>
                                             {k === "session_id" ? name
+                                                : k === "account_ref" ? accountLabel
                                                 : k === "harness" ? harnessLabel(v || "")
                                                 : k === "turn_id" ? "已关联轮次"
                                                 : k === "event_key" ? timeLabel(r.last, timezone, true)

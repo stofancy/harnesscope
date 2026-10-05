@@ -13,6 +13,9 @@ CODEX_SID = '11111111-1111-4111-8111-111111111111'
 CODEX_NAME = f'rollout-2026-10-01T00-00-00-{CODEX_SID}.jsonl'
 MODEL = 'e2e-known'
 PROJECT = '/synthetic/workbench'
+ACCOUNT_PROJECT = '/synthetic/accounts'
+ACCOUNT_SECRET = 'E2E_FAKE_SECRET_SENTINEL_MUST_NOT_ENTER_INDEX_OR_API'
+ACCOUNT_START = datetime(2025, 5, 1, tzinfo=timezone.utc)
 
 
 def stamp(seconds):
@@ -144,8 +147,114 @@ def prepare(root):
     prepare_activity_cases(root)
     prepare_names(root)
     prepare_calendar_cases(root)
+    prepare_account_cases(root)
     (root / 'codex/config.toml').write_text('service_tier = "default"\n')
     return root
+
+
+def account_report(provider, observed, expires, limits):
+    """Real OMP report-cache envelope; sensitive fields are deliberate sentinels."""
+    return {'expiresAt': int(expires.timestamp() * 1000), 'value': {
+        'provider': provider, 'fetchedAt': int(observed.timestamp() * 1000),
+        'limits': limits, 'raw': {'access_token': ACCOUNT_SECRET},
+        'headers': {'authorization': ACCOUNT_SECRET}}}
+
+
+def account_limit(identifier, label, reset, duration, fraction, model=MODEL):
+    return {'id': identifier, 'label': label,
+        'scope': {'provider': 'anthropic', 'modelId': model, 'shared': True},
+        'window': {'id': identifier, 'durationMs': duration,
+                   'resetsAt': int(reset.timestamp() * 1000)},
+        'amount': {'unit': 'percent', 'usedFraction': fraction}}
+
+
+def prepare_account_cases(root):
+    """Native DB + logs, independent of the October/annual/recent append ledgers."""
+    root = Path(root)
+    db = root / 'omp/agent/agent.db'
+    db.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc)
+    end = ACCOUNT_START + timedelta(hours=5)
+    keys = {letter: f'oauth|account:acct-{letter}|email:fixture-{letter}@example.invalid|org:org-{letter}'
+            for letter in ('a', 'b')}
+    reports = [
+        ('historical-a', keys['a'], account_report('anthropic', end - timedelta(minutes=1), end + timedelta(minutes=1), [
+            account_limit('anthropic:5h', 'Fixture ended 5 Hour', end, 18_000_000, .25),
+            account_limit('anthropic:7d', 'Fixture ended 7 Day', ACCOUNT_START + timedelta(days=7), 604_800_000, .50, None)])),
+        ('historical-b', keys['b'], account_report('anthropic', end - timedelta(minutes=2), end + timedelta(minutes=1), [
+            account_limit('anthropic:5h', 'Fixture B ended 5 Hour', end, 18_000_000, .75)])),
+        ('current-a', keys['a'], account_report('anthropic', now - timedelta(seconds=20), now + timedelta(minutes=10), [
+            account_limit('anthropic:5h', 'Fixture current 5 Hour', now + timedelta(hours=3), 18_000_000, .10)])),
+        ('stale-b', keys['b'], account_report('anthropic', now - timedelta(days=2), now - timedelta(days=1), [
+            account_limit('anthropic:5h', 'Fixture stale active 5 Hour', now + timedelta(hours=1), 18_000_000, .80)])),
+    ]
+    with sqlite3.connect(db) as conn:
+        conn.executescript('''
+            CREATE TABLE auth_credentials(id INTEGER PRIMARY KEY,provider TEXT,credential_type TEXT,identity_key TEXT,data TEXT);
+            CREATE TABLE usage_history(id INTEGER PRIMARY KEY,recorded_at INTEGER,provider TEXT,account_key TEXT,
+                account_id TEXT,limit_id TEXT,label TEXT,window_label TEXT,used_fraction REAL,status TEXT,resets_at INTEGER);
+            CREATE TABLE cache(key TEXT PRIMARY KEY,value TEXT,expires_at INTEGER);
+        ''')
+        conn.executemany('INSERT INTO auth_credentials VALUES (?,?,?,?,?)', [
+            (7, 'anthropic', 'oauth', 'email:fixture-a@example.invalid|org:org-a', ACCOUNT_SECRET),
+            (8, 'anthropic', 'oauth', 'email:fixture-b@example.invalid|org:org-b', ACCOUNT_SECRET),
+            (9, 'anthropic', 'api_key', None, ACCOUNT_SECRET),
+            (10, 'openrouter', 'api_key', None, ACCOUNT_SECRET),
+        ])
+        conn.execute('INSERT INTO usage_history VALUES (?,?,?,?,?,?,?,?,?,?,?)', (
+            1, int(end.timestamp() * 1000), 'anthropic', keys['a'], 'acct-a',
+            'anthropic:history-only', 'Fixture missing start', 'unknown', .40, 'ok',
+            int((end + timedelta(days=1)).timestamp() * 1000)))
+        conn.executemany('INSERT INTO cache VALUES (?,?,?)', [
+            (f'usage_cache:report:3:anthropic:{name}:{key}', json.dumps(report), report['expiresAt'])
+            for name, key, report in reports])
+    cases = [
+        # High-cost requests just outside [start,end) catch boundary pollution.
+        ('a-before', 7, 'anthropic', -1, MODEL, 0, 0, 0, 1000),
+        ('a-at-start', 7, 'anthropic', 0, MODEL, 10, 20, 30, 40),
+        ('a-inside', 7, 'anthropic', 3600, MODEL, 20, 0, 10, 50),
+        ('a-other-model', 7, 'anthropic', 7200, 'e2e-account-other', 30, 10, 0, 20),
+        ('a-at-end', 7, 'anthropic', 18000, MODEL, 0, 0, 0, 2000),
+        ('b-inside', 8, 'anthropic', 3600, MODEL, 40, 20, 0, 60),
+        ('api-inside', 9, 'anthropic', 7200, MODEL, 50, 0, 0, 50),
+        ('unknown-inside', None, 'anthropic', 10800, MODEL, 60, 0, 0, 40),
+        ('gateway-inside', 10, 'openrouter', 14400, MODEL, 70, 0, 0, 30),
+    ]
+    for name, credential, provider, seconds, model, net, read, cache_write, output in cases:
+        at = ACCOUNT_START + timedelta(seconds=seconds)
+        user = f'account-user-{name}'
+        message = {'role': 'assistant', 'model': model, 'provider': provider,
+            'responseId': f'account-response-{name}', 'timestamp': int(at.timestamp() * 1000),
+            'stopReason': 'stop', 'content': [], 'usage': {'input': net, 'output': output,
+                'cacheRead': read, 'cacheWrite': cache_write, 'totalTokens': net + read + cache_write + output}}
+        if credential is not None:
+            message['credentialId'] = credential
+        write(root / 'omp' / f'account-{name}.jsonl', [
+            {'type': 'session', 'id': f'account-session-{name}', 'cwd': ACCOUNT_PROJECT, 'title': f'Fixture {name}'},
+            {'type': 'message', 'id': user, 'timestamp': (at - timedelta(seconds=1)).isoformat(),
+             'message': {'role': 'user', 'content': 'Synthetic account request'}},
+            {'type': 'message', 'id': f'account-assistant-{name}', 'parentId': user,
+             'timestamp': at.isoformat(), 'message': message},
+        ])
+    pricing = json.loads((root / 'pricing.json').read_text())
+    pricing['e2e-account-other'] = dict(pricing[MODEL])
+    (root / 'pricing.json').write_text(json.dumps(pricing))
+    (root / 'account-fixture.json').write_text(json.dumps({
+        'current_start': (now - timedelta(hours=2)).isoformat(),
+        'current_end': (now + timedelta(hours=3)).isoformat(),
+        'historical_start': ACCOUNT_START.isoformat(), 'historical_end': end.isoformat()}))
+
+
+def update_account_metadata(root):
+    """Mutate quota metadata only; no transcript, credential identity or usage changes."""
+    root = Path(root)
+    with sqlite3.connect(root / 'omp/agent/agent.db') as conn:
+        key, value = conn.execute("SELECT key,value FROM cache WHERE key LIKE '%:historical-a:%'").fetchone()
+        report = json.loads(value)
+        report['value']['fetchedAt'] += 1000
+        report['value']['limits'][0].update(label='Fixture ended 5 Hour refreshed')
+        report['value']['limits'][0]['amount']['usedFraction'] = .55
+        conn.execute('UPDATE cache SET value=? WHERE key=?', (json.dumps(report), key))
 
 
 def prepare_names(root):
@@ -393,10 +502,13 @@ if __name__ == '__main__':
     parser.add_argument('--append', type=Path, required=True)
     parser.add_argument('--recent-call', type=int)
     parser.add_argument('--rename-sessions', action='store_true')
+    parser.add_argument('--update-account-metadata', action='store_true')
     args = parser.parse_args()
     if not args.append.name.startswith('harnesscope-browser-'):
         parser.error('append target must be the dedicated temporary browser fixture')
-    if args.rename_sessions:
+    if args.update_account_metadata:
+        update_account_metadata(args.append)
+    elif args.rename_sessions:
         rename_sessions(args.append)
     elif args.recent_call is None:
         append_completion(args.append)

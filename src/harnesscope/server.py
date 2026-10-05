@@ -105,6 +105,9 @@ def create_app(service=None, *, static_dir: Path | None = None,
         result = await run_in_threadpool(service.refresh, background=True)
         return JSONResponse(result, status_code=202)
 
+    async def accounts(request: Request) -> Response:
+        return JSONResponse(await run_in_threadpool(service.accounts))
+
     def query_request(request: Request):
         from .query import QueryRequest
         params = {key: request.query_params.getlist(key) for key in request.query_params}
@@ -218,6 +221,7 @@ def create_app(service=None, *, static_dir: Path | None = None,
 
     app = Starlette(routes=[
         Route("/api/status", status, methods=["GET"]),
+        Route("/api/accounts", accounts, methods=["GET"]),
         Route("/api/refresh", refresh, methods=["POST"]),
         Route("/api/analytics", analytics, methods=["GET"]),
         Route("/api/usage", usage, methods=["GET"]),

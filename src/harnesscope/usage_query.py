@@ -8,7 +8,7 @@ from typing import Any
 from .names import labelled
 from .query import UTC, _iso, _summary
 
-GROUPS = ('request', 'session', 'turn', 'model', 'harness')
+GROUPS = ('request', 'session', 'turn', 'model', 'harness', 'provider', 'account')
 SORTS = ('time', 'cost_usd', 'tokens', 'input_net', 'cache_read', 'cache_write',
          'output', 'calls', 'response_tps', 'turn_tps')
 
@@ -20,6 +20,8 @@ def _key(event, group):
         return event['harness'], event['session_id']
     if group == 'turn':
         return event['harness'], event['session_id'], event['turn_id']
+    if group in ('provider', 'account'):
+        return (str(event.get('account_ref' if group == 'account' else group) or ''),)
     return (event[group],)
 
 
@@ -117,6 +119,8 @@ class UsageQuery:
                             'session_id': first['session_id'] if group in ('request', 'session', 'turn') else None,
                             'turn_id': first['turn_id'] if group in ('request', 'turn') else None,
                             'model': first['model'] if group in ('request', 'model') else None,
+                            'provider': first['provider'] if group in ('request', 'provider') else None,
+                            'account_ref': first.get('account_ref') if group in ('request', 'account') else None,
                             'event_key': first['key'] if group == 'request' else None}
                 timing = timing_values.get(key, [])
                 rows.append({'key': json.dumps(key, ensure_ascii=False, separators=(',', ':')),
@@ -126,6 +130,8 @@ class UsageQuery:
                              'projects': sorted({event['project'] for event in members if event['project']}),
                              'harnesses': sorted({event['harness'] for event in members}),
                              'models': sorted({event['model'] for event in members}),
+                             'providers': sorted({str(event['provider'] or '') for event in members}),
+                             'accounts': sorted({str(event.get('account_ref') or '') for event in members}),
                              'metrics': _summary(members), 'timing': timing,
                              'response_tps': _speed(timing, 'model'), 'turn_tps': _speed(timing, 'end_to_end')})
             summary = _summary(events, (end-start).total_seconds())
