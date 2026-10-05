@@ -163,6 +163,16 @@ def parse_codex_file(path: str, offset: int = 0, state: dict | None = None) -> P
     return batch
 
 
+def _codex_boundary_us(value) -> int | None:
+    """Codex task boundary counters are Unix seconds; other sources use milliseconds."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            return int(value * 1_000_000)
+        except (ValueError, OverflowError):
+            return None
+    return _timestamp_us(value)
+
+
 class _CodexActivity:
     """Retain only boundary/identity metadata for unfinished turns and tools."""
 
@@ -176,7 +186,7 @@ class _CodexActivity:
 
     def start(self, payload: dict, timestamp, metadata: dict) -> None:
         tid = payload.get("turn_id")
-        start = _timestamp_us(payload.get("started_at")) or _timestamp_us(timestamp)
+        start = _codex_boundary_us(payload.get("started_at")) or _timestamp_us(timestamp)
         self.active = tid
         if tid is None or start is None:
             return
@@ -195,7 +205,7 @@ class _CodexActivity:
             self.active = None
         turn = self.turns.get(tid)
         if turn is None:
-            start = _timestamp_us(payload.get("started_at"))
+            start = _codex_boundary_us(payload.get("started_at"))
             if start is None:
                 self.tools = {key: tool for key, tool in self.tools.items()
                               if tool.turn_id != tid or tool.status == "running"}
@@ -204,7 +214,7 @@ class _CodexActivity:
             turn = TurnRecord(key=f"turn:{tid}", harness="codex", turn_id=tid,
                               start_us=start, source_file=self.path, **metadata)
             self.partial.add(tid)
-        end = _timestamp_us(payload.get("completed_at")) or _timestamp_us(timestamp)
+        end = _codex_boundary_us(payload.get("completed_at")) or _timestamp_us(timestamp)
         if end is not None and end < turn.start_us:
             end, status = None, "unknown"
         pending = any(t.turn_id == tid and t.status == "running" for t in self.tools.values())
