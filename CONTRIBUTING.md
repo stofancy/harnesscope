@@ -41,6 +41,18 @@ metrics, and turn/tool drilldown with a small set of end-to-end user scenarios. 
 e2e telemetry and use no-model execution by default. Keep generated reports and browser
 artifacts out of version control. Static checks and production builds remain applicable.
 
+Use Node.js 24.8+ (or 22.22.3+ on Node.js 22) for the e2e runner:
+
+```bash
+npm --prefix web ci
+npm --prefix web run build
+npm --prefix web run test:e2e
+```
+
+The root `e2e.config.ts` starts the isolated local application. Case prerequisites,
+hand-calculated fixture values and artifact locations live in
+[tests/e2e/README.md](tests/e2e/README.md).
+
 ## Historical test suites
 
 ```bash
