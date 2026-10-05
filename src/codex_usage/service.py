@@ -102,9 +102,15 @@ class UsageService:
         with self._query_lock:
             return self._queries().session_detail(harness, sid, request)
 
-    def turns(self, request, offset: int = 0, limit: int = 50, sort: str = 'start', order: str = 'desc'):
+    def turns(self, request, offset: int = 0, limit: int = 50, sort: str = 'start', order: str = 'desc', include_rows: bool = True):
         with self._query_lock:
-            return self._queries().turns(request, offset=offset, limit=limit, sort=sort, order=order)
+            return self._queries().turns(request, offset=offset, limit=limit, sort=sort, order=order, include_rows=include_rows)
+
+    def usage(self, request, group: str = 'request', offset: int = 0, limit: int = 50,
+              sort: str = 'time', order: str = 'desc', turn_ids=()):
+        with self._query_lock:
+            return self._queries().usage(request, group=group, offset=offset, limit=limit,
+                                         sort=sort, order=order, turn_ids=turn_ids)
 
     def turn_detail(self, harness: str, sid: str, turn_id: str, request=None):
         with self._query_lock:

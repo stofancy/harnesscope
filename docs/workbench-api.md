@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | start, end | 全部可用事件时间范围 | ISO 8601，必须带 offset；必须一起提供 |
 | timezone | UTC | IANA 名称，例如 Asia/Singapore、America/New_York |
-| bucket | day | auto / second / 10second / minute / 5minute / 15minute / hour / day / week / month；week 从周一开始 |
+| bucket | day | auto / second / 5second / 10second / 30second / minute / 5minute / 15minute / hour / day / week / month；week 从周一开始 |
 | group_by | harness | harness / model / provider / project / agent_type / purpose / service_tier / session；逗号分隔支持多个维度，最多 3 个 |
 | metric | cost_usd | cost_usd / tokens / calls / input / output / cache_read / cache_write / cache_hit_rate / cost_per_call / cost_per_mtok / tpm / rpm / throughput_tps / rps |
 | harness、model 等维度名 | 无 | 可重复参数，多值同维 OR，跨维 AND；空字符串匹配未知值 |
@@ -36,7 +36,7 @@
 }
 ```
 
-`metrics` 复用 summary 的计量字段；空对象在示例中用于省略重复字段。所有成员均在 breakdown 与 comparison.members 中返回。单维 key 为原始维度值；未知值 key 为空字符串，label 为 `Unknown`。多维 key 为 JSON 字符串数组，dimensions 保留原始字段。
+`metrics` 复用 summary 的计量字段；空对象在示例中用于省略重复字段。所有成员均在 breakdown 与 comparison.members 中返回。单维 key 为原始维度值；未知值 key 为空字符串，label 为 `Unknown`。多维 key 为 JSON 字符串数组，dimensions 保留原始字段。session 分组始终使用包含 harness 的联合 key：单独 session 为 `[harness,session_id]`，多维且未显式包含 harness 时在数组前追加 harness，以防不同来源同名会话合并。
 
 `input = input_net + cache_read + cache_write`；`tokens = input + output`。缓存写未知时，input/tokens 是已记录分量小计，cache_write 显示 null，附 `cache_write_complete=false`。cache_hit_rate 使用已知且口径完整的输入计算 `Σcache_read / Σinput`；存在未知缓存写时该比率返回 null。比率按合计分子分母计算。成本缺价时 cost_usd 保留已知小计，cost_complete=false；桶内 priced_calls>0 时 trend.value 展示已知小计，全部缺价时 value=null。成本效率比率在缺价时返回 null。未知值不会绘成零；确实没有事件的时间桶会补零，分母为零的比率为 null。
 
@@ -64,7 +64,7 @@ coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 
 
 ## 轮次、工具与细粒度速率（第二轮）
 
-时间粒度新增 `auto/second/10second/minute/5minute/15minute`，保留 `hour/day/week/month`。
+时间粒度支持 `auto/second/5second/10second/30second/minute/5minute/15minute`，保留 `hour/day/week/month`。
 `auto` 按当前窗选择约 120 桶以内的粒度，最细为 minute；显式 second/10second 受 2000 桶上限约束。
 `query.bucket` 保留请求值，`query.bucket_resolved` 为实际粒度。每桶增加 `seconds/window_start/window_end`，
 其中 seconds 是完整桶与 `[start,end)` 的实际交集秒数。summary 和每桶 metrics 均增加 seconds、
@@ -82,10 +82,13 @@ coverage.sources 是同一 SQLite 快照内的文件扫描状态摘要，包含 
 start 使用开始时间；cost_usd/tokens/calls 使用窗内已记录小计（无任何定价记录的费用排序值为 null）；
 duration 使用起止时间差，未闭合为 null；tool_calls 使用已记录工具数量。非法值或重复参数响应 400。
 返回 `{snapshot,query,sort,order,summary,trend,tools,rows,total,offset,limit,coverage}`。
+`include_rows=false` 返回空 rows，保留同一快照的 summary/trend/tools/coverage/total，供 Dashboard 聚合面板使用；默认 true，仅接受单个 true/false 值。
 
 - `rows` 每项包含原始 TurnRecord 元数据、start/end、status、duration_seconds、full_window、
   recorded_usage_available、usage_scope、window_metrics、full_metrics、tool_calls_known、tool_calls、tool_coverage。
-  轮次区间与当前窗相交时入选；无结束时间的轮次按持续中处理。窗内 calls/tokens/cost 使用同窗口
+  轮次凭窗内开始/结束边界、匹配的窗内调用或窗内工具开始/结束边界活动入选。
+  仅历史开始且结束未知的轮次不会永久进入后续窗口；缺结束仍保留未知，不设置过期时长或补造结束。
+  窗内 calls/tokens/cost 使用同窗口
   与全局筛选条件，usage_scope 为 `filtered_calls` 或 `all_recorded_calls`。
   模型/provider/purpose/service_tier 筛选通过窗内匹配的 UsageEvent 选择轮次，工具仍统计这些轮次的
   已记录工具调用，返回 `tool_scope=selected_turns`。
@@ -106,8 +109,9 @@ duration 使用起止时间差，未闭合为 null；tool_calls 使用已记录�
   轮次，以秒返回，采用线性插值；duration_boundary_quality 显示 exact/inferred 样本数量。
   tool_coverage 任一为 partial/unknown 时 tool_calls/tools_per_turn=null，known 小计持续可见。
 - trend 为 `{buckets}`；每桶包含 start/end/window_start/window_end/seconds、metrics、turns、status_counts、
-  tool_calls_known、tool_calls、duration_p50/duration_p95。用量按事件时间分配，轮次数量按开始时间分配，
-  开始早于窗的截断轮次计入第一桶，工具按开始时间分配（跨窗工具也计入第一桶）。
+  tool_calls_known、tool_calls、duration_p50/duration_p95。用量按事件时间分配，轮次数量按最早窗内活动时间 activity_us 分配。
+  工具仅在开始或结束边界落窗时计入，按窗内开始时间分桶；开始早于窗时按窗内结束时间分桶。
+  历史未结束工具无窗内边界活动时不进入统计。工具 count 是窗内有边界活动的已记录数量。
 - tools 返回 `{coverage,scope,status_counts,rows}`，rows 按工具名包含 tool_name/calls/status_counts/
   duration_p50/duration_p95/duration_samples；覆盖部分缺失时这些 count 表示已记录数量。
 - coverage 包含 boundary_quality、tool_coverage 分布、truncated_turns、unassigned_calls、usage_scope。
@@ -120,5 +124,39 @@ duration 使用起止时间差，未闭合为 null；tool_calls 使用已记录�
 recorded_metrics 标为整轮已记录小计，完整性取决于边界与日志质量，保留缺价信息。
 related_turns 仅返回有依据的 root_turn_id 关联，parent_session_id 单独保留为元数据，未知轮次关系保持未知。
 
-Python 新增 `AnalyticsQuery.turns(request,offset=0,limit=50,sort='start',order='desc')`、
+Python 新增 `AnalyticsQuery.turns(request,offset=0,limit=50,sort='start',order='desc',include_rows=True)`、
 `AnalyticsQuery.turn_detail(harness,sid,turn_id,request=None)`，详情不存在或被筛选排除时返回 None。
+
+## 统一用量明细
+
+`GET /api/usage` 供独立用量明细页面使用。接收共同时间与八维筛选参数，另接收：
+
+| 参数 | 默认 | 含义 |
+| --- | --- | --- |
+| group | request | request / session / turn / model / harness |
+| sort | time | time / cost_usd / tokens / input_net / cache_read / cache_write / output / calls / response_tps / turn_tps |
+| order | desc | asc / desc |
+| offset, limit | 0, 50 | limit 为 1..200 |
+| turn_id | 无 | 可重复，OR；空字符串仅匹配未关联轮次。配合 harness 和 session 形成联合下钻约束 |
+
+group/sort/order 必须为单值，非法枚举与分页范围返回 400。相同 `[start,end)` 中的调用先按所有筛选条件选定，
+再按 group 汇总，完整结果排序后分页。time 使用最后窗内调用时间；费用使用已知估算小计，全部缺价时排序值为 null。
+缓存写存在未知分量时为 null；tokens 排序使用已记录四分量小计。所有 null 靠后，同值按联合身份 JSON key 升序。
+
+返回 `{snapshot,query,group,sort,order,summary,coverage,facets,rows,total,offset,limit}`。
+summary 是全部筛选结果的共享计量汇总，独立于分页。coverage 含 usage_quality/unassigned_calls/priced_calls/unpriced_calls/timing_scope。
+facets 复用 analytics 的排除自身维度规则，并保留 turn_id 范围。query.turn_ids 保留明细局部轮次筛选。
+
+每行包含 `key/identity/first/last/projects/harnesses/models/metrics/response_tps/turn_tps/timing`：
+
+- identity 固定含 harness/session_id/turn_id/model/event_key；不适用字段为 null。request 的 event_key 对应原始调用，
+  session 与 turn 包含 harness/session_id，turn 还包含 turn_id。未关联轮次以 turn_id=null 保留为独立组，四分量不会掉出总计。
+- first/last 是当前窗内调用时间；不会以历史会话创建时间代替。projects/harnesses/models 是本行实际记录的元数据集合。
+- metrics 复用共享 summary。四列使用 input_net（未缓存输入）、cache_read、output、cache_write。
+  cache_write=null 时 cache_write_known 保留已知写入小计；cost_usd 保留已知估算小计，cost_complete/priced_calls/unpriced_calls 提供覆盖。
+- response_tps 仅使用可对应原始调用 key 的完整真实 model 计时样本；turn_tps 使用完整落窗、全部输出可归属该行的 end_to_end 样本。
+  request 行不会分摊轮次 TPS。缺计时返回 null，不以窗口吞吐替代。跨 harness 的单值 TPS 为 null，timing 保留各 harness/kind 分项。
+  timing 分项含 harness/kind/output/seconds/samples/tps，使用 `Σoutput/Σ真实耗时`。
+
+Python 入口为 `AnalyticsQuery.usage(request,group='request',offset=0,limit=50,sort='time',order='desc',turn_ids=())`。
+原 session/turn 详情入口保持可用，详情工具的 in_window 同样以实际开始/结束边界活动为准。

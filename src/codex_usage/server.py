@@ -115,6 +115,23 @@ def create_app(service=None, *, static_dir: Path | None = None,
             raise ValueError("offset 须非负，limit 须在 1 到 200 之间")
         return offset, limit
 
+    def option(request: Request, name: str, default: str) -> str:
+        values = request.query_params.getlist(name)
+        if len(values) > 1:
+            raise ValueError(f'{name} 需要单个值')
+        return values[0] if values else default
+
+    async def usage(request: Request) -> Response:
+        try:
+            query = query_request(request)
+            offset, limit = pagination(request)
+            result = await run_in_threadpool(service.usage, query, offset=offset, limit=limit,
+                group=option(request, 'group', 'request'), sort=option(request, 'sort', 'time'),
+                order=option(request, 'order', 'desc'), turn_ids=request.query_params.getlist('turn_id'))
+            return JSONResponse(result)
+        except ValueError as exc:
+            return JSONResponse({'error': str(exc)}, status_code=400)
+
     async def analytics(request: Request) -> Response:
         try:
             query = query_request(request)
@@ -149,13 +166,12 @@ def create_app(service=None, *, static_dir: Path | None = None,
         try:
             query = query_request(request)
             offset, limit = pagination(request)
-            options = {}
-            for name, default in (('sort', 'start'), ('order', 'desc')):
-                values = request.query_params.getlist(name)
-                if len(values) > 1:
-                    raise ValueError(f'{name} 需要单个值')
-                options[name] = values[0] if values else default
-            result = await run_in_threadpool(service.turns, query, offset=offset, limit=limit, **options)
+            include_rows = option(request, 'include_rows', 'true')
+            if include_rows not in ('true', 'false'):
+                raise ValueError('include_rows 需要 true 或 false')
+            result = await run_in_threadpool(service.turns, query, offset=offset, limit=limit,
+                sort=option(request, 'sort', 'start'), order=option(request, 'order', 'desc'),
+                include_rows=include_rows == 'true')
             return JSONResponse(result)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
@@ -202,6 +218,7 @@ def create_app(service=None, *, static_dir: Path | None = None,
         Route("/api/status", status, methods=["GET"]),
         Route("/api/refresh", refresh, methods=["POST"]),
         Route("/api/analytics", analytics, methods=["GET"]),
+        Route("/api/usage", usage, methods=["GET"]),
         Route("/api/sessions", sessions, methods=["GET"]),
         Route("/api/sessions/{harness}/{sid}", detail, methods=["GET"]),
         Route("/api/turns", turns, methods=["GET"]),

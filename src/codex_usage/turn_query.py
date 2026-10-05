@@ -69,7 +69,12 @@ def _public_tool(tool, start_us, end_us):
     return {**tool, 'start': _iso(datetime.fromtimestamp(tool['start_us']/1e6, UTC)),
             'end': _iso(datetime.fromtimestamp(tool['end_us']/1e6, UTC)) if tool['end_us'] is not None else None,
             'duration_seconds': _duration(tool),
-            'in_window': tool['start_us'] < end_us and (tool['end_us'] is None or tool['end_us'] > start_us)}
+            'in_window': _boundary_in_window(tool, start_us, end_us)}
+
+
+def _boundary_in_window(record, start_us, end_us):
+    return (start_us <= record['start_us'] < end_us or
+            record['end_us'] is not None and start_us <= record['end_us'] < end_us)
 
 
 class TurnQuery:
@@ -78,14 +83,23 @@ class TurnQuery:
 
     def _load(self, conn, request, start, end):
         start_us, end_us = _us(start), _us(end)
-        clauses = ['start_us < ?', '(end_us IS NULL OR end_us > ?)']
-        args = [end_us, start_us]
+        active = '''WITH active AS (
+            SELECT harness,session_id,turn_id FROM turns
+                WHERE (start_us>=? AND start_us<?) OR (end_us>=? AND end_us<?)
+            UNION SELECT harness,session_id,turn_id FROM events
+                WHERE timestamp_us>=? AND timestamp_us<? AND turn_id IS NOT NULL
+            UNION SELECT harness,session_id,turn_id FROM tool_calls
+                WHERE (start_us>=? AND start_us<?) OR (end_us>=? AND end_us<?))'''
+        clauses = []
+        args = [start_us, end_us] * 5
         for dimension, values in request.filters.items():
             if dimension in DIRECT_FILTERS:
-                clauses.append(f"COALESCE({DIRECT_FILTERS[dimension]},'') IN ({','.join('?' for _ in values)})")
+                clauses.append(f"COALESCE(t.{DIRECT_FILTERS[dimension]},'') IN ({','.join('?' for _ in values)})")
                 args.extend(values)
-        condition = ' AND '.join(clauses)
-        turns = [dict(row) for row in conn.execute(f'SELECT * FROM turns WHERE {condition} ORDER BY start_us DESC,harness,session_id,turn_id', args)]
+        condition = ' AND '.join(clauses) or '1'
+        turns = [dict(row) for row in conn.execute(f'''{active} SELECT t.* FROM turns t
+            JOIN active a ON a.harness=t.harness AND a.session_id=t.session_id AND a.turn_id=t.turn_id
+            WHERE {condition} ORDER BY t.start_us DESC,t.harness,t.session_id,t.turn_id''', args)]
         events = self.query._events(conn, start, end, request.filters)
         events_by_turn = defaultdict(list)
         for event in events:
@@ -96,9 +110,9 @@ class TurnQuery:
         selected = {_identity(turn) for turn in turns}
         tools = [dict(row) for row in conn.execute('''SELECT c.* FROM tool_calls c
                 JOIN turns t ON t.harness=c.harness AND t.session_id=c.session_id AND t.turn_id=c.turn_id
-                WHERE t.start_us<? AND (t.end_us IS NULL OR t.end_us>?)
-                AND c.start_us<? AND (c.end_us IS NULL OR c.end_us>?) ORDER BY c.start_us,c.key''',
-                (end_us, start_us, end_us, start_us)) if _identity(row) in selected]
+                WHERE (c.start_us>=? AND c.start_us<?) OR (c.end_us>=? AND c.end_us<?)
+                ORDER BY c.start_us,c.key''',
+                (start_us, end_us, start_us, end_us)) if _identity(row) in selected]
         tools_by_turn = defaultdict(list)
         for tool in tools:
             tools_by_turn[_identity(tool)].append(tool)
@@ -113,13 +127,21 @@ class TurnQuery:
                 datetime.fromtimestamp(turn['start_us']/1e6, UTC),
                 datetime.fromtimestamp(turn['end_us']/1e6, UTC) if turn['end_us'] is not None else end))
             known_tools = len(tools_by_turn[identity])
+            activity = [record['timestamp_us'] for record in calls]
+            for record in [turn, *tools_by_turn[identity]]:
+                activity.extend(value for value in (record['start_us'], record['end_us'])
+                                if value is not None and start_us <= value < end_us)
+            if not activity:
+                continue
             rows.append({**turn, 'start': _iso(datetime.fromtimestamp(turn['start_us']/1e6, UTC)),
                          'end': _iso(datetime.fromtimestamp(turn['end_us']/1e6, UTC)) if turn['end_us'] is not None else None,
                          'duration_seconds': duration, 'full_window': full, 'recorded_usage_available': recorded_available,
+                         'activity_us': min(activity),
                          'usage_scope': _scope(request.filters), 'tool_scope': 'selected_turns',
                          'window_metrics': metrics, 'full_metrics': metrics if recorded_available else None,
                          'tool_calls_known': known_tools,
                          'tool_calls': known_tools if turn['tool_coverage'] == 'complete' else None})
+        selected = {_identity(row) for row in rows}
         selected_events = [event for event in events if _identity(event) in selected]
         return rows, selected_events, tools, len(events) - len(selected_events)
 
@@ -164,7 +186,7 @@ class TurnQuery:
         return {'coverage': 'complete' if rows and all(row['tool_coverage'] == 'complete' for row in rows) else 'partial',
                 'scope': 'selected_turns', 'status_counts': dict(Counter(t['status'] for t in tools)), 'rows': values}
 
-    def turns(self, request, offset=0, limit=50, sort='start', order='desc'):
+    def turns(self, request, offset=0, limit=50, sort='start', order='desc', include_rows=True):
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError('offset must be nonnegative and limit must be 1..200')
         if sort not in TURN_SORTS or order not in ('asc', 'desc'):
@@ -178,9 +200,12 @@ class TurnQuery:
             row_buckets: list[list[dict]] = [[] for _ in edges[:-1]]
             event_buckets: list[list[dict]] = [[] for _ in edges[:-1]]
             tool_buckets: list[list[dict]] = [[] for _ in edges[:-1]]
-            for source, destination, timestamp in ((rows, row_buckets, 'start_us'), (events, event_buckets, 'timestamp_us'), (tools, tool_buckets, 'start_us')):
+            for source, destination, timestamp in ((rows, row_buckets, 'activity_us'), (events, event_buckets, 'timestamp_us'), (tools, tool_buckets, 'start_us')):
                 for item in source:
-                    position = min(len(destination)-1, max(0, bisect.bisect_right(edge_us, item[timestamp]) - 1))
+                    moment = item[timestamp]
+                    if source is tools and moment < _us(start):
+                        moment = item['end_us']
+                    position = min(len(destination)-1, max(0, bisect.bisect_right(edge_us, moment) - 1))
                     destination[position].append(item)
             trend = []
             complete_tools = bool(rows) and all(row['tool_coverage'] == 'complete' for row in rows)
@@ -199,7 +224,7 @@ class TurnQuery:
             rows = _sort_turns(rows, sort, order)
             return {'snapshot': query._snapshot(conn), 'query': query._query(request, start, end), 'sort': sort, 'order': order,
                     'summary': self._summary(rows, events, tools, (end-start).total_seconds()),
-                    'trend': {'buckets': trend}, 'tools': self._tools(rows, tools), 'rows': rows[offset:offset+limit],
+                    'trend': {'buckets': trend}, 'tools': self._tools(rows, tools), 'rows': rows[offset:offset+limit] if include_rows else [],
                     'total': len(rows), 'offset': offset, 'limit': limit, 'coverage': coverage}
 
     def turn_detail(self, harness, sid, turn_id, request=None):
@@ -214,8 +239,6 @@ class TurnQuery:
                 return None
             start, end = query._window(conn, request)
             start_us, end_us = _us(start), _us(end)
-            if turn['start_us'] >= end_us or (turn['end_us'] is not None and turn['end_us'] <= start_us):
-                return None
             # Full recorded turn calls are returned for tracing, even when the
             # global window clips the turn. The window subtotal remains separate.
             bounds = conn.execute('SELECT MIN(timestamp_us),MAX(timestamp_us) FROM events WHERE harness=? AND session_id=? AND turn_id=?', (harness, sid, turn_id)).fetchone()
@@ -229,6 +252,9 @@ class TurnQuery:
             if CALL_FILTERS.intersection(request.filters) and not window_calls:
                 return None
             tools = [dict(row) for row in conn.execute('SELECT * FROM tool_calls WHERE harness=? AND session_id=? AND turn_id=? ORDER BY start_us,key', (harness, sid, turn_id))]
+            if not (_boundary_in_window(turn, start_us, end_us) or window_calls or
+                    any(_boundary_in_window(tool, start_us, end_us) for tool in tools)):
+                return None
             turn.update(start=_iso(datetime.fromtimestamp(turn['start_us']/1e6, UTC)),
                         end=_iso(datetime.fromtimestamp(turn['end_us']/1e6, UTC)) if turn['end_us'] is not None else None,
                         duration_seconds=_duration(turn))

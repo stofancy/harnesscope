@@ -19,7 +19,7 @@ ADDITIVE = ('cost_usd', 'tokens', 'calls', 'input', 'output', 'cache_read', 'cac
 RATE_METRICS = ('tpm', 'rpm', 'throughput_tps', 'rps')
 METRICS = ADDITIVE + ('cache_hit_rate', 'cost_per_call', 'cost_per_mtok') + RATE_METRICS
 MAX_BUCKETS = 2000
-BUCKET_SECONDS = {'second': 1, '10second': 10, 'minute': 60, '5minute': 300, '15minute': 900, 'hour': 3600}
+BUCKET_SECONDS = {'second': 1, '5second': 5, '10second': 10, '30second': 30, 'minute': 60, '5minute': 300, '15minute': 900, 'hour': 3600}
 
 
 def _datetime(value):
@@ -161,8 +161,10 @@ def _bucket_edges(start, end, tzname, bucket):
 
 def _member(event, dimensions):
     values = [str(event.get(COLUMN[d]) or '') for d in dimensions]
-    key = values[0] if len(values) == 1 else json.dumps(values, ensure_ascii=False, separators=(',', ':'))
-    return key, ' / '.join(value or 'Unknown' for value in values), dict(zip(dimensions, values))
+    key_values = [str(event['harness']), *values] if 'session' in dimensions and 'harness' not in dimensions else values
+    key = key_values[0] if len(key_values) == 1 else json.dumps(key_values, ensure_ascii=False, separators=(',', ':'))
+    labels = key_values if 'session' in dimensions else values
+    return key, ' / '.join(value or 'Unknown' for value in labels), dict(zip(dimensions, values))
 
 
 def _summary(events, seconds=None):
@@ -240,9 +242,13 @@ class AnalyticsQuery:
             self._price_matches[model] = _lookup_hit(pricing, model)
         return self._price_matches[model]
 
-    def turns(self, request, offset=0, limit=50, sort='start', order='desc'):
+    def turns(self, request, offset=0, limit=50, sort='start', order='desc', include_rows=True):
         from .turn_query import TurnQuery
-        return TurnQuery(self).turns(request, offset=offset, limit=limit, sort=sort, order=order)
+        return TurnQuery(self).turns(request, offset=offset, limit=limit, sort=sort, order=order, include_rows=include_rows)
+
+    def usage(self, request, group='request', offset=0, limit=50, sort='time', order='desc', turn_ids=()):
+        from .usage_query import UsageQuery
+        return UsageQuery(self).usage(request, group=group, offset=offset, limit=limit, sort=sort, order=order, turn_ids=turn_ids)
 
     def turn_detail(self, harness, sid, turn_id, request=None):
         from .turn_query import TurnQuery
@@ -263,8 +269,11 @@ class AnalyticsQuery:
             return now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(microseconds=1)
         return datetime.fromtimestamp(row[0] / 1e6, UTC), datetime.fromtimestamp(row[1] / 1e6, UTC) + timedelta(microseconds=1)
 
-    def _events(self, conn, start, end, filters):
+    def _events(self, conn, start, end, filters, turn_ids=()):
         clause, args = _where(start, end, filters)
+        if turn_ids:
+            clause += f" AND COALESCE(turn_id,'') IN ({','.join('?' for _ in turn_ids)})"
+            args.extend(turn_ids)
         events = [dict(row) for row in conn.execute(f'SELECT * FROM events WHERE {clause} ORDER BY timestamp_us,key', args)]
         for event in events:
             extra = event.get('extra_tokens') or '{}'
@@ -325,10 +334,13 @@ class AnalyticsQuery:
         return (result, admitted) if with_samples else result
 
     @staticmethod
-    def _facets(conn, start, end, filters):
+    def _facets(conn, start, end, filters, turn_ids=()):
         result = {}
         for dimension in DIMENSIONS:
             clause, args = _where(start, end, filters, exclude=dimension)
+            if turn_ids:
+                clause += f" AND COALESCE(turn_id,'') IN ({','.join('?' for _ in turn_ids)})"
+                args.extend(turn_ids)
             column = COLUMN[dimension]
             result[dimension] = [row[0] for row in conn.execute(
                 f"SELECT DISTINCT COALESCE({column},'') AS value FROM events WHERE {clause} ORDER BY value", args)]
@@ -412,7 +424,7 @@ class AnalyticsQuery:
                     series.append({'key': member['key'], 'metrics': metrics, 'value': _value(metrics, request.metric),
                                    'share': _share(metrics, total, request.metric)})
                 local = edges[i].astimezone(zone)
-                label = local.isoformat(timespec='seconds' if resolved_bucket in ('second', '10second') else 'minutes') if resolved_bucket in BUCKET_SECONDS else local.date().isoformat()
+                label = local.isoformat(timespec='seconds' if resolved_bucket in ('second', '5second', '10second', '30second') else 'minutes') if resolved_bucket in BUCKET_SECONDS else local.date().isoformat()
                 timed = []
                 for member in timing_members:
                     slot = timing_buckets[i][member['key']]
