@@ -9,7 +9,6 @@ const row = (b: Browser, identity: string, child = '') => b.locator(`tr[data-tes
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function ready(b: Browser) { await expect(byId(b, 'query-updating')).toHaveCount(0); }
 async function range(b: Browser, start = '2026-10-01T00:00:00Z', end = '2026-10-01T00:01:30Z') {
-  await byId(b, 'time-mode-absolute').click();
   const local = await b.evaluate(({ start, end }) => [start, end].map(v => {
     const d = new Date(v), p = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}${d.getSeconds() ? `:${p(d.getSeconds())}` : ''}`;
@@ -237,29 +236,57 @@ test('daily use: persisted settings, isolated requests, global sorting and light
   }
 });
 
-test('absolute time: calendar inputs, invalid bounds, shared window and desktop themes', async ({ browser: b, app }) => {
+test('unified time: expressions on both ends, calendar selection, mixed bounds and persistence', async ({ browser: b, app }) => {
   const requests: URL[] = [];
   await b.route(/\/api\//, async r => {
     requests.push(new URL(r.request.url)); await r.continue();
   });
   await open(b);
-  await expect(byId(b, 'time-mode-absolute')).toHaveAttribute('aria-pressed', 'true');
-  await expect(byId(b, 'time-start')).toHaveAttribute('type', 'datetime-local');
-  await expect(byId(b, 'time-end')).toHaveAttribute('step', '1');
-  const [start, end] = await b.evaluate(() => ['time-start', 'time-end'].map(id =>
-    (document.querySelector(`[data-testid="${id}"]`) as HTMLInputElement).value));
+  const latest = () => requests.filter(r => r.pathname === '/api/analytics').at(-1)!;
+  const apply = async () => { await byId(b, 'time-apply').click(); await ready(b); };
+  await expect(b.locator('[data-testid^="time-mode-"]')).toHaveCount(0);
+  for (const id of ['start', 'end']) {
+    await expect(byId(b, `time-${id}`)).toHaveAttribute('type', 'text');
+    await expect(byId(b, `time-${id}-picker`)).toBeVisible();
+    await expect(byId(b, `time-${id}-calendar`)).toHaveAttribute('step', '1');
+  }
+  const start = await byId(b, 'time-start').getAttribute('value');
+  const end = await byId(b, 'time-end').getAttribute('value');
   const before = requests.length;
-  await byId(b, 'time-end').fill(start!); await byId(b, 'time-apply').click();
+  await byId(b, 'time-end').fill(start!); await apply();
   await expect(b.locator('[role="alert"]')).toHaveText('结束时间须晚于开始时间');
   expect(requests.length).toBe(before); await expect(byId(b, 'summary-calls')).toHaveText('6');
-  await byId(b, 'time-end').fill(end!); await byId(b, 'time-apply').click(); await ready(b);
-  await expect(b.locator('[role="alert"]')).toHaveCount(0);
+
+  await byId(b, 'time-start').fill('-2h'); await byId(b, 'time-end').fill('-1h'); await apply();
+  let q = latest();
+  expect(Date.parse(q.searchParams.get('end')!) - Date.parse(q.searchParams.get('start')!)).toBe(3600000);
+  expect(Math.abs(Date.parse(q.searchParams.get('end')!) - (Date.now() - 3600000)) < 5000).toBe(true);
+  await expect(byId(b, 'time-end')).toHaveValue('-1h');
+  await byId(b, 'time-start').fill(start!); await apply();
+  expect(latest().searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z');
+  await expect(byId(b, 'time-end')).toHaveValue('-1h');
+  const fixedEnd = new Date(Date.now() - 3600000).toISOString();
+  await byId(b, 'time-start').fill('-3h'); await byId(b, 'time-end').fill(fixedEnd); await apply();
+  expect(latest().searchParams.get('end')).toBe(fixedEnd);
+  await expect(byId(b, 'time-start')).toHaveValue('-3h');
+
+  for (const [id, local] of [['start', start!], ['end', end!]]) {
+    await byId(b, `time-${id}-picker`).click();
+    const native = local.replace(' ', 'T').replace(/:00$/, '');
+    await byId(b, `time-${id}-calendar`).fill(native);
+    await byId(b, `time-${id}-calendar`).press('Escape');
+    await expect(byId(b, `time-${id}`)).toHaveValue(native.replace('T', ' '));
+  }
+  await apply(); await expect(b.locator('[role="alert"]')).toHaveCount(0);
+  await expect(byId(b, 'summary-calls')).toHaveText('6');
+  q = latest();
+  expect(q.searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z');
+  expect(q.searchParams.get('end')).toBe('2026-10-01T00:01:30.000Z');
   await page(b, 'usage'); await expect(byId(b, 'usage-row')).toHaveCount(6);
   const usage = requests.filter(r => r.pathname === '/api/usage').at(-1)!;
-  expect(usage.searchParams.get('start')).toBe('2026-10-01T00:00:00.000Z');
-  expect(usage.searchParams.get('end')).toBe('2026-10-01T00:01:30.000Z');
+  expect(usage.searchParams.get('start')).toBe(q.searchParams.get('start'));
+  expect(usage.searchParams.get('end')).toBe(q.searchParams.get('end'));
   await b.reload(); await ready(b);
-  await expect(byId(b, 'time-mode-absolute')).toHaveAttribute('aria-pressed', 'true');
   await expect(byId(b, 'time-start')).toHaveValue(start!);
   await expect(byId(b, 'time-end')).toHaveValue(end!);
   await refresh(b); await expect(byId(b, 'time-end')).toHaveValue(end!);
@@ -270,18 +297,12 @@ test('absolute time: calendar inputs, invalid bounds, shared window and desktop 
       await b.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       expect(await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await expect(byId(b, 'time-start')).toBeVisible(); await expect(byId(b, 'time-end')).toBeVisible();
-      await app.screenshot(`absolute-time-${theme}-${width}`);
+      await app.screenshot(`unified-time-${theme}-${width}`);
     }
   }
-  await byId(b, 'time-mode-relative').click();
-  await expect(byId(b, 'time-start')).toHaveAttribute('type', 'text');
-  await byId(b, 'time-start').fill('-6h'); await byId(b, 'time-apply').click(); await ready(b);
-  await expect(byId(b, 'time-end')).toHaveValue('现在');
-  await expect(byId(b, 'time-mode-relative')).toHaveAttribute('aria-pressed', 'true');
-  await byId(b, 'time-mode-absolute').click();
-  await b.locator('.time-presets').getByText('6 小时', { exact: true }).click(); await ready(b);
-  await expect(byId(b, 'time-mode-relative')).toHaveAttribute('aria-pressed', 'true');
+  await byId(b, 'time-start').fill('-6h'); await byId(b, 'time-end').fill('-1h'); await apply();
   await expect(byId(b, 'time-start')).toHaveValue('-6h');
+  await expect(byId(b, 'time-end')).toHaveValue('-1h');
 });
 
 test('refresh: incremental dedup, completed metadata, unknown and empty windows, live zoom restoration', async ({ browser: b, app }) => {
@@ -301,7 +322,6 @@ test('refresh: incremental dedup, completed metadata, unknown and empty windows,
   await expect(byId(b,'panel-speed')).toContainText('当前条件没有可用计时样本');
   await range(b,'2026-10-01T00:02:00Z','2026-10-01T00:03:00Z'); await expect(byId(b,'value-rate')).toHaveText('0');
   await expect(byId(b,'turn-count')).toHaveText('0');
-  await byId(b,'time-mode-relative').click();
   await byId(b,'time-start').fill('-24h'); await byId(b,'time-end').fill('现在'); await byId(b,'time-apply').click(); await ready(b);
   await byId(b,'slice-hour').click(); await ready(b); append(1); await refresh(b); await expect(byId(b,'summary-tokens')).toHaveText('100');
   await reveal(b,'slices-consumption'); await b.locator('[data-testid="slices-consumption"] tbody tr >> nth=-1 >> button').click(); await ready(b);

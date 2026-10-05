@@ -1,11 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GlobalQuery } from "./types";
 import { resolveTime, type TimeSpec } from "./time";
 import { dateInput, inputDate } from "./format";
-const isAbsolute = (spec: TimeSpec) =>
-    spec.end !== "now" &&
-    !spec.start.startsWith("-") &&
-    !spec.end.startsWith("-");
 export function TimeControl({
     global,
     spec,
@@ -25,12 +21,10 @@ export function TimeControl({
               : dateInput(v, global.timezone).replace("T", " ");
     const [start, setStart] = useState(display(spec.start)),
         [end, setEnd] = useState(display(spec.end)),
-        [absolute, setAbsolute] = useState(isAbsolute(spec)),
         [error, setError] = useState("");
     useEffect(() => {
         setStart(display(spec.start));
         setEnd(display(spec.end));
-        setAbsolute(isAbsolute(spec));
         setError("");
         onEditing(false);
     }, [spec.start, spec.end, global.timezone]);
@@ -41,31 +35,23 @@ export function TimeControl({
         if (/(Z|[+-]\d\d:\d\d)$/.test(v)) return new Date(v).toISOString();
         return inputDate(v.replace(" ", "T"), global.timezone);
     };
-    function changeMode(next: boolean) {
-        if (next === absolute) return;
-        setAbsolute(next);
-        setStart(
-            next
-                ? dateInput(global.since, global.timezone)
-                : isAbsolute(spec)
-                  ? "-1h"
-                  : display(spec.start),
-        );
-        setEnd(
-            next
-                ? dateInput(global.until, global.timezone)
-                : isAbsolute(spec)
-                  ? "现在"
-                  : display(spec.end),
-        );
-        setError("");
-        onEditing(true);
+    function pickerValue(value: string, fallback: string) {
+        try {
+            const normalized = normalize(value);
+            const iso = normalized === "now"
+                ? new Date().toISOString()
+                : normalized.startsWith("-")
+                  ? resolveTime({ start: normalized, end: "now" }).since
+                  : normalized;
+            return dateInput(iso, global.timezone);
+        } catch {
+            return dateInput(fallback, global.timezone);
+        }
     }
     function apply() {
         try {
             const next = { start: normalize(start), end: normalize(end) };
             onChange(next, resolveTime(next));
-            setAbsolute(isAbsolute(next));
             setStart(display(next.start));
             setEnd(display(next.end));
             onEditing(false);
@@ -76,55 +62,17 @@ export function TimeControl({
     }
     return (
         <div className="inline-time">
-            <div className="segmented time-mode" role="group" aria-label="时间类型">
-                {([
-                    [false, "相对时间"],
-                    [true, "绝对时间"],
-                ] as const).map(([value, label]) => (
-                    <button
-                        key={String(value)}
-                        data-testid={`time-mode-${value ? "absolute" : "relative"}`}
-                        className={absolute === value ? "selected" : ""}
-                        aria-pressed={absolute === value}
-                        onClick={() => changeMode(Boolean(value))}
-                    >
-                        {label}
-                    </button>
-                ))}
-            </div>
-            <label>
-                从
-                <input
-                    data-testid="time-start"
-                    aria-label="开始时间"
-                    type={absolute ? "datetime-local" : "text"}
-                    step={absolute ? 1 : undefined}
-                    value={absolute ? start.replace(" ", "T") : start}
-                    placeholder="-18h 或 2026-10-01 00:00:00"
-                    onFocus={() => onEditing(true)}
-                    onChange={(e) => setStart(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") apply();
-                    }}
-                />
-            </label>
+            <TimeField
+                id="start" label="从" name="开始" value={start}
+                calendarValue={pickerValue(start, global.since)}
+                onChange={setStart} onEditing={onEditing} onApply={apply}
+            />
             <span className="time-arrow">→</span>
-            <label>
-                到
-                <input
-                    data-testid="time-end"
-                    aria-label="结束时间"
-                    type={absolute ? "datetime-local" : "text"}
-                    step={absolute ? 1 : undefined}
-                    value={absolute ? end.replace(" ", "T") : end}
-                    placeholder="现在"
-                    onFocus={() => onEditing(true)}
-                    onChange={(e) => setEnd(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") apply();
-                    }}
-                />
-            </label>
+            <TimeField
+                id="end" label="到" name="结束" value={end}
+                calendarValue={pickerValue(end, global.until)}
+                onChange={setEnd} onEditing={onEditing} onApply={apply}
+            />
             <button data-testid="time-apply" onClick={apply}>
                 应用
             </button>
@@ -141,7 +89,6 @@ export function TimeControl({
                         onClick={() => {
                             const next = { start: `-${k}`, end: "now" };
                             onChange(next, resolveTime(next));
-                            setAbsolute(false);
                             setStart(next.start);
                             setEnd("现在");
                             setError("");
@@ -157,6 +104,54 @@ export function TimeControl({
                     {error}
                 </span>
             )}
+        </div>
+    );
+}
+
+function TimeField({
+    id, label, name, value, calendarValue, onChange, onEditing, onApply,
+}: {
+    id: string; label: string; name: string; value: string; calendarValue: string;
+    onChange: (value: string) => void;
+    onEditing: (value: boolean) => void;
+    onApply: () => void;
+}) {
+    const calendar = useRef<HTMLInputElement>(null);
+    return (
+        <div className="time-field">
+            <label htmlFor={`time-${id}`}>{label}</label>
+            <div className="time-input">
+                <input
+                    id={`time-${id}`} data-testid={`time-${id}`} type="text"
+                    aria-label={`${name}时间`} value={value}
+                    placeholder="-1h、现在或具体时间"
+                    onFocus={() => onEditing(true)}
+                    onChange={(e) => onChange(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") onApply(); }}
+                />
+                <input
+                    ref={calendar} className="time-calendar-input"
+                    data-testid={`time-${id}-calendar`} type="datetime-local"
+                    step="1" value={calendarValue} aria-hidden="true" tabIndex={-1}
+                    onChange={(e) => {
+                        if (e.target.value) {
+                            onChange(e.target.value.replace("T", " "));
+                            onEditing(true);
+                        }
+                    }}
+                />
+                <button
+                    className="calendar-button" data-testid={`time-${id}-picker`}
+                    aria-label={`选择${name}日期时间`} title={`选择${name}日期时间`}
+                    onClick={() => { onEditing(true); calendar.current?.showPicker(); }}
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="16" rx="2" />
+                        <path d="M16 3v4M8 3v4M3 11h18" />
+                    </svg>
+                </button>
+            </div>
         </div>
     );
 }

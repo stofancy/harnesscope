@@ -103,9 +103,10 @@ actual timezone, aggregate-only Dashboard panels and the separate usage page:
 6. Inline `-18h`, `-2days`, fixed-start-to-now and fixed history produce correct
    bounds. Explicit auto-refresh switch/period persist; editing pauses it and
    a refresh held across another interval never overlaps a second refresh.
-7. Absolute date/time inputs use local time and preserve second-precision bounds
-   through page changes, reload and refresh. Invalid bounds keep the current data;
-   both desktop widths and themes remain usable, with a return to relative time.
+7. Each time field accepts expressions, concrete times and calendar selections.
+   Both-relative and mixed bounds resolve correctly; second-precision fixed bounds
+   persist through page changes, reload and refresh. Invalid bounds keep the current
+   data; both desktop widths and themes remain usable.
 
 ## Daily-dashboard fixtures
 

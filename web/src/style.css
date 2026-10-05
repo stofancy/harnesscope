@@ -272,17 +272,37 @@ code {
     color: var(--text);
     font-variant-numeric: tabular-nums;
 }
-.inline-time input[type="datetime-local"] {
-    width: 244px;
+.time-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
-.time-mode {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 2px;
+.time-input {
+    position: relative;
 }
-.time-mode button {
-    font-size: 11px;
-    padding: 4px 7px;
+.time-input > input[type="text"] {
+    width: 225px;
+    padding-right: 32px;
+}
+.time-input > .time-calendar-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+}
+.calendar-button {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    bottom: 3px;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
 }
 .time-arrow {
     color: var(--muted);
