@@ -164,7 +164,10 @@ def _member(event, dimensions):
     key_values = [str(event['harness']), *values] if 'session' in dimensions and 'harness' not in dimensions else values
     key = key_values[0] if len(key_values) == 1 else json.dumps(key_values, ensure_ascii=False, separators=(',', ':'))
     labels = key_values if 'session' in dimensions else values
-    return key, ' / '.join(value or 'Unknown' for value in labels), dict(zip(dimensions, values))
+    identity = dict(zip(dimensions, values))
+    if 'session' in dimensions:
+        identity['harness'] = str(event['harness'])
+    return key, ' / '.join(value or 'Unknown' for value in labels), identity
 
 
 def _summary(events, seconds=None):
