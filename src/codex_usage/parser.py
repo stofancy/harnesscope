@@ -19,11 +19,12 @@ import glob
 import json
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-from .domain import ParseBatch, TimingSample, UsageEvent, timestamp_us as _timestamp_us
+from .domain import (ParseBatch, TimingSample, ToolCall, TurnRecord, UsageEvent,
+                     timestamp_us as _timestamp_us)
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 TYPE_SHORT = {"user": "user", "subagent": "subagent", "guardian_review": "guardian",
@@ -162,11 +163,135 @@ def parse_codex_file(path: str, offset: int = 0, state: dict | None = None) -> P
     return batch
 
 
+class _CodexActivity:
+    """Retain only boundary/identity metadata for unfinished turns and tools."""
+
+    def __init__(self, path: str, batch: ParseBatch, state: dict):
+        self.path, self.batch = path, batch
+        saved = state.get("activity") or {}
+        self.active = saved.get("active_turn_id")
+        self.turns = {key: TurnRecord(**value) for key, value in (saved.get("turns") or {}).items()}
+        self.tools = {key: ToolCall(**value) for key, value in (saved.get("tools") or {}).items()}
+        self.partial = set(saved.get("partial_turns") or [])
+
+    def start(self, payload: dict, timestamp, metadata: dict) -> None:
+        tid = payload.get("turn_id")
+        start = _timestamp_us(payload.get("started_at")) or _timestamp_us(timestamp)
+        self.active = tid
+        if tid is None or start is None:
+            return
+        turn = self.turns.get(tid) or TurnRecord(
+            key=f"turn:{tid}", harness="codex", turn_id=tid, start_us=start,
+            source_file=self.path, status="running", root_turn_id=payload.get("root_turn_id"),
+            tool_coverage="partial", **metadata)
+        self.turns[tid] = turn
+        self.batch.turns.append(turn)
+
+    def finish(self, payload: dict, timestamp, status: str, metadata: dict) -> None:
+        tid = payload.get("turn_id")
+        if tid is None:
+            return
+        if self.active == tid:
+            self.active = None
+        turn = self.turns.get(tid)
+        if turn is None:
+            start = _timestamp_us(payload.get("started_at"))
+            if start is None:
+                self.tools = {key: tool for key, tool in self.tools.items()
+                              if tool.turn_id != tid or tool.status == "running"}
+                return
+            # Completion records can contain exact boundaries even without the start line.
+            turn = TurnRecord(key=f"turn:{tid}", harness="codex", turn_id=tid,
+                              start_us=start, source_file=self.path, **metadata)
+            self.partial.add(tid)
+        end = _timestamp_us(payload.get("completed_at")) or _timestamp_us(timestamp)
+        if end is not None and end < turn.start_us:
+            end, status = None, "unknown"
+        pending = any(t.turn_id == tid and t.status == "running" for t in self.tools.values())
+        coverage = "partial" if tid in self.partial or pending else "complete"
+        finished = replace(turn, end_us=end, status=status, tool_coverage=coverage)
+        self.batch.turns.append(finished)
+        self.turns.pop(tid, None)
+        self.partial.discard(tid)
+        self.tools = {key: tool for key, tool in self.tools.items()
+                      if tool.turn_id != tid or tool.status == "running"}
+
+    def native(self, payload: dict, metadata: dict) -> None:
+        tid = payload.get("turn_id")
+        if tid is None:
+            return
+        turn = self.turns.get(tid)
+        if turn is not None:
+            turn = replace(turn, root_turn_id=payload.get("root_turn_id") or turn.root_turn_id,
+                           **metadata)
+            self.turns[tid] = turn
+            self.batch.turns.append(turn)
+        for call_id, tool in list(self.tools.items()):
+            if tool.turn_id == tid and tool.session_id != metadata["session_id"]:
+                tool = replace(tool, session_id=metadata["session_id"])
+                self.tools[call_id] = tool
+                self.batch.tool_calls.append(tool)
+
+    def tool(self, payload: dict, timestamp, position: int, session_id: str) -> None:
+        kind = payload.get("type")
+        call_id = payload.get("call_id")
+        if kind in ("function_call", "custom_tool_call"):
+            tid = payload.get("turn_id") or self.active
+            when = _timestamp_us(timestamp)
+            if when is None:
+                if tid:
+                    self.partial.add(tid)
+                return
+            # Call-record status describes generated arguments, not tool execution.
+            name = payload.get("name") or "unknown"
+            namespace = payload.get("namespace")
+            if namespace:
+                name = f"{namespace}.{name}"
+            identity = call_id or f"{self.path}:{position}"
+            if not call_id or tid is None:
+                if self.active:
+                    self.partial.add(self.active)
+            turn = self.turns.get(tid)
+            owner = turn.session_id if turn else session_id
+            tool = self.tools.get(identity) or ToolCall(
+                key=f"call:{identity}", harness="codex", session_id=owner,
+                tool_name=name, start_us=when, turn_id=tid, status="running", source_file=self.path)
+            self.tools[identity] = tool
+            self.batch.tool_calls.append(tool)
+        elif kind in ("function_call_output", "custom_tool_call_output"):
+            tool = self.tools.get(call_id)
+            if tool is None:
+                if self.active:
+                    self.partial.add(self.active)
+                return
+            when = _timestamp_us(timestamp)
+            if when is not None and when < tool.start_us:
+                when = None
+            # Only explicit machine-readable failure flags qualify as errors.
+            failed = payload.get("is_error") is True or payload.get("status") in ("error", "failed")
+            output = payload.get("output")
+            if isinstance(output, dict):
+                failed = failed or output.get("is_error") is True
+            tool = replace(tool, end_us=when, status="error" if failed else "completed")
+            self.batch.tool_calls.append(tool)
+            if tool.turn_id in self.turns or (tool.turn_id is not None and tool.turn_id == self.active):
+                self.tools[call_id] = tool
+            else:
+                self.tools.pop(call_id, None)
+
+    def save(self) -> dict:
+        return {"active_turn_id": self.active,
+                "turns": {key: asdict(turn) for key, turn in self.turns.items()},
+                "tools": {key: asdict(tool) for key, tool in self.tools.items()},
+                "partial_turns": sorted(self.partial)}
+
+
 def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *,
                    offset: int = 0, state: dict | None = None,
                    capture: bool = False) -> tuple[Session | None, ParseBatch]:
     state = dict(state or {})
     batch = ParseBatch(next_offset=offset, state=state)
+    activity = _CodexActivity(path, batch, state) if capture else None
     uuids = UUID_RE.findall(os.path.basename(path))
     if not uuids:
         return None, batch
@@ -236,6 +361,8 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     logical_metadata_seen = True
                 elif '"turn_context"' in tag:
                     context = json.loads(line).get("payload", {})
+                    if activity is not None and context.get("turn_id"):
+                        activity.active = context["turn_id"]
                     mm = context.get("model")
                     if mm:
                         current_model = mm
@@ -256,6 +383,11 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     provider = st.get("model_provider_id") or provider
                 elif '"task_started"' in tag:
                     obj = json.loads(line)
+                    payload = obj.get("payload", {})
+                    if activity is not None:
+                        activity.start(payload, obj.get("timestamp"), dict(
+                            session_id=web_session_id, parent_session_id=rec.parent,
+                            project=rec.cwd, agent_type=agent_type))
                     turn_start = to_local(obj.get("timestamp"))
                     turn_started_at = obj.get("timestamp")
                     turn_start_us = _timestamp_us(turn_started_at)
@@ -268,6 +400,10 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                 elif '"task_complete"' in tag:
                     obj = json.loads(line)
                     payload = obj.get("payload", {})
+                    if activity is not None:
+                        activity.finish(payload, obj.get("timestamp"), "completed", dict(
+                            session_id=web_session_id, parent_session_id=rec.parent,
+                            project=rec.cwd, agent_type=agent_type))
                     end = to_local(obj.get("timestamp"))
                     # A complete, single-model turn is the attribution boundary.
                     # Tool time and waiting are included in this end-to-end rate.
@@ -289,13 +425,27 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                         batch.timing_samples.append(TimingSample(
                             key=f"{web_turn_session}:{turn_id}:turn", harness="codex",
                             session_id=web_turn_session, model=model, start_us=turn_start_us,
-                            end_us=end_us, output=output, source_file=path, provider=provider))
+                            end_us=end_us, output=output, source_file=path, provider=provider,
+                            turn_id=turn_id))
                     turn_start = None
                     turn_started_at = None
                     turn_start_us = None
                     turn_id = None
                     turn_outputs = {}
                     web_turn_outputs = {}
+                elif '"turn_aborted"' in tag and activity is not None:
+                    obj = json.loads(line)
+                    payload = obj.get("payload") or {}
+                    activity.finish(payload, obj.get("timestamp"), "aborted", dict(
+                        session_id=web_session_id, parent_session_id=rec.parent,
+                        project=rec.cwd, agent_type=agent_type))
+                    if payload.get("turn_id") == turn_id:
+                        turn_start, turn_started_at, turn_start_us, turn_id = None, None, None, None
+                        turn_outputs, web_turn_outputs = {}, {}
+                elif '"response_item"' in tag and activity is not None:
+                    obj = json.loads(line)
+                    activity.tool(obj.get("payload") or {}, obj.get("timestamp"),
+                                  line_offset, web_session_id)
                 elif '"token_usage_record"' in tag and capture:
                     obj = json.loads(line)
                     payload = obj.get("payload") or {}
@@ -320,6 +470,12 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     written = _token(usage, "cache_write_input_tokens")
                     output = _token(usage, "output_tokens")
                     own_settings = owner_settings.get(owner) or {}
+                    if activity is not None:
+                        activity.native(payload, dict(
+                            session_id=owner,
+                            parent_session_id=rec.parent if owner == web_session_id else None,
+                            project=rec.cwd if owner == web_session_id else None,
+                            agent_type=agent_type if owner == web_session_id else None))
                     batch.events.append(UsageEvent(
                         key=f"response:{response_id}" if response_id else f"{path}:{line_offset}",
                         timestamp_us=event_us, harness="codex", session_id=owner,
@@ -336,6 +492,7 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                         input_net=gross - cached - written, cache_read=cached,
                         cache_write=written, output=output,
                         reasoning=_token(usage, "reasoning_output_tokens"),
+                        turn_id=payload.get("turn_id"),
                         source_total=_token(usage, "total_tokens")
                         if "total_tokens" in usage else gross + output))
                     if turn_start is not None and payload.get("turn_id") == turn_id:
@@ -419,7 +576,8 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                                     agent_label=rec.agent, purpose=rec.type,
                                     service_tier=current_tier, input_net=gross - cached,
                                     cache_read=cached, cache_write=0, output=output, reasoning=reasoning,
-                                    source_total=gross + output))
+                                    source_total=gross + output,
+                                    turn_id=activity.active if activity is not None else None))
                                 if turn_start is not None:
                                     web_turn_outputs[current_model] = web_turn_outputs.get(current_model, 0) + output
             except (json.JSONDecodeError, AttributeError, TypeError):
@@ -437,6 +595,7 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
         "owner_settings": owner_settings,
         "seen_responses": sorted(seen_responses),
         "web_turn_outputs": web_turn_outputs, "web_turn_session": web_turn_session,
+        "activity": activity.save() if activity is not None else {},
     }
     # 只保留有 token 消耗的模型槽位：calls 槽不计入，否则「无 turn_context + 零 token」
     # 的 token_count 事件会带出一个全 0 的 unknown 模型行（旧版口径按 token 分量过滤）
