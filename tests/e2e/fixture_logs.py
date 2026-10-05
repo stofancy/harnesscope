@@ -130,8 +130,58 @@ def prepare(root):
     write(root / 'dsh/sessions/dsh-session/session.v4.jsonl', dsh)
     (root / 'pricing.json').write_text(json.dumps({MODEL: {'inputCostPerMillion': 2,
         'cacheReadCostPerMillion': .5, 'cacheWriteCostPerMillion': 3, 'outputCostPerMillion': 8}}))
+    prepare_daily_cases(root)
     (root / 'codex/config.toml').write_text('service_tier = "default"\n')
     return root
+
+
+def prepare_daily_cases(root):
+    """Independent days keep the original four-source ledger unchanged."""
+    base = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    session = '22222222-2222-4222-8222-222222222222'
+    records = [
+        {'timestamp': base.isoformat(), 'type': 'session_meta', 'payload': {
+            'id': session, 'cwd': '/synthetic/ranking', 'timestamp': base.isoformat(), 'model_provider': 'e2e'}},
+        {'timestamp': base.isoformat(), 'type': 'turn_context', 'payload': {'model': MODEL, 'cwd': '/synthetic/ranking'}},
+    ]
+    for index in range(25):
+        turn = f'ranking-turn-{index:02d}'
+        start = base + timedelta(seconds=index * 120)
+        duration = 90 if index == 1 else 2 if index == 0 else 1
+        end = start + timedelta(seconds=duration)
+        output = 2000 if index == 0 else 10 if index == 1 else 10 + index
+        call = codex_call(f'ranking-response-{index}', turn, 10, 0, 0, output)
+        call['timestamp'] = end.isoformat()
+        call['payload']['thread_id'] = session
+        call['payload']['session_id'] = session
+        records.extend([
+            {'timestamp': start.isoformat(), 'type': 'event_msg', 'payload': {
+                'type': 'task_started', 'turn_id': turn, 'started_at': start.timestamp()}},
+            call,
+            {'timestamp': end.isoformat(), 'type': 'event_msg', 'payload': {
+                'type': 'task_complete', 'turn_id': turn, 'completed_at': end.timestamp()}},
+        ])
+    write(root / 'codex/sessions/2026/10/02' / f'rollout-2026-10-02T00-00-00-{session}.jsonl', records)
+
+    partial = []
+    for index, (model, usage) in enumerate([
+        (MODEL, {'input_tokens': 50, 'cache_read_input_tokens': 0,
+                 'cache_creation_input_tokens': 0, 'output_tokens': 50}),
+        ('e2e-unpriced', {'input_tokens': 20, 'output_tokens': 10}),
+    ]):
+        start = datetime(2026, 10, 3, 0, 0, index * 10, tzinfo=timezone.utc)
+        user = f'partial-user-{index}'
+        partial.extend([
+            {'type': 'user', 'uuid': user, 'sessionId': 'partial-session',
+             'timestamp': start.isoformat(), 'cwd': PROJECT,
+             'message': {'role': 'user', 'content': 'Synthetic partial request'}},
+            {'type': 'assistant', 'uuid': f'partial-assistant-{index}', 'parentUuid': user,
+             'sessionId': 'partial-session', 'timestamp': (start + timedelta(seconds=2)).isoformat(),
+             'cwd': PROJECT, 'requestId': f'partial-request-{index}',
+             'message': {'id': f'partial-response-{index}', 'role': 'assistant',
+                         'model': model, 'stop_reason': 'end_turn', 'content': [], 'usage': usage}},
+        ])
+    write(root / 'claude/projects/synthetic/partial-session.jsonl', partial)
 
 
 def append_completion(root):

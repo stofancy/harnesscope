@@ -51,9 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/turns/detail` query parameters. Inferred boundaries retain labels and recorded
   statistics; missing components, timing and prices retain their unknown states.
 - Pinned local browser-test infrastructure using `e2e@0.17.0` and `@e2e-dev/web@0.12.0`,
-  isolated four-source inputs and `npm --prefix web run test:e2e`. The final second-round
-  desktop run passed 4/4 scenarios in 14.99 s, covering the continuous journey, numerical
-  accounting, detail/append updates, and relative/fixed range behavior. This iteration
+  isolated four-source inputs and `npm --prefix web run test:e2e`. The final daily-dashboard
+  desktop run passed 6/6 scenarios in 72.45 s, covering the continuous journey, numerical
+  accounting, detail/append updates, saved context, local requests, full-result sorting,
+  relative/fixed/until-now ranges and automatic refresh. This iteration
   added no unit/component tests; fixture results retain their stated coverage.
 
 - Local browser usage workbench (`codex-usage --web`) for Codex, Claude, OMP and

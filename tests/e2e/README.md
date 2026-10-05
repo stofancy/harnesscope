@@ -78,7 +78,7 @@ same append and refresh keeps these counts stable.
 
 ## Acceptance scope
 
-Four browser scenarios cover the single shared time/timezone/slice/filter context,
+Six browser scenarios cover the single shared time/timezone/slice/filter context,
 all dashboard panels and the ledger, chart type/slice changes and zoom, hand-counted
 rates/cache/turn summaries, tool names/statuses and turn details, missing values,
 and append/replay refresh. A passed old-page smoke test cannot satisfy this suite.
@@ -98,3 +98,42 @@ and append/replay refresh. A passed old-page smoke test cannot satisfy this suit
    append another call and preserve the fixed range, then return and scan to
    recover the relative mode (200 tokens / 2 calls). These two dynamic calls
    remain outside the fixed October 1 hand-counted window.
+
+## Daily-dashboard fixtures
+
+Additional dates are separate from the October 1 ledger:
+
+- October 2 00:00–01:00 UTC, project `/synthetic/ranking`: 25 completed Codex turns, 2539 recorded output
+  tokens / 25 calls / $0.020312. The oldest `ranking-turn-00` costs $0.016
+  (2000 output tokens); the next `ranking-turn-01` lasts 90 seconds. With
+  descending start-time order and a 20-row page, both are on the second page.
+  Sorting by cost or duration must bring them to the first row of the first
+  page, proving that sorting precedes pagination.
+- October 3 00:00–00:01 UTC: two completed Claude turns. One records 100 tokens
+  and costs $0.000500; the other records 30 tokens with missing price/cache-write.
+  The window contains 130 recorded tokens and a $0.000500 known cost subtotal.
+  The mean over two recorded turns is 65 known tokens and $0.000250 known cost;
+  incomplete price/input coverage must remain visible.
+
+Network assertions observe actual browser requests and continue them unchanged.
+No assertion calls an API directly or imports query/parser/adapter functions.
+
+The formal-dashboard scenarios additionally check saved filters, panel settings,
+range and auto-refresh mode after a browser reload; whole-result turn sorting,
+paging, summary/turn tabs and returning from details; and that local configuration
+and turn paging do not re-request unrelated analyses. Desktop screenshots cover
+1600 and 1024 pixels, with a document overflow assertion at 1024.
+
+Time controls are exercised through the UI: `-18h`, `-2days`, a fixed start through
+now, and fixed history. The auto-refresh scenario uses the real 15-second timer
+(the e2e browser facade has no public clock control). It temporarily delays one
+POST while passing it unchanged to the real service, checks that another interval
+does not overlap it, then checks editing pauses refresh and settings survive
+reload. Source updates remain synthetic fixture appends.
+
+
+The formal suite has six scenarios: the four original business journeys plus
+saved daily-dashboard context/local requests/whole-result sorting/partial totals,
+and time-control/auto-refresh semantics. A real background-tab visibility change
+is not emulated by the e2e browser facade. Editing pause is browser-verified;
+background pause is explicitly outside this automated evidence.
