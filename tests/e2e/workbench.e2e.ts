@@ -126,7 +126,7 @@ test('dashboard journey: shared time, rates, cache, speeds, plots, ranking and r
   const timedValues=await b.evaluate(()=>[...document.querySelectorAll('[data-testid="slices-speed"] tbody tr')]
     .flatMap(row=>[...row.children].slice(2,-1).map(cell=>cell.textContent?.trim()))
     .filter(text=>text&&text!=='—').map(Number).sort((a,b)=>a-b));
-  expect(timedValues).toEqual([5,10,10]);
+  expect(timedValues).toEqual([7.5,12.5]);
   await settings(b, 'rate'); await byId(b, 'group-rate').selectOption({ value: 'model' }); await ready(b);
   await reveal(b, 'slices-rate');
   const cell = (r: number, c: number) => b.locator(`[data-testid="slices-rate"] tbody tr >> nth=${r} >> td >> nth=${c}`);
@@ -180,11 +180,11 @@ test('usage page: all five groups preserve four components, reliable TPS, joint 
   }
   await group(b,'request');
   const omp = (child: string) => b.locator(`tr[data-testid="usage-row"]:has-text("OMP") ${child}`);
-  await expect(omp('[data-testid="usage-response-tps"]')).toHaveText('10');
-  await omp('[data-testid="usage-row-open"]').click(); await expect(byId(b,'usage-request-detail')).toContainText('10 TPS');
-  await expect(byId(b,'usage-request-detail')).toContainText('10 秒');
+  await expect(omp('[data-testid="usage-response-tps"]')).toHaveText('12.5');
+  await omp('[data-testid="usage-row-open"]').click(); await expect(byId(b,'usage-request-detail')).toContainText('12.5 TPS');
+  await expect(byId(b,'usage-request-detail')).toContainText('8 秒');
   await row(b,'response-codex-1','[data-testid="usage-row-open"]').click();
-  await expect(row(b,'response-codex-1','[data-testid="usage-response-tps"]')).toHaveText('—');
+  await expect(row(b,'response-codex-1','[data-testid="usage-response-tps"]')).toHaveText('7.5');
   await group(b,'turn'); await expect(row(b,'codex-turn-1','[data-testid="usage-turn-tps"]')).toHaveText('5');
   await row(b,'codex-turn-1','[data-testid="usage-row-open"]').click();
   await expect(byId(b,'usage-row')).toHaveCount(2); await expect(byId(b,'usage-total-tokens')).toHaveText('400');
@@ -193,7 +193,7 @@ test('usage page: all five groups preserve four components, reliable TPS, joint 
   await expect(byId(b,'usage-drill-context')).toContainText('→');
   await byId(b,'usage-drill-back').click(); await ready(b); await expect(byId(b,'usage-row')).toHaveCount(5);
   await expect(byId(b,'usage-group-turn')).toHaveAttribute('class','selected');
-  await group(b,'model'); await expect(byId(b,'usage-response-tps')).toHaveText('10'); await expect(byId(b,'usage-turn-tps')).toHaveText('—');
+  await group(b,'model'); await expect(byId(b,'usage-response-tps')).toHaveText('—'); await expect(byId(b,'usage-turn-tps')).toHaveText('—');
   await page(b,'dashboard');
   const ranking = b.locator('[data-testid="absolute-ranking"] button[title*="e2e-known"]');
   await ranking.click(); await ready(b);
@@ -287,7 +287,7 @@ test('daily use: persisted settings, isolated requests, global sorting and light
       await b.setViewport({width,height:1100}); await b.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
       for (const name of ['usage','dashboard'] as const) {
         await page(b,name); expect(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-        if(name==='dashboard') await expect(b.locator('[data-testid="chart-speed"] .chart-isolated-point')).toHaveCount(3);
+        if(name==='dashboard') await expect(b.locator('[data-testid="chart-speed"] .chart-isolated-point')).toHaveCount(2);
         const height=await b.evaluate(()=>{scrollTo(0,0);return Math.max(1100,document.documentElement.scrollHeight);});
         await b.setViewport({width,height}); await b.evaluate(()=>new Promise<void>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r()))));
         await app.screenshot(`${name}-${theme}-${width}`); await b.setViewport({width,height:1100});

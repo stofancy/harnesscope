@@ -17,6 +17,7 @@
 
 import glob
 import json
+import math
 import os
 import re
 from dataclasses import asdict, dataclass, field, replace
@@ -47,7 +48,7 @@ class Session:
     # model -> 计量档位（thread_settings_applied 的 service_tier 原值；没出现过则 "unknown"）
     #         -> [gross_in, cached, out, reasoning, calls]，用于 priority/Fast 档倍率定价
     tiers: dict[str, dict[str, list[int]]] = field(default_factory=dict)
-    # model -> [timed output tokens, completed turn seconds]; end-to-end timing
+    # model -> [timed output tokens, seconds after the first recorded output]
     timing: dict[str, list[float]] = field(default_factory=dict)
     # 旧口径（逐轮 last_token_usage 累加，毛输入+输出）对照值
     delta_sum: int = 0
@@ -297,6 +298,54 @@ class _CodexActivity:
                 "partial_turns": sorted(self.partial)}
 
 
+class _GenerationTiming:
+    """Response output spans determine generation time.
+
+    Codex output-item timestamps approximate token boundaries.
+    A response without a recorded first output remains untimed.
+    """
+
+    def __init__(self, state):
+        self.pending = dict(state.get("generation_pending") or {})
+        self.boundaries = dict(state.get("generation_boundaries") or {})
+
+    @staticmethod
+    def identity(owner, turn):
+        return json.dumps([owner, turn], separators=(",", ":"))
+
+    def observe(self, owner, turn, model, start, end, *, reasoning=False):
+        if not turn:
+            return
+        key = self.identity(owner, turn)
+        if end is None or end <= self.boundaries.get(key, 0):
+            return
+        sample = self.pending.setdefault(key, {"model": model, "start": None,
+                                               "end": end, "valid": True, "reasoning": False})
+        sample["valid"] &= sample["model"] == model
+        if start is None:
+            # Generated tool arguments have no streaming span, while output
+            # usage includes them. A partial text span cannot time that response.
+            sample["valid"] = False
+        elif start < self.boundaries.get(key, 0) or start > end:
+            sample["valid"] = False
+        else:
+            sample["start"] = min(sample["start"], start) if sample["start"] is not None else start
+        sample["end"] = max(sample["end"], end)
+        sample["reasoning"] |= reasoning
+
+    def finish(self, owner, turn, model, when, output, reasoning):
+        key = self.identity(owner, turn)
+        sample = self.pending.pop(key, None)
+        if when is not None:
+            self.boundaries[key] = max(when, self.boundaries.get(key, 0))
+        if (sample is None or not sample["valid"] or sample["model"] != model
+                or sample["start"] is None or sample["end"] <= sample["start"]
+                or when is None or sample["end"] > when or output <= 0
+                or reasoning > 0 and not sample["reasoning"]):
+            return None
+        return sample["start"], sample["end"]
+
+
 def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *,
                    offset: int = 0, state: dict | None = None,
                    capture: bool = False) -> tuple[Session | None, ParseBatch]:
@@ -307,6 +356,7 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
     if not uuids:
         return None, batch
     rec = Session(file=path, sid=uuids[0], uuids=uuids)
+    generation = _GenerationTiming(state)
     for key in ("sid", "type", "parent", "agent", "start", "cwd"):
         if key in state:
             setattr(rec, key, state[key])
@@ -328,10 +378,28 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
     turn_start_us = _timestamp_us(state.get("turn_started_at"))
     turn_started_at = state.get("turn_started_at")
     turn_id = state.get("turn_id")
-    turn_outputs: dict[str, int] = dict(state.get("turn_outputs") or {})
-    turn_in_window = state.get("turn_in_window", True)
+    generation_turn = state.get("generation_turn") or turn_id
     current_model = state.get("current_model", "unknown")
     current_tier = state.get("current_tier", "unknown")
+
+    def response_timing(key, owner, tid, when, output, reasoning, response_provider):
+        span = generation.finish(owner, tid, current_model, when, output, reasoning)
+        if span is None:
+            return
+        start_us, end_us = span
+        if window is not None:
+            if not (window[0].timestamp() * 1e6 <= start_us <= end_us <= window[1].timestamp() * 1e6
+                    and window[0].timestamp() * 1e6 <= when <= window[1].timestamp() * 1e6):
+                return
+        if owner == web_session_id:
+            sample = rec.timing.setdefault(current_model, [0.0, 0.0])
+            sample[0] += output
+            sample[1] += (end_us - start_us) / 1e6
+        if capture:
+            batch.timing_samples.append(TimingSample(
+                key=key, harness="codex", session_id=owner, model=current_model,
+                start_us=start_us, end_us=end_us, output=output, source_file=path,
+                kind="generation", provider=response_provider, turn_id=tid))
     try:
         fh = open(path, "rb")
     except OSError:
@@ -372,6 +440,7 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     logical_metadata_seen = True
                 elif '"turn_context"' in tag:
                     context = json.loads(line).get("payload", {})
+                    generation_turn = context.get("turn_id") or generation_turn
                     if activity is not None and context.get("turn_id"):
                         activity.active = context["turn_id"]
                     mm = context.get("model")
@@ -403,11 +472,9 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     turn_started_at = obj.get("timestamp")
                     turn_start_us = _timestamp_us(turn_started_at)
                     turn_id = obj.get("payload", {}).get("turn_id")
-                    turn_outputs = {}
+                    generation_turn = turn_id
                     web_turn_outputs = {}
                     web_turn_session = web_session_id
-                    turn_in_window = (window is None or (turn_start is not None
-                                      and window[0] <= turn_start <= window[1]))
                 elif '"task_complete"' in tag:
                     obj = json.loads(line)
                     payload = obj.get("payload", {})
@@ -415,19 +482,6 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                         activity.finish(payload, obj.get("timestamp"), "completed", dict(
                             session_id=web_session_id, parent_session_id=rec.parent,
                             project=rec.cwd, agent_type=agent_type))
-                    end = to_local(obj.get("timestamp"))
-                    # A complete, single-model turn is the attribution boundary.
-                    # Tool time and waiting are included in this end-to-end rate.
-                    if (turn_start is not None and end is not None and turn_id is not None
-                            and payload.get("turn_id") == turn_id and turn_in_window
-                            and (window is None or window[0] <= end <= window[1])
-                            and len(turn_outputs) == 1):
-                        seconds = (end - turn_start).total_seconds()
-                        if seconds > 0:
-                            model, output = next(iter(turn_outputs.items()))
-                            sample = rec.timing.setdefault(model, [0.0, 0.0])
-                            sample[0] += output
-                            sample[1] += seconds
                     end_us = _timestamp_us(obj.get("timestamp"))
                     if (capture and turn_start_us is not None and end_us is not None
                             and end_us > turn_start_us and turn_id is not None
@@ -442,7 +496,6 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     turn_started_at = None
                     turn_start_us = None
                     turn_id = None
-                    turn_outputs = {}
                     web_turn_outputs = {}
                 elif '"turn_aborted"' in tag and activity is not None:
                     obj = json.loads(line)
@@ -452,12 +505,32 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                         project=rec.cwd, agent_type=agent_type))
                     if payload.get("turn_id") == turn_id:
                         turn_start, turn_started_at, turn_start_us, turn_id = None, None, None, None
-                        turn_outputs, web_turn_outputs = {}, {}
-                elif '"response_item"' in tag and activity is not None:
+                        web_turn_outputs = {}
+                elif '"item_completed"' in tag:
                     obj = json.loads(line)
-                    activity.tool(obj.get("payload") or {}, obj.get("timestamp"),
-                                  line_offset, web_session_id)
-                elif '"token_usage_record"' in tag and capture:
+                    payload = obj.get("payload") or {}
+                    item = payload.get("item") or {}
+                    if item.get("type") in ("Reasoning", "AgentMessage"):
+                        start, end = payload.get("started_at_ms"), payload.get("completed_at_ms")
+                        if all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                               and math.isfinite(v) and v > 0 for v in (start, end)):
+                            generation.observe(payload.get("thread_id") or web_session_id,
+                                               payload.get("turn_id") or generation_turn,
+                                               current_model, _timestamp_us(start), _timestamp_us(end),
+                                               reasoning=item.get("type") == "Reasoning")
+                        else:
+                            generation.observe(payload.get("thread_id") or web_session_id,
+                                               payload.get("turn_id") or generation_turn,
+                                               current_model, None, _timestamp_us(obj.get("timestamp")))
+                elif '"response_item"' in tag:
+                    obj = json.loads(line)
+                    payload = obj.get("payload") or {}
+                    if payload.get("type") in ("function_call", "custom_tool_call"):
+                        generation.observe(web_session_id, generation_turn, current_model,
+                                           None, _timestamp_us(obj.get("timestamp")))
+                    if activity is not None:
+                        activity.tool(payload, obj.get("timestamp"), line_offset, web_session_id)
+                elif '"token_usage_record"' in tag:
                     obj = json.loads(line)
                     payload = obj.get("payload") or {}
                     usage = payload.get("usage")
@@ -481,31 +554,37 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     written = _token(usage, "cache_write_input_tokens")
                     output = _token(usage, "output_tokens")
                     own_settings = owner_settings.get(owner) or {}
+                    response_timing(f"response:{response_id}" if response_id else f"{path}:{line_offset}",
+                                    owner, payload.get("turn_id"), event_us, output,
+                                    _token(usage, "reasoning_output_tokens"),
+                                    own_settings.get("model_provider_id") or (
+                                        provider if owner == web_session_id else None))
                     if activity is not None:
                         activity.native(payload, dict(
                             session_id=owner,
                             parent_session_id=rec.parent if owner == web_session_id else None,
                             project=rec.cwd if owner == web_session_id else None,
                             agent_type=agent_type if owner == web_session_id else None))
-                    batch.events.append(UsageEvent(
-                        key=f"response:{response_id}" if response_id else f"{path}:{line_offset}",
-                        timestamp_us=event_us, harness="codex", session_id=owner,
-                        source_file=path,
-                        parent_session_id=rec.parent if owner == web_session_id else None,
-                        provider=own_settings.get("model_provider_id") or (
-                            provider if owner == web_session_id else None),
-                        model=current_model, project=rec.cwd if owner == web_session_id else None,
-                        agent_type=agent_type if owner == web_session_id else None,
-                        agent_label=rec.agent if owner == web_session_id else None,
-                        purpose=rec.type if owner == web_session_id else None,
-                        service_tier=own_settings.get("service_tier") or (
-                            current_tier if owner == web_session_id else None),
-                        input_net=gross - cached - written, cache_read=cached,
-                        cache_write=written, output=output,
-                        reasoning=_token(usage, "reasoning_output_tokens"),
-                        turn_id=payload.get("turn_id"),
-                        source_total=_token(usage, "total_tokens")
-                        if "total_tokens" in usage else gross + output))
+                    if capture:
+                        batch.events.append(UsageEvent(
+                            key=f"response:{response_id}" if response_id else f"{path}:{line_offset}",
+                            timestamp_us=event_us, harness="codex", session_id=owner,
+                            source_file=path,
+                            parent_session_id=rec.parent if owner == web_session_id else None,
+                            provider=own_settings.get("model_provider_id") or (
+                                provider if owner == web_session_id else None),
+                            model=current_model, project=rec.cwd if owner == web_session_id else None,
+                            agent_type=agent_type if owner == web_session_id else None,
+                            agent_label=rec.agent if owner == web_session_id else None,
+                            purpose=rec.type if owner == web_session_id else None,
+                            service_tier=own_settings.get("service_tier") or (
+                                current_tier if owner == web_session_id else None),
+                            input_net=gross - cached - written, cache_read=cached,
+                            cache_write=written, output=output,
+                            reasoning=_token(usage, "reasoning_output_tokens"),
+                            turn_id=payload.get("turn_id"),
+                            source_total=_token(usage, "total_tokens")
+                            if "total_tokens" in usage else gross + output))
                     if turn_start is not None and payload.get("turn_id") == turn_id:
                         web_turn_session = owner
                         web_turn_outputs[current_model] = web_turn_outputs.get(current_model, 0) + output
@@ -516,7 +595,8 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                     if window is not None:
                         ws, we = window
                         if tl is None or not (ws <= tl <= we):
-                            turn_in_window = False
+                            generation.finish(web_session_id, generation_turn, current_model,
+                                              _timestamp_us(obj.get("timestamp")), 0, 0)
                             continue
                     if tl:
                         if rec.first_local is None or tl < rec.first_local:
@@ -561,9 +641,10 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
                         rec.fallbacks += 1                       # 缺累计值：回退逐轮增量
                         delta = last_v
                     if any(delta):
-                        if turn_start is not None:
-                            turn_outputs[current_model] = (turn_outputs.get(current_model, 0)
-                                                           + max(0, delta[2]))
+                        if not mirrored_native and web_session_id not in native_owners:
+                            response_timing(f"{path}:{line_offset}", web_session_id, generation_turn,
+                                            _timestamp_us(obj.get("timestamp")), max(0, delta[2]),
+                                            max(0, delta[3]), provider)
                         slot = per_model[current_model]
                         slot[4] += 1                             # 一次 API 调用（有效轮次）
                         for i in range(4):
@@ -598,7 +679,6 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
         "provider": provider, "agent_type": agent_type, "prev_total": prev_total,
         "current_model": current_model, "current_tier": current_tier,
         "turn_started_at": turn_started_at, "turn_id": turn_id,
-        "turn_outputs": turn_outputs, "turn_in_window": turn_in_window,
         "metering_mode": "native" if web_session_id in native_owners else "legacy",
         "web_session_id": web_session_id, "native_owners": sorted(native_owners),
         "logical_metadata_seen": logical_metadata_seen,
@@ -607,6 +687,9 @@ def _parse_rollout(path: str, window: tuple[datetime, datetime] | None = None, *
         "seen_responses": sorted(seen_responses),
         "web_turn_outputs": web_turn_outputs, "web_turn_session": web_turn_session,
         "activity": activity.save() if activity is not None else {},
+        "generation_pending": generation.pending,
+        "generation_boundaries": generation.boundaries,
+        "generation_turn": generation_turn,
     }
     # 只保留有 token 消耗的模型槽位：calls 槽不计入，否则「无 turn_context + 零 token」
     # 的 token_count 事件会带出一个全 0 的 unknown 模型行（旧版口径按 token 分量过滤）

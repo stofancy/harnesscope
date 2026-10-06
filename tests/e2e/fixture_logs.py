@@ -81,6 +81,11 @@ def prepare(root):
     ]
     # Reasoning is a subset of output; the 1300-token ledger is unchanged.
     codex[4]['payload']['usage']['reasoning_output_tokens'] = 10
+    codex[4:4] = [codex_event(8, 'item_completed', thread_id=CODEX_SID,
+        turn_id='codex-turn-1', started_at_ms=1790812806000, completed_at_ms=1790812808000,
+        item={'type': 'Reasoning'}), codex_event(10, 'item_completed', thread_id=CODEX_SID,
+        turn_id='codex-turn-1', started_at_ms=1790812808000, completed_at_ms=1790812810000,
+        item={'type': 'AgentMessage'})]
     write(root / 'codex/sessions/2026/10/01' / CODEX_NAME, codex)
     # A completed human turn; read tool result is a continuation of that turn.
     claude = [
@@ -117,7 +122,7 @@ def prepare(root):
          'message': {'role': 'user', 'content': 'Synthetic request'}},
         {'type': 'message', 'id': 'omp-assistant-1', 'parentId': 'omp-user-1', 'timestamp': stamp(65),
          'message': {'role': 'assistant', 'model': MODEL, 'provider': 'e2e', 'responseId': 'response-omp-1',
-             'timestamp': 1790812865000, 'completedAt': 1790812875000, 'duration': 10000,
+             'timestamp': 1790812865000, 'completedAt': 1790812875000, 'duration': 10000, 'ttft': 2000,
              'content': [{'type': 'toolCall', 'id': 'omp-tool-1', 'name': 'bash', 'arguments': {}}],
              'usage': {'input': 50, 'output': 100, 'cacheRead': 50, 'cacheWrite': 0, 'totalTokens': 200}}},
         {'type': 'message', 'id': 'omp-tool-result', 'parentId': 'omp-assistant-1', 'timestamp': stamp(70),

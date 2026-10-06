@@ -12,7 +12,7 @@ from ..names import SessionTitle
 
 class CodexAdapter:
     harness = "codex"
-    version = "4"
+    version = "5"
 
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root or os.environ.get("CODEX_HOME") or Path.home() / ".codex")

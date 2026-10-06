@@ -1,6 +1,7 @@
 """Synthetic source contracts; no real user transcripts or network access."""
 
 import json
+import pytest
 
 import zstandard
 
@@ -97,8 +98,8 @@ def test_omp_auxiliary_usage_and_native_duration(tmp_path):
     assert batch.events[0].parent_session_id is None
     assert batch.events[0].source_cost_usd == "0.5"
     assert batch.events[0].source_cost_kind == "api_estimate"
-    assert len(batch.timing_samples) == 1 and batch.timing_samples[0].kind == "model"
-    assert batch.timing_samples[0].end_us - batch.timing_samples[0].start_us == 2000000
+    assert len(batch.timing_samples) == 1 and batch.timing_samples[0].kind == "generation"
+    assert batch.timing_samples[0].end_us - batch.timing_samples[0].start_us == 1900000
     assert "not retained" not in str(batch.state)
 
 
@@ -269,3 +270,41 @@ def test_dsh_interrupted_turn_has_usage_without_complete_timing(tmp_path):
                       reason={"kind": "interrupted"})]
     batch = DshAdapter(tmp_path).parse_file(write(tmp_path / "session.v4.jsonl", rows))
     assert len(batch.events) == 1 and not batch.timing_samples
+
+
+@pytest.mark.parametrize('ttft', [None, -1, 2000, 2500, True, float('nan')])
+def test_omp_missing_or_invalid_first_output_stays_untimed(tmp_path, ttft):
+    row = omp_record()
+    row['message']['ttft'] = ttft
+    batch = OmpAdapter(tmp_path).parse_file(write(tmp_path / 's.jsonl', [
+        {'type': 'session', 'id': 's'}, row]))
+    assert len(batch.events) == 1
+    assert batch.timing_samples == []
+
+
+def test_omp_version_upgrade_rebuilds_full_request_timing(tmp_path):
+    from dataclasses import replace
+    from harnesscope.index import SQLiteIndex
+
+    class OldOmp(OmpAdapter):
+        version = '3'
+
+        def parse_file(self, path, offset=0, state=None):
+            batch = super().parse_file(path, offset, state)
+            batch.timing_samples = [replace(s, kind='model', start_us=s.start_us-100000)
+                                    for s in batch.timing_samples]
+            return batch
+
+    root = tmp_path / 'sources'
+    write(root / 's.jsonl', [{'type': 'session', 'id': 's'}, omp_record()])
+    index = SQLiteIndex(tmp_path / 'cache.sqlite3')
+    index.refresh([OldOmp(root)])
+    with index.read_snapshot() as conn:
+        assert conn.execute('SELECT kind FROM timing_samples').fetchone()[0] == 'model'
+    index.refresh([OmpAdapter(root)])
+    with index.read_snapshot() as conn:
+        sample = dict(conn.execute('SELECT * FROM timing_samples').fetchone())
+        assert sample['kind'] == 'generation'
+        assert sample['end_us'] - sample['start_us'] == 1900000
+        assert conn.execute('SELECT count(*) FROM events').fetchone()[0] == 1
+    assert index.refresh([OmpAdapter(root)])['unchanged_files'] == 1

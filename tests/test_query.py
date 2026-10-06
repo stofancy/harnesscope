@@ -154,10 +154,10 @@ def test_sessions_pagination_collision_and_body_free_detail(tmp_path):
 
 
 def test_tps_complete_window_samples_and_definitions_stay_separate(tmp_path):
-    events = [event('a', '2026-10-01T00:00:03Z'), event('b', '2026-10-01T00:00:03Z', harness='omp')]
+    events = [event('a', '2026-10-01T00:00:03Z'), event('b', '2026-10-01T00:00:03Z', harness='omp', output=40)]
     samples = [TimingSample('complete', 'codex', 's1', 'known', us('2026-10-01T00:00:01Z'), us('2026-10-01T00:00:03Z'), 20),
                TimingSample('clipped', 'codex', 's1', 'known', us('2026-09-30T23:59:59Z'), us('2026-10-01T00:00:03Z'), 80),
-               TimingSample('omp', 'omp', 's1', 'known', us('2026-10-01T00:00:01Z'), us('2026-10-01T00:00:03Z'), 40, kind='generation')]
+               TimingSample('b', 'omp', 's1', 'known', us('2026-10-01T00:00:01Z'), us('2026-10-01T00:00:03Z'), 40, kind='generation')]
     result = database(tmp_path, events, samples).analytics(request())
     assert [(row['harness'], row['kind'], row['tps']) for row in result['summary']['tps']] == [('codex', 'end_to_end', 10), ('omp', 'generation', 20)]
 
@@ -229,7 +229,7 @@ def test_tps_model_response_binding_and_whole_turn_filter(tmp_path):
                event('aux', '2026-10-01T00:00:13Z', harness='omp', purpose='compaction', output=10),
                event('first', '2026-10-01T00:01:10Z', purpose='main', service_tier='standard', output=30),
                event('second', '2026-10-01T00:01:12Z', purpose='main', service_tier='priority', output=70)]
-    timing = [TimingSample('main', 'omp', 's1', 'known', us('2026-10-01T00:00:10Z'), us('2026-10-01T00:00:15Z'), 100, kind='model'),
+    timing = [TimingSample('main', 'omp', 's1', 'known', us('2026-10-01T00:00:10Z'), us('2026-10-01T00:00:15Z'), 100, kind='generation'),
               TimingSample('turn', 'codex', 's1', 'known', us('2026-10-01T00:01:09Z'), us('2026-10-01T00:01:15Z'), 100)]
     query = database(tmp_path, records, timing)
     assert query.analytics(request(filters={'purpose': ['compaction']}))['summary']['tps'] == []
@@ -254,3 +254,20 @@ def test_price_model_resolution_is_reused_including_unknown_models(tmp_path, mon
     assert lookups == ['known', 'missing']
     assert first == query.analytics(request())
     assert lookups == ['known', 'missing']
+
+
+def test_generation_uses_response_key_after_output_and_preserves_filtered_ledger(tmp_path):
+    records = [event('a', '2026-10-01T00:00:20Z', output=100, service_tier='default'),
+               event('b', '2026-10-01T00:00:40Z', output=300, service_tier='fast')]
+    timing = [TimingSample('a', 'codex', 's1', 'known', us('2026-10-01T00:00:02Z'), us('2026-10-01T00:00:06Z'), 100, kind='generation'),
+              TimingSample('b', 'codex', 's1', 'known', us('2026-10-01T00:00:22Z'), us('2026-10-01T00:00:32Z'), 300, kind='generation')]
+    query = database(tmp_path, records, timing)
+    result = query.usage(request(), group='model')
+    assert result['rows'][0]['response_tps'] == pytest.approx(400/14)
+    filtered = query.usage(request(filters={'service_tier': ['default']}), group='request')
+    assert filtered['rows'][0]['response_tps'] == 25
+    assert filtered['summary']['tps'][0]['samples'] == 1
+    assert query.analytics(request(filters={'service_tier': ['default']}))['summary']['tps'][0]['tps'] == 25
+    # First-output timing can be inside a range while the usage record is outside.
+    window = QueryRequest(start='2026-10-01T00:00:00Z', end='2026-10-01T00:00:20Z')
+    assert query.analytics(window)['summary']['tps'] == []

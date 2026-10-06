@@ -76,8 +76,8 @@ const columns = [
     ["cache_read", "缓存命中"],
     ["output", "输出"],
     ["cache_write", "缓存写入"],
-    ["response_tps", "响应 TPS"],
-    ["turn_tps", "轮次 TPS"],
+    ["response_tps", "生成 TPS"],
+    ["turn_tps", "轮次吞吐 (tokens/s)"],
     ["cost_usd", "估算费用"],
 ] as const;
 const tpsNumber = (v: number | null | undefined) =>
@@ -407,7 +407,7 @@ function Rows({
                             r.timing.map((t) => (
                                 <p key={`${t.harness}:${t.kind}`}>
                                     {harnessLabel(t.harness)} ·{" "}
-                                    {timingLabel(t.kind)} {tpsNumber(t.tps)} TPS
+                                    {timingLabel(t.kind)} {tpsNumber(t.tps)} {t.kind === "generation" ? "TPS" : "tokens/s"}
                                     · {number(t.seconds)} 秒
                                 </p>
                             ))

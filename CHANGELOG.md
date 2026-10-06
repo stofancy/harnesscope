@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generation TPS now measures each response from the first recorded output to the last output. Codex uses per-response output-item timestamps and excludes tool execution; OMP subtracts valid TTFT from duration. Missing first-output timing stays unknown. Existing indexes rebuild Codex/OMP timing automatically. Whole-turn throughput has a separate label. CLI and ledger aggregate timed output over timed generation seconds.
+
 ### Changed
 
 - Moved the yearly usage calendar to its own all-source, all-account page with

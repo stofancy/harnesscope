@@ -94,7 +94,7 @@ DSH 的标题与搜索辅助调用提示按每文件每辅助类型计一次，�
 `trend.timing_members` 是 `{key,harness,kind,label}` 数组；每桶 `timed_tps` 按相同顺序返回
 `{key,harness,kind,value,output,seconds,samples}`。value 使用真实计时样本的 `Σoutput/Σseconds`，
 无样本时 null。完整落入分析窗的样本按完成时间分配到一个桶，分母保留该样本完整耗时，
-完成时间正好等于桶尾时归入该桶。不同 harness/kind 分开绘制，summary.tps 保留原有定义。
+完成时间正好等于桶尾时归入该桶。`generation` 样本用于生成 TPS 图，按 harness 分开绘制。Codex 以首个有时间戳的输出项为起点、最后输出为终点；日志没有逐 token 时间，输出项边界是近似。缺首输出、推理起点或工具参数生成时间的响应保持未知。OMP 使用 `duration - ttft`，缺 TTFT 或 TTFT 无效时保持未知。summary.tps 保留按 kind 区分的分项，`end_to_end` 表示轮次全程吞吐，包含工具和等待。
 
 `GET /api/turns` 复用 QueryRequest 与 offset/limit（0/50、最大 200），支持
 `sort=start|cost_usd|tokens|duration|calls|tool_calls` 与 `order=asc|desc`，默认 start/desc。
@@ -176,8 +176,8 @@ facets 复用 analytics 的排除自身维度规则，并保留 turn_id 范围�
 - first/last 是当前窗内调用时间；不会以历史会话创建时间代替。projects/harnesses/models/providers/accounts 是本行实际记录的元数据集合；集合内空字符串表示未知值。
 - metrics 复用共享 summary。四列使用 input_net（未缓存输入）、cache_read、output、cache_write。
   cache_write=null 时 cache_write_known 保留已知写入小计；cost_usd 保留已知估算小计，cost_complete/priced_calls/unpriced_calls 提供覆盖。
-- response_tps 仅使用可对应原始调用 key 的完整真实 model 计时样本；turn_tps 使用完整落窗、全部输出可归属该行的 end_to_end 样本。
-  request 行不会分摊轮次 TPS。缺计时返回 null，不以窗口吞吐替代。跨 harness 的单值 TPS 为 null，timing 保留各 harness/kind 分项。
+- response_tps 仅使用可对应原始调用 key 的 generation 计时样本，按 `Σoutput/Σ首输出后的生成秒数` 聚合；turn_tps 保留完整落窗、全部输出可归属该行的 end_to_end 样本，界面命名为轮次吞吐（tokens/s）。
+  request 行不会分摊轮次吞吐。缺计时返回 null，不以窗口吞吐替代。跨 harness 的单值 TPS 为 null，timing 保留各 harness/kind 分项。
   timing 分项含 harness/kind/output/seconds/samples/tps，使用 `Σoutput/Σ真实耗时`。
 
 Python 入口为 `AnalyticsQuery.usage(request,group='request',offset=0,limit=50,sort='time',order='desc',turn_ids=())`。

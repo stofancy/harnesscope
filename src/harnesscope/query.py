@@ -411,9 +411,9 @@ class AnalyticsQuery:
         # Response timing binds to an exact event key. Turn timing can contain
         # several usage records and is admitted only when every member passes.
         by_key, grouped, stamps = {}, defaultdict(list), {}
-        if filters:
+        if filters or any(s['kind'] in ('model', 'generation') for s in samples):
             columns = ','.join(dict.fromkeys(['key', 'timestamp_us', 'harness', 'session_id', 'model', 'provider', 'turn_id', 'output', *COLUMN.values()]))
-            for row in conn.execute(f'SELECT {columns} FROM events WHERE timestamp_us>=? AND timestamp_us<=? ORDER BY timestamp_us',
+            for row in conn.execute(f'SELECT {columns} FROM events WHERE timestamp_us>=? AND timestamp_us<? ORDER BY timestamp_us',
                                     (_us(start), _us(end))):
                 event = dict(row)
                 by_key[(event['harness'], event['key'])] = event
@@ -423,17 +423,20 @@ class AnalyticsQuery:
         totals: dict[tuple[str, str], dict[str, Any]] = {}
         admitted = []
         for sample in samples:
+            if sample['kind'] in ('model', 'generation'):
+                event = by_key.get((sample['harness'], sample['key']))
+                if event is None or any(event[k] != sample[k] for k in ('session_id', 'model', 'provider', 'turn_id', 'output')):
+                    continue
+                matching = [event]
+            elif filters:
+                identity = (sample['harness'], sample['session_id'], sample['model'], sample['provider'], sample.get('turn_id'))
+                times = stamps.get(identity, [])
+                lo = bisect.bisect_left(times, sample['start_us'])
+                hi = bisect.bisect_right(times, sample['end_us'])
+                matching = grouped.get(identity, [])[lo:hi]
+                if sum(e['output'] for e in matching) != sample['output']:
+                    continue
             if filters:
-                if sample['kind'] == 'model':
-                    matching = [by_key[(sample['harness'], sample['key'])]] if (sample['harness'], sample['key']) in by_key else []
-                else:
-                    identity = (sample['harness'], sample['session_id'], sample['model'], sample['provider'], sample.get('turn_id'))
-                    times = stamps.get(identity, [])
-                    lo = bisect.bisect_left(times, sample['start_us'])
-                    hi = bisect.bisect_right(times, sample['end_us'])
-                    matching = grouped.get(identity, [])[lo:hi]
-                    if sum(e['output'] for e in matching) != sample['output']:
-                        continue
                 if not matching or any(any(str(e.get(COLUMN[d]) or '') not in values for d, values in filters.items()) for e in matching):
                     continue
             admitted.append(sample)

@@ -8,7 +8,7 @@ export const metricLabels: Record<Metric, string> = {
     rpm: "每分钟调用 (RPM)",
     throughput_tps: "每秒平均 Tokens",
     rps: "每秒调用 (RPS)",
-    timed_tps: "执行输出速度 (TPS)",
+    timed_tps: "生成速度 (TPS)",
     cost: "估算费用",
     tokens: "Tokens",
     calls: "已记录调用",
@@ -103,7 +103,7 @@ export const intervalLabel = (bucket: string) =>
         month: "每月",
     })[bucket] ?? bucket;
 export const timingLabel = (kind: string) =>
-    ({ end_to_end: "轮次全程", model: "模型响应" })[kind] ?? "其他计时";
+    ({ end_to_end: "轮次吞吐", model: "响应全程吞吐", generation: "首输出后生成" })[kind] ?? "其他计时";
 export const harnessLabel = (harness: string) =>
     ({ codex: "Codex", claude: "Claude Code", omp: "OMP", dsh: "DSH" })[
         harness

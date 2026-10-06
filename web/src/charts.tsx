@@ -373,7 +373,7 @@ const panelLabels: Record<PanelId, { title: string; metrics: Metric[] }> = {
         metrics: ["cache_rate", "cache_read", "cache_write"],
     },
     speed: {
-        title: "执行速度",
+        title: "生成速度",
         metrics: ["timed_tps", "throughput_tps", "rps"],
     },
 };
@@ -399,7 +399,7 @@ export function AnalyticPanel({
     const chartMetric = data.query.metric;
     const plot = useMemo(() => {
         const metadata = timed
-            ? (data.timing_members ?? [])
+            ? (data.timing_members ?? []).filter((s) => s.kind === "generation")
             : (data.series ?? []);
         const series = metadata.map((s, i) => ({
             id: `s${i}`,
@@ -488,7 +488,7 @@ export function AnalyticPanel({
                                         rpm: "RPM",
                                         cache_rate: "命中率",
                                         cache_read: "缓存读取",
-                                        timed_tps: "执行 TPS",
+                                        timed_tps: "生成 TPS",
                                         throughput_tps: "平均吞吐",
                                     } as Partial<Record<Metric, string>>
                                 )[m]

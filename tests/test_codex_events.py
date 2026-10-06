@@ -257,7 +257,7 @@ def test_codex_version_rebuild_recovers_old_runtime_state_only_for_codex(tmp_pat
         assert event["agent_type"] == "executor"
         assert event["purpose"] == "subagent"
         row = conn.execute("SELECT adapter_version,state FROM files WHERE path=?", (str(source),)).fetchone()
-        assert row["adapter_version"] == CodexAdapter.version
+        assert row["adapter_version"] == CodexAdapter.version + ":warning-details-v1"
         state = json.loads(row["state"])
     assert state["web_session_id"] == SID
     with source.open("a") as stream:

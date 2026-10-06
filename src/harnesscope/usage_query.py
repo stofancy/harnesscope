@@ -67,7 +67,7 @@ class UsageQuery:
             timings = defaultdict(list)
             admitted = []
             for sample in samples:
-                if sample['kind'] == 'model':
+                if sample['kind'] in ('model', 'generation'):
                     event = by_event.get((sample['harness'], sample['key']))
                     members = [event] if event and event['output'] == sample['output'] else []
                 else:
@@ -94,7 +94,7 @@ class UsageQuery:
                 if sort == 'time':
                     return members[-1]['timestamp_us']
                 if sort in ('response_tps', 'turn_tps'):
-                    return _speed(timing_values.get(key, []), 'model' if sort == 'response_tps' else 'end_to_end')
+                    return _speed(timing_values.get(key, []), 'generation' if sort == 'response_tps' else 'end_to_end')
                 if sort == 'calls':
                     return len(members)
                 if sort == 'cost_usd':
@@ -133,7 +133,7 @@ class UsageQuery:
                              'providers': sorted({str(event['provider'] or '') for event in members}),
                              'accounts': sorted({str(event.get('account_ref') or '') for event in members}),
                              'metrics': _summary(members), 'timing': timing,
-                             'response_tps': _speed(timing, 'model'), 'turn_tps': _speed(timing, 'end_to_end')})
+                             'response_tps': _speed(timing, 'generation'), 'turn_tps': _speed(timing, 'end_to_end')})
             summary = _summary(events, (end-start).total_seconds())
             summary['tps'] = _timing_totals(admitted)
             return labelled(conn, {'snapshot': query._snapshot(conn), 'query': {**query._query(request, start, end), 'turn_ids': list(turn_ids)},

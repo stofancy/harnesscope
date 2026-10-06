@@ -87,14 +87,14 @@ def rec_calls(rec: Session) -> int:
 
 
 def rec_timing(rec: Session, model: str | None = None) -> tuple[float, float]:
-    """Output and seconds for timed turns, restricted to the selected models."""
+    """Output and generation seconds, restricted to the selected models."""
     samples = [rec.timing[m] for m in rec.models if m in rec.timing
                and (model is None or m == model)]
     return sum(s[0] for s in samples), sum(s[1] for s in samples)
 
 
 def tps(output: float, seconds: float) -> float | None:
-    """End-to-end output tokens/second; missing timing remains unknown."""
+    """Output tokens/second after first output; missing timing stays unknown."""
     return output / seconds if seconds > 0 else None
 
 

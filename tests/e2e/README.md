@@ -61,10 +61,14 @@ have 1000/3 = 333.3 recorded tokens and $0.003660/3 = $0.001220 mean cost;
 the inferred Claude boundary participates, while running turns do not.
 Codex boundary payloads use Unix seconds, matching native source logs.
 Actual timed output speed stays separate:
-Codex's first completed turn is 100 output/20 seconds = 5 TPS;
-OMP has 100 output/10 seconds = 10 model TPS;
-DSH has 100 output/10 seconds = 10 end-to-end TPS. Claude has no authoritative
-model-duration sample. The ongoing Codex turn contributes no completed timing.
+Codex's first response is 30 output/(10-6) seconds = 7.5 generation TPS.
+Its completed turn retains 100 output/20 seconds = 5 tokens/s whole-turn throughput.
+OMP has 100 output/(10-2) seconds = 12.5 generation TPS, with 2 seconds TTFT excluded.
+The Dashboard plots the two generation rates; DSH's 10 tokens/s whole-turn throughput
+stays in the ledger. Claude lacks first-output timing. Tool-only Codex responses
+also lack reliable first-output boundaries and retain unknown generation TPS.
+The model group contains two harnesses with measured generation rates and keeps
+its single response_tps value null.
 
 A late Claude turn at 00:01:35–00:01:40 uses `e2e-unpriced` and omits cache write.
 A narrow late window must show missing price/write and unknown cost/speed/cache

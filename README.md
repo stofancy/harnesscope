@@ -151,7 +151,7 @@ Local chart changes and ledger pagination reload their own data.
 
 The separate **用量明细** view lists individual requests or groups them by session,
 turn, model, harness, provider or account. It shows uncached input, cache hits, output, cache writes,
-estimated cost and reliable timing. Response and turn TPS remain separate; missing
+estimated cost and reliable timing. Generation TPS and whole-turn throughput remain separate; missing
 timing stays unknown. Request timestamps determine membership before grouping;
 sorting applies to all matching rows before pagination. Session filters, rankings, records
 and details show native session titles. Missing titles use the project name, first request
@@ -237,7 +237,7 @@ scan. Query responses identify their snapshot; reading them does not rescan sour
 |---|---|
 | TPM / RPM | Recorded tokens / model-call counts divided by covered seconds, multiplied by 60 |
 | Average tokens/s / RPS | Recorded tokens / model-call counts divided by covered seconds, including idle time |
-| Timed output TPS | Output tokens divided by reliable recorded sample durations, separated by harness and timing kind |
+| Timed output TPS | Response output divided by generation seconds after first output. Codex uses recorded output-item boundaries; OMP uses `duration - ttft`. Missing first-output timing stays unknown. Whole-turn throughput is shown separately in the ledger. |
 | Turn P50 / P95 | Duration percentiles from closed turns fully inside the window with recorded start/end times; exact/inferred sample counts are retained |
 
 Rate buckets use the actual intersection with the global time window, including partial
@@ -306,7 +306,7 @@ Missing parts are filled with 0 for `--since` (`20260912-16` → 16:00:00) and w
 | Net input / Cache read / Output | token counts; net input = gross input − cache read |
 | Hit rate | cache read ÷ gross input (gross input includes cache read) — the API's `cached_tokens / input_tokens` ratio; aggregates are **weighted** (Σ cache read ÷ Σ gross input), never an average of per-row percentages; shows `-` when there is no input at all |
 | Total tokens | net input + cache read + output |
-| TPS | End-to-end output tokens/second: summed output (including reasoning) divided by summed duration of complete single-model turns, including tools and waiting. Requires matching `task_started` / `task_complete` within the selected window. Missing timing shows `-`; session and model JSON `tps` is `null`. In-progress and mixed-model turns are excluded from TPS. |
+| TPS | Summed response output (including reasoning) divided by summed generation seconds, from the first recorded output item to the last generated output. Excludes TTFT, tool execution and waiting. Codex item timestamps approximate token boundaries; responses without reliable first output, including unobserved reasoning or untimed tool arguments, stay unknown (`-` / JSON `null`). Completed responses in ongoing or mixed-model turns can qualify. |
 | Calls | number of API calls (`token_count` turns, attributed to the model in effect at that time) |
 | Cost/call | cost ÷ calls; `-` when there are no calls |
 | Per 1M tokens | cost ÷ total tokens × 1e6 — the blended effective unit price after cache discounts; aggregates are **weighted** (Σ cost ÷ Σ tokens), `-` when there are no tokens, `*` when a model is unpriced |

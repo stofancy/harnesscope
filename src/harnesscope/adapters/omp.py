@@ -40,7 +40,7 @@ def usage_identity(record):
 
 class OmpAdapter:
     harness = "omp"
-    version = "3"
+    version = "4"
 
     def __init__(self, root: str | Path | None = None, agent_db: str | Path | None = None):
         default = Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / ".omp/agent")
@@ -232,13 +232,14 @@ class OmpAdapter:
                 source_cost_kind="api_estimate" if valid_cost else None,
                 quality="exact" if entry or response_id else "identity_unknown", extra_tokens=extra))
             duration = message.get("duration")
-            if finite(duration) and duration > 0:
+            ttft = message.get("ttft")
+            if output > 0 and finite(duration) and finite(ttft) and 0 <= ttft < duration:
                 end = timestamp_us(message.get("completedAt")) or when + int(duration * 1000)
                 batch.timing_samples.append(TimingSample(
                     key=key, harness=self.harness, session_id=owner,
                     model=message.get("model") or "unknown", provider=message.get("provider"),
-                    start_us=end - int(duration * 1000), end_us=end,
-                    output=output, source_file=path, kind="model", turn_id=turn_id))
+                    start_us=end - int((duration - ttft) * 1000), end_us=end,
+                    output=output, source_file=path, kind="generation", turn_id=turn_id))
         current["tier"] = tier
         current["conversation"] = ledger.flush(
             batch, structurally_complete=not any("Invalid JSON" in item for item in batch.warnings))
